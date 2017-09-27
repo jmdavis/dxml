@@ -14,10 +14,17 @@ module dxml.parser.common;
   +/
 struct SourcePos
 {
-    ///
+    /// A line number in the XML file.
     int line = -1;
 
-    ///
+    /++
+        A column number in a line of the XML file.
+
+        Each code unit is considered a column, so depending on what a program
+        is looking to do with the column number, it may need to examine the
+        actual text on that line and calculate the number that represents
+        what the program wants to display (e.g. the number of graphemes).
+      +/
     int col = -1;
 }
 

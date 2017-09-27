@@ -312,3 +312,132 @@ unittest
         }
     }
 }
+
+
+// Strips whitespace while dealing with state.pos accordingly. Newlines are not
+// ignored.
+// Returns whether any whitespace was stripped.
+bool stripWS(PS)(ref PS state)
+{
+    alias R = typeof(PS.input);
+    enum hasLengthAndCol = hasLength!R && PS.config.posType == PositionType.lineAndCol;
+
+    bool strippedSpace = false;
+
+    static if(hasLengthAndCol)
+        size_t lineStart = state.input.length;
+
+loop: while(!state.input.empty)
+    {
+        switch(state.input.front)
+        {
+            case ' ':
+            case '\t':
+            case '\r':
+            {
+                strippedSpace = true;
+                state.input.popFront();
+                static if(!hasLength!R)
+                    nextCol!(PS.config)(state.pos);
+                break;
+            }
+            case '\n':
+            {
+                strippedSpace = true;
+                state.input.popFront();
+                static if(hasLengthAndCol)
+                    lineStart = state.input.length;
+                nextLine!(PS.config)(state.pos);
+                break;
+            }
+            default: break loop;
+        }
+    }
+
+    static if(hasLengthAndCol)
+        state.pos.col += lineStart - state.input.length;
+
+    return strippedSpace;
+}
+
+unittest
+{
+    import std.algorithm : equal, filter;
+    import std.conv : to;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    enum origHaystack1 = "  \t\rhello world";
+    enum origHaystack2 = "  \n \n \n  \nhello world";
+    enum origHaystack3 = "  \n \n \n  \n  hello world";
+    enum origHaystack4 = "hello world";
+
+    enum remainder = "hello world";
+
+    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
+                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    {
+        auto haystack1 = func(origHaystack1);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
+                             tuple(Config(PositionType.line), SourcePos(1, -1)),
+                             tuple(Config(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack1.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack2 = func(origHaystack2);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 1)),
+                             tuple(Config(PositionType.line), SourcePos(5, -1)),
+                             tuple(Config(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack2.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack3 = func(origHaystack3);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 3)),
+                             tuple(Config(PositionType.line), SourcePos(5, -1)),
+                             tuple(Config(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack3.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack4 = func(origHaystack4);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 1)),
+                             tuple(Config(PositionType.line), SourcePos(1, -1)),
+                             tuple(Config(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack4.save);
+            assert(!state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+    }
+}
+
+
+pragma(inline, true) void nextLine(Config config)(ref SourcePos pos)
+{
+    static if(config.posType != PositionType.none)
+        ++pos.line;
+    static if(config.posType == PositionType.lineAndCol)
+        pos.col = 1;
+}
+
+pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
+{
+    static if(config.posType == PositionType.lineAndCol)
+        ++pos.col;
+}
