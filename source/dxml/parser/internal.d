@@ -127,6 +127,11 @@ struct ByCodeUnit(S)
     assert(str is bcu.orig);
 }
 
+template isWrappedString(T)
+{
+    enum isWrappedString = isInstanceOf!(ByCodeUnit, T);
+}
+
 //------------------------------------------------------------------------------
 // Unit test helpers
 //------------------------------------------------------------------------------
@@ -175,6 +180,50 @@ auto fwdCharRange(R)(R range)
 
 static assert(isForwardRange!(FwdCharRange!char));
 static assert(!isBidirectionalRange!(FwdCharRange!char));
+
+
+class FwdRefCharRange(C)
+{
+public:
+
+    @property bool empty() @safe const pure nothrow @nogc
+    {
+        return _str.empty;
+    }
+
+    @property C front() @safe const pure nothrow @nogc
+    {
+        return _str[0];
+    }
+
+    void popFront() @safe pure nothrow @nogc
+    {
+        _str = _str[1 .. $];
+    }
+
+    auto save() @safe pure nothrow
+    {
+        return new FwdRefCharRange(_str);
+    }
+
+    this(C[] str)
+    {
+        _str = str;
+    }
+
+private:
+
+    C[] _str;
+}
+
+auto fwdRefCharRange(R)(R range)
+    if(isSomeString!R && !is(R == enum))
+{
+    return new FwdRefCharRange!(ElementEncodingType!R)(range);
+}
+
+static assert(isForwardRange!(FwdRefCharRange!char));
+static assert(!isBidirectionalRange!(FwdRefCharRange!char));
 
 
 struct RACharRange(C)
@@ -291,16 +340,6 @@ public:
         return RASCharRange(_str[i .. j]);
     }
 
-    auto opSlice(size_t i, size_t j) @safe const pure nothrow @nogc
-    {
-        return RASCharRange!(const C)(_str[i .. j]);
-    }
-
-    auto opSlice(size_t i, size_t j) @safe immutable pure nothrow @nogc
-    {
-        return RASCharRange!(immutable C)(_str[i .. j]);
-    }
-
     this(C[] str)
     {
         _str = str;
@@ -320,3 +359,73 @@ version(unittest) auto rasCharRange(R)(R range)
 static assert(isForwardRange!(RASCharRange!char));
 static assert(isRandomAccessRange!(RASCharRange!char));
 static assert(hasSlicing!(RASCharRange!char));
+
+
+class RASRefCharRange(C)
+{
+public:
+
+    @property bool empty() @safe const pure nothrow @nogc
+    {
+        return _str.empty;
+    }
+
+    @property C front() @safe const pure nothrow @nogc
+    {
+        return _str[0];
+    }
+
+    void popFront() @safe pure nothrow @nogc
+    {
+        _str = _str[1 .. $];
+    }
+
+    auto save() @safe pure nothrow
+    {
+        return new RASRefCharRange(_str);
+    }
+
+    @property C back() @safe const pure nothrow @nogc
+    {
+        return _str[$ - 1];
+    }
+
+    void popBack() @safe pure nothrow @nogc
+    {
+        _str = _str[0 .. $ - 1];
+    }
+
+    @property size_t length() @safe const pure nothrow @nogc
+    {
+        return _str.length;
+    }
+
+    C opIndex(size_t i) @safe const pure nothrow @nogc
+    {
+        return _str[i];
+    }
+
+    auto opSlice(size_t i, size_t j) @safe pure nothrow
+    {
+        return new RASRefCharRange(_str[i .. j]);
+    }
+
+    this(C[] str)
+    {
+        _str = str;
+    }
+
+private:
+
+    C[] _str;
+}
+
+version(unittest) auto rasRefCharRange(R)(R range)
+    if(isSomeString!R && !is(R == enum))
+{
+    return new RASRefCharRange!(ElementEncodingType!R)(range);
+}
+
+static assert(isForwardRange!(RASRefCharRange!char));
+static assert(isRandomAccessRange!(RASRefCharRange!char));
+static assert(hasSlicing!(RASRefCharRange!char));
