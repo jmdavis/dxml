@@ -16,29 +16,43 @@ import std.traits;
   +/
 enum EntityType
 {
-    ///
+    /// A cdata section: $(D <![CDATA[ ... ]]>).
     cdata,
-    ///
+
+    /// An XML comment: $(D <!-- ... -->).
     comment,
-    ///
-    attribute,
-    ///
-    dtdStartTag,
-    ///
-    dtdEndTag,
-    ///
-    elementStartTag,
-    ///
-    elementEndTag,
-    ///
-    elementEmptyTag,
-    ///
+
+    /// The $(D <!DOCTYPE .. >) tag.
+    docType,
+
+    /++
+        The start tag for an element. e.g. $(D <foo name="value">).
+
+        End tags are not explicitly represented, as they're represented by
+        reaching the end of entities within content of an element tag or simply
+        by skipping the contents and going to the next tag at the same level.
+
+        Similarly, an empty element tag and a start tag immediately followed by
+        an end tag are not distinguished from one another.
+      +/
+    element,
+
+    /++
+        A processing instruction such as <?foo?>. Note that $(D <?xml ... ?>) is
+        an $(D xmlDecl) and not a processingInstruction.
+      +/
     processingInstruction,
-    ///
+
+    /++
+        The content of an element tag that is simple text.
+
+        If there is an entity other than the end tag following the text, then
+        the text includes up to that entity.
+      +/
     text,
 
     /++
-        The <?xml ... ?> entity that can start an XML 1.0 document and must
+        The $(D <?xml ... ?>) entity that can start an XML 1.0 document and must
         start an XML 1.1 document.
       +/
     xmlDecl
@@ -84,25 +98,12 @@ struct Entity(R)
     }
 
     /++
+        The type of entity in the XML document that this $(D Entity) represents.
+
+        The value of this member determines which member functions and
+        properties are allowed to be called.
       +/
     EntityType type;
-
-    /++
-        Returns the value of the entity.
-
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntiyType.cdata))),
-          $(TR $(TD $(D EntiyType.comment))),
-          $(TR $(TD $(D EntiyType.text))))
-      +/
-    @property SliceOfR text()
-    {
-        with(EntityType)
-            assert(only(cdata, comment, text).canFind(type));
-
-        assert(0);
-    }
 
     /++
         Gives the name of the entity.
@@ -113,19 +114,14 @@ struct Entity(R)
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntiyType.dataStartTag))),
-          $(TR $(TD $(D EntiyType.elementStartTag))),
-          $(TR $(TD $(D EntiyType.elementEndTag))),
-          $(TR $(TD $(D EntiyType.elementEmptyTag))),
-          $(TR $(TD $(D EntiyType.processingInstruction))))
+          $(TR $(TD $(D EntityType.docType))),
+          $(TR $(TD $(D EntityType.element))),
+          $(TR $(TD $(D EntityType.processingInstruction))))
       +/
     @property SliceOfR name()
     {
         with(EntityType)
-        {
-            assert(only(dtdStartTag, elementStartTag, elementEndTag, elementEmptyTag,
-                        processingInstruction).canFind(type));
-        }
+            assert(only(docType, element, processingInstruction).canFind(type));
 
         assert(0);
     }
@@ -136,16 +132,67 @@ struct Entity(R)
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntiyType.elementStartTag))),
-          $(TR $(TD $(D EntiyType.elementEmptyTag))))
+          $(TR $(TD $(D EntityType.element))))
       +/
     @property auto attributes()
     {
         with(EntityType)
-            assert(only(elementStartTag, elementEmptyTag).canFind(type));
+            assert(type == element);
 
         import std.typecons : Tuple;
         alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
+        assert(0);
+    }
+
+    /++
+        Returns the value of the entity.
+
+        In the case of $(D EntityType.processingInstruction), this is the text
+        that follows the name.
+
+        $(TABLE,
+          $(TR $(TH Supported $(D EntityType)s)),
+          $(TR $(TD $(D EntityType.cdata))),
+          $(TR $(TD $(D EntityType.comment))),
+          $(TR $(TD $(D EntityType.processingInstruction))),
+          $(TR $(TD $(D EntityType.text))))
+      +/
+    @property SliceOfR text()
+    {
+        with(EntityType)
+            assert(only(cdata, comment, processingInstruction, text).canFind(type));
+
+        assert(0);
+    }
+
+    /++
+        Returns the first entity between a start tag and end tag. If there is
+        nothing between them, then it's an $(D EntityType.text) with empty text.
+
+        $(TABLE,
+          $(TR $(TH Supported $(D EntityType)s)),
+          $(TR $(TD $(D EntityType.element))))
+      +/
+    Entity content()
+    {
+        with(EntityType)
+            assert(type == element);
+        assert(0);
+    }
+
+    /++
+        Returns the contents between a start tag and end tag as text, leaving
+        any markup in between as unprocessed text.
+
+        $(TABLE,
+          $(TR $(TH Supported $(D EntityType)s)),
+          $(TR $(TD $(D EntityType.element))))
+      +/
+    @property SliceOfR contentAsText()
+    {
+        with(EntityType)
+            assert(type == element);
+
         assert(0);
     }
 
@@ -154,10 +201,11 @@ struct Entity(R)
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntiyType.xmlDecl))))
+          $(TR $(TD $(D EntityType.xmlDecl))))
       +/
     @property XMLDecl!R xmlDecl()
     {
+        assert(type == EntityType.xmlDecl);
         assert(0);
     }
 }

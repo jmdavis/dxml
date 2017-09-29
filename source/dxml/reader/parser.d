@@ -15,6 +15,29 @@ import dxml.reader.entity;
 
 
 /++
+    The exception type thrown when the XML parser runs into invalid XML.
+  +/
+class XMLParsingException : Exception
+{
+    /++
+        The position in the XML input where the problem is.
+
+        How informative it is depends on the $(D PositionType) used when parsing
+        the XML.
+      +/
+    SourcePos pos;
+
+package:
+
+    this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__)
+    {
+        pos = sourcePos;
+        super(msg, file, line);
+    }
+}
+
+
+/++
     Where in the XML text an $(D Entity) is. If the $(D PositionType) when
     parsing does not keep track of a given field, then that field will always be
     $(D -1).
@@ -56,13 +79,13 @@ enum PositionType
 }
 
 
-///
+/// Flag for use with Config.
 alias SkipComments = Flag!"SkipComments";
 
-///
+/// Flag for use with Config.
 alias SkipDTD = Flag!"SkipDTD";
 
-///
+/// Flag for use with Config.
 alias SkipProlog = Flag!"SkipProlog";
 
 
@@ -109,23 +132,27 @@ enum simpleXML = Config(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, PositionT
 
 
 /++
-    The exception type thrown when the XML parser runs into invalid XML.
+    Lazily parses the given XML.
+
+    Due to XML's tree structure, returning a range of XML elements doesn't
+    really work, but the resulting $(D Entity) does parse the XML lazily like
+    would be typical with a range.
+
+    If invalid XML is encountered at any point during the parsing process, an
+    $(D XMLParsingException) will be thrown.
+
+    However, note that the minimal validation required to correctly parse the
+    document will be done. So, if the given Config indicates that any parts of
+    the XML should be skipped, then the only validation that will be done on
+    those portions is the validation that is required to correctly determine
+    where the skipped portion teriminates. Similarly, when calling functions
+    on an $(D Entity) which would skip portions of the XML (e.g. calling
+    $(D next) to skip any attributes or child entities and go directly to the
+    next entity at the same level), the skipped portions will only be validated
+    enough to correctly determine where those portion terminate. So, to fully
+    validate the XML, it must be fully parsed with no portions skipped.
   +/
-class XMLParsingException : Exception
+Entity parseXML(Config config, R)(R xmlText)
 {
-    /++
-        The position in the XML input where the problem is.
-
-        How informative it is depends on the $(D PositionType) used when parsing
-        the XML.
-      +/
-    SourcePos pos;
-
-package:
-
-    this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__)
-    {
-        pos = sourcePos;
-        super(msg, file, line);
-    }
+    assert(0);
 }
