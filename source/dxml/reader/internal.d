@@ -5,7 +5,7 @@
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Author:   Jonathan M Davis
   +/
-module dxml.parser.internal;
+module dxml.reader.internal;
 
 import std.range.primitives;
 import std.traits;

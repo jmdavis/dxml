@@ -5,10 +5,17 @@
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Author:   Jonathan M Davis
   +/
-module dxml.parser.common;
+module dxml.reader.parser;
+
+import std.range.primitives;
+import std.traits;
+import std.typecons : Flag;
+
+import dxml.reader.entity;
+
 
 /++
-    Where in the XML text an XML fragment is. If the $(D PositionType) when
+    Where in the XML text an $(D Entity) is. If the $(D PositionType) when
     parsing does not keep track of a given field, then that field will always be
     $(D -1).
   +/
@@ -28,6 +35,7 @@ struct SourcePos
     int col = -1;
 }
 
+
 /++
     At what level of granularity the position in the XML file should be kept
     track of (be it for error reporting or any other use the application might
@@ -46,6 +54,59 @@ enum PositionType
     /// The position is not tracked.
     none,
 }
+
+
+///
+alias SkipComments = Flag!"SkipComments";
+
+///
+alias SkipDTD = Flag!"SkipDTD";
+
+///
+alias SkipProlog = Flag!"SkipProlog";
+
+
+/++
+    Used to configure how the parser works.
+  +/
+struct Config
+{
+    /++
+        Whether the comments should be skipped while parsing.
+
+        If $(D true), any $(D Entity)s of type $(D EntityType.comment) will be
+        omitted from the parsing results.
+      +/
+    auto skipComments = SkipComments.no;
+
+    /++
+        Whether the DOCTYPE entities should be skipped while parsing.
+
+        If $(D true), any $(D Entity)s of type $(D EntityType.dtdStartTag) and
+        $(D EntityType.dtdEndTag) and any entities in between will be omitted
+        from the parsing results.
+      +/
+    auto skipDTD = SkipDTD.no;
+
+    /++
+        Whether the prolog should be skipped while parsing.
+
+        If $(D true), any $(D Entity)s prior to the root element will omitted
+        from the parsing results.
+      +/
+    auto skipProlog = SkipProlog.no;
+
+    ///
+    PositionType posType = PositionType.lineAndCol;
+}
+
+
+/++
+    This $(D Config) will skip comments, DOCTYPE entities, and the prolog, and
+    it's posType is $(D PositionType.lineAndCol).
+  +/
+enum simpleXML = Config(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, PositionType.lineAndCol);
+
 
 /++
     The exception type thrown when the XML parser runs into invalid XML.

@@ -5,113 +5,15 @@
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Author:   Jonathan M Davis
   +/
-module dxml.parser.range;
+module dxml.reader.range;
 
 import std.range.primitives;
 import std.traits;
 
-import dxml.parser.common;
-import dxml.parser.internal;
+import dxml.reader.internal;
 
 
 /+
-/++
-  +/
-struct XMLFragment(R)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    /++
-      +/
-    FragmentType type;
-
-    /++
-        The position in the file where this XML fragment starts.
-      +/
-    SourcePos pos;
-}
-
-/++
-  +/
-enum FragmentType
-{
-    cdata,
-    comment,
-    attribute,
-    elementStart,
-    elementEnd,
-    processingInstructionStart,
-    processingInstructionEnd,
-}
-
-/++
-    Used to configure how the parser works.
-  +/
-struct Config
-{
-    /++
-        Whether the comments should be skipped while parsing.
-
-        If $(D true), comments will still be checked for validity like they
-        would be if kept in the parsing results (not that there's much validity
-        checking for comments), but the comments themselves will need show up
-        as $(D XMLFragment)s in the range.
-      +/
-    bool skipComments = true;
-
-    ///
-    PositionType posType = PositionType.lineAndCol;
-
-    /++
-      +/
-    this(bool skipComments, PositionType posType)
-    {
-        this.skipComments = skipComments;
-        this.posType = posType;
-    }
-
-    /++
-      +/
-    this(bool skipComments)
-    {
-        this.skipComments = skipComments;
-    }
-
-    /++
-      +/
-    this(PositionType posType)
-    {
-        this.posType = posType;
-    }
-}
-
-/++
-    Returns a lazy, forward range of $(D XMLFragment)s.
-  +/
-auto parseXML(Config config = Config.init, R)(R xmlText)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    return Parser!config(startParsing!config(xmlText));
-}
-
-/++
-    Returns a lazy, forward range of $(D XMLFragment)s.
-
-    The difference between this and parseXML is that it does not expect the
-    prolog containing the XML version information and instead expects the first
-    XML tag. This is, of course, not compliant with the standard, but it can
-    make testing code that operates on sections of XML much more pleasant,
-    since it negates the need to prepend the prolog on every piece XML that's
-    going to be parsed in a test.
-  +/
-auto parseNakedXML(Config config = Config.init, R)(R xmlText)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    return Parser!config(startNakedParsing!config(xmlText));
-}
-
-//------------------------------------------------------------------------------
-// Private stuff
-//------------------------------------------------------------------------------
 
 private:
 
