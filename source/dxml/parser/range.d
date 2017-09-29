@@ -14,6 +14,7 @@ import dxml.parser.common;
 import dxml.parser.internal;
 
 
+/+
 /++
   +/
 struct XMLFragment(R)
@@ -187,10 +188,45 @@ auto parserState(Config config, R)(R range)
 
 auto startParsing(Config config, R)(R input)
 {
+    import std.ascii : isDigit;
+
     auto state = State(input);
 
+    // if <?xml
+    //    <--
+    //    <?
+    //    WS
+    //    <!DOCTYPE
+    //    <
+
+    enum errorMsg = "Invalid XML prolog";
+
+    // <?xml version="1.x"
     if(!stripStartsWith(state, "<?xml"))
-        throw new XParsingException("XML must start with <?xml", state.pos);
+        throw new XMLParsingException(errorMsg, state.pos);
+    if(!stripWS(state))
+        throw new XMLParsingException(errorMsg, state.pos);
+
+    if(!stripStartsWith(state, "version"))
+        throw new XMLParsingException(errorMsg, state.pos);
+    stripWS(state);
+    if(!stripStartsWith(state, "="))
+        throw new XMLParsingException(errorMsg, state.pos);
+    stripWS(state);
+
+    if(state.input.empty)
+        throw new XMLParsingException(errorMsg, state.pos);
+    immutable quote = state.input.front;
+    if(quote != '\'' && quote != '"')
+        throw new XMLParsingException(errorMsg, state.pos);
+    popFrontAndIncCol(state);
+    if(!stripStartsWith(state, "1."))
+        throw new XMLParsingException(errorMsg, state.pos);
+    if(state.input.empty || !isDigit(state.input.front))
+        throw new XMLParsingException("Unsupported XML version", state.pos);
+    popFrontAndIncCol(state);
+    if(state.input.empty || state.input.front != quote)
+        throw new XMLParsingException(errorMsg, state.pos);
 
     return state;
 }
@@ -428,6 +464,12 @@ unittest
 }
 
 
+pragma(inline, true) void popFrontAndIncCol(PS)(ref PS state)
+{
+    state.input.popFront();
+    nextCol!(PS.config)(state.pos);
+}
+
 pragma(inline, true) void nextLine(Config config)(ref SourcePos pos)
 {
     static if(config.posType != PositionType.none)
@@ -441,3 +483,4 @@ pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
     static if(config.posType == PositionType.lineAndCol)
         ++pos.col;
 }
++/
