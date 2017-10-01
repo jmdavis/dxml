@@ -87,6 +87,9 @@ alias SkipDTD = Flag!"SkipDTD";
 /// Flag for use with Config.
 alias SkipProlog = Flag!"SkipProlog";
 
+/// Flag for use with Config.
+alias SplitEmpty = Flag!"SplitEmpty";
+
 
 /++
     Used to configure how the parser works.
@@ -118,40 +121,146 @@ struct Config
       +/
     auto skipProlog = SkipProlog.no;
 
+    /++
+        Whether the parser should report empty element tags as if they were a
+        start tag followed by an end tag with nothing in between.
+
+        If $(D true), then whenever an $(D EntityType.elementEmpty) is
+        encountered, the parser will claim that that entity is an
+        $(D EntityType.elementStart), and then it will provide an
+        $(D EntityType.elementEnd) as the next entity before the entity that
+        actually follows it.
+
+        The purpose of this is to simplify the code using the parser, since most
+        code does not care about the difference between an empty tag and a start
+        and end tag with nothing in between. But since some code will care about
+        the difference, the behavior is configurable rather than simply always
+        treating them as the same.
+      +/
+    auto splitEmpty = SplitEmpty.no;
+
     ///
     PositionType posType = PositionType.lineAndCol;
 }
 
 
 /++
-    This $(D Config) will skip comments, DOCTYPE entities, and the prolog, and
-    it's posType is $(D PositionType.lineAndCol).
+    Helper function for creating a custom config. It makes it easy to set one
+    or more of the member variables to something other than the default without
+    having to worry about explicitly setting them individually or setting them
+    all at once via a constructor.
+
+    The order of the arguments does not matter. The types of each of the members
+    of Config are unique, so that information alone is sufficient to determine
+    which argument should be assigned to which member.
   +/
-enum simpleXML = Config(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, PositionType.lineAndCol);
+Config makeConfig(Args...)(Args args)
+{
+    Config config;
+
+    foreach(arg; args)
+    {
+        foreach(memberName; __traits(allMembers, Config))
+        {
+            static if(is(typeof(__traits(getMember, config, memberName)) == typeof(arg)))
+                mixin("config." ~ memberName ~ " = arg;");
+        }
+    }
+
+    return config;
+}
+
+@safe pure nothrow @nogc unittest
+{
+    {
+        auto config = makeConfig(SkipComments.yes);
+        assert(config.skipComments == SkipComments.yes);
+        assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.splitEmpty == Config.init.splitEmpty);
+        assert(config.posType == Config.init.posType);
+    }
+
+    {
+        auto config = makeConfig(SkipComments.yes, PositionType.none);
+        assert(config.skipComments == SkipComments.yes);
+        assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.splitEmpty == Config.init.splitEmpty);
+        assert(config.posType == PositionType.none);
+    }
+
+    {
+        auto config = makeConfig(SplitEmpty.yes, SkipComments.yes, PositionType.line);
+        assert(config.skipComments == SkipComments.yes);
+        assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.splitEmpty == SplitEmpty.yes);
+        assert(config.posType == PositionType.line);
+    }
+}
+
+
+/++
+    This config is intended for making it easy to parse XML that does not
+    contain some of the more advanced XML features such as DTDs. It skips
+    everything that can be configured to skip.
+  +/
+enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SplitEmpty.yes, PositionType.lineAndCol);
+
+@safe pure nothrow @nogc unittest
+{
+    static assert(simpleXML.skipComments == SkipComments.yes);
+    static assert(simpleXML.skipDTD == SkipDTD.yes);
+    static assert(simpleXML.skipProlog == SkipProlog.yes);
+    static assert(simpleXML.splitEmpty == SplitEmpty.yes);
+    static assert(simpleXML.posType == PositionType.lineAndCol);
+}
 
 
 /++
     Lazily parses the given XML.
 
-    Due to XML's tree structure, returning a range of XML elements doesn't
-    really work, but the resulting $(D Entity) does parse the XML lazily like
-    would be typical with a range.
+    The resulting EntityParser is similar to an input range with how it's
+    iterated until it's consumed, and its state cannot be saved (since
+    unfortunately, saving it would require allocating additional memory), but
+    because there are essentially multiple ways to pop the front (e.g. choosing
+    to skip all of contents between a start tag and end tag), the input range
+    API didn't seem to appropriate, even if the result functions similarly.
+
+    Also, unlike a range the, "front" is integrated into the EntityParser rather
+    than being a value that can be extracted. So, while an entity can be queried
+    while it is the "front", it can't be kept around after the EntityParser has
+    moved to the next entity. Only the information that has been queried for
+    that entity can be retained (e.g. its name, attributes, or textual value).
+    While that does place some restrictions on how an algorithm operating on an
+    EntityParser can operate, it does allow for more efficient processing.
+
+    A range wrapper for an EntityParser could definitely be written, but it
+    would be less efficient and less flexible, and if something like that is
+    really needed, it may make more sense to simply use dxml.reader.dom. Some
+    of the aspects of XML's design simply make it difficult to avoid allocating
+    for each entity if an entity is treated as an element that can be returned
+    by front and retained after a call to popFront.
 
     If invalid XML is encountered at any point during the parsing process, an
     $(D XMLParsingException) will be thrown.
 
-    However, note that the minimal validation required to correctly parse the
-    document will be done. So, if the given Config indicates that any parts of
-    the XML should be skipped, then the only validation that will be done on
-    those portions is the validation that is required to correctly determine
-    where the skipped portion teriminates. Similarly, when calling functions
-    on an $(D Entity) which would skip portions of the XML (e.g. calling
-    $(D next) to skip any attributes or child entities and go directly to the
-    next entity at the same level), the skipped portions will only be validated
-    enough to correctly determine where those portion terminate. So, to fully
-    validate the XML, it must be fully parsed with no portions skipped.
+    However, note that EntityParser does not care about XML validition beyond
+    what is required to correctly parse what has been asked to parse. For
+    instance, any portions that are skipped (either due to the values in the
+    Config or because a function such as skipContents is called) will only be
+    validated enough to correctly determine where those portions terminated.
+    Similarly, if the functions to process the value of an entity are not
+    called (e.g. $(D attributes) for $(D EntityType.elementStart) and
+    $(D xmlSpec) for $(D EntityType.xmlSpec)), then those portions of the XML
+    will not be validated beyond what is required to iterate to the next entity.
+
+    A possible enhancement would be to add a validateXML function that
+    corresponds to parseXML and fully validates the XML, but for now, no such
+    function exists.
   +/
-Entity parseXML(Config config, R)(R xmlText)
+EntityParser parseXML(Config config, R)(R xmlText)
 {
     assert(0);
 }
@@ -172,15 +281,18 @@ enum EntityType
 
     /++
         The start tag for an element. e.g. $(D <foo name="value">).
-
-        End tags are not explicitly represented, as they're represented by
-        reaching the end of entities within content of an element tag or simply
-        by skipping the contents and going to the next tag at the same level.
-
-        Similarly, an empty element tag and a start tag immediately followed by
-        an end tag are not distinguished from one another.
       +/
-    element,
+    elementStart,
+
+    /++
+        The end tag for an element. e.g. $(D </foo>).
+      +/
+    elementEnd,
+
+    /++
+        The tag for an element with no contents. e.g. $(D <foo name="value"/>).
+      +/
+    elementEmpty,
 
     /++
         A processing instruction such as <?foo?>. Note that $(D <?xml ... ?>) is
@@ -210,9 +322,8 @@ enum EntityType
     what the valid values of $(D type) are to call it. It is an error to call
     any function or property when $(D type) is not one of its supported
     $(D EntityType)s. Typically, that is checked with an assertion.
-
   +/
-struct Entity(R)
+final class EntityParser(R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     import std.algorithm : canFind;
@@ -236,23 +347,58 @@ struct Entity(R)
         import std.algorithm : filter;
         import std.range : takeExactly;
 
-        static assert(is(Entity!string.SliceOfR == string));
+        static assert(is(EntityParser!string.SliceOfR == string));
 
         auto range = filter!(a => true)("some xml");
 
-        static assert(is(Entity!(typeof(range)).SliceOfR == typeof(takeExactly(range, 4))));
+        static assert(is(EntityParser!(typeof(range)).SliceOfR == typeof(takeExactly(range, 4))));
     }
 
     /++
-        The type of entity in the XML document that this $(D Entity) represents.
+        The type of the current entity.
 
         The value of this member determines which member functions and
-        properties are allowed to be called.
+        properties are allowed to be called, since some are only appropriate
+        for specific entity types (e.g. $(D attributes) would not be appropriate
+        for $(D EntityType.elementEnd)).
       +/
     EntityType type;
 
     /++
-        Gives the name of the entity.
+        The position of the current entity in the XML document.
+
+        How accurate the position is depends on the parser configuration that's
+        used.
+      +/
+    @property SourcePos pos()
+    {
+        assert(0);
+    }
+
+    /++
+        Move to the next entity.
+
+        The next entity is the next one that is linearly in the XML document.
+        So, if the current entity has child entities, the next entity will be
+        the child entity, whereas if it has no child entities, it will be the
+        next entity at the same level.
+      +/
+    void next()
+    {
+        assert(0);
+    }
+
+    /++
+        $(D true) if there is no more XML to process. It as en error to call
+        $(D next) once $(D empty) is $(D true).
+      +/
+    void empty()
+    {
+        assert(0);
+    }
+
+    /++
+        Gives the name of the current entity.
 
         Note that this is the direct name in the XML for this entity and does
         not contain any of the names of any of the parent entities that this
@@ -261,29 +407,32 @@ struct Entity(R)
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
           $(TR $(TD $(D EntityType.docType))),
-          $(TR $(TD $(D EntityType.element))),
+          $(TR $(TD $(D EntityType.elementStart))),
+          $(TR $(TD $(D EntityType.elementEnd))),
+          $(TR $(TD $(D EntityType.elementEmpty))),
           $(TR $(TD $(D EntityType.processingInstruction))))
       +/
     @property SliceOfR name()
     {
         with(EntityType)
-            assert(only(docType, element, processingInstruction).canFind(type));
+            assert(only(docType, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
 
         assert(0);
     }
 
     /++
-        Returns a range of attributes where each attribute is represented as a
-        $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
+        Returns a range of attributes for a start tag where each attribute is
+        represented as a $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.element))))
+          $(TR $(TD $(D EntityType.elementStart))))
+          $(TR $(TD $(D EntityType.elementEmpty))))
       +/
     @property auto attributes()
     {
         with(EntityType)
-            assert(type == element);
+            assert(only(elementStart, elementEmpty).canFind(type));
 
         import std.typecons : Tuple;
         alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
@@ -291,7 +440,7 @@ struct Entity(R)
     }
 
     /++
-        Returns the value of the entity.
+        Returns the value of the current entity.
 
         In the case of $(D EntityType.processingInstruction), this is the text
         that follows the name.
@@ -312,38 +461,40 @@ struct Entity(R)
     }
 
     /++
-        Returns the first entity between a start tag and end tag. If there is
-        nothing between them, then it's an $(D EntityType.text) with empty text.
+        When at a start tag, moves the parser to the entity after the
+        corresponding end tag tag and returns the contents between the two tags
+        as text, leaving any markup in between as unprocessed text.
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.element))))
-      +/
-    Entity content()
-    {
-        with(EntityType)
-            assert(type == element);
-        assert(0);
-    }
-
-    /++
-        Returns the contents between a start tag and end tag as text, leaving
-        any markup in between as unprocessed text.
-
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.element))))
+          $(TR $(TD $(D EntityType.elementStart))))
       +/
     @property SliceOfR contentAsText()
     {
         with(EntityType)
-            assert(type == element);
+            assert(type == elementStart);
 
         assert(0);
     }
 
     /++
-        Returns the $(D XMLDecl) corresponding to this entity.
+        When at a start tag, moves the parser to the entity after the
+        corresponding end tag.
+
+        $(TABLE,
+          $(TR $(TH Supported $(D EntityType)s)),
+          $(TR $(TD $(D EntityType.elementStart))))
+      +/
+    void skipContents()
+    {
+        with(EntityType)
+            assert(type == elementStart);
+
+        assert(0);
+    }
+
+    /++
+        Returns the $(D XMLDecl) corresponding to the current entity.
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
@@ -368,7 +519,7 @@ private struct EntityCompileTests
 
 unittest
 {
-    Entity!EntityCompileTests foo;
+    EntityParser!EntityCompileTests foo;
 }
 
 
