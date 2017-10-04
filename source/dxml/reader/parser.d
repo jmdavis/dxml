@@ -355,7 +355,7 @@ public:
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
     ///
-    static if(compileInTests) unittest
+    static if(compileInTests) @safe unittest
     {
         import std.algorithm : filter;
         import std.range : takeExactly;
@@ -543,7 +543,7 @@ private struct EntityCompileTests
     @property typeof(this) save() { assert(0); }
 }
 
-unittest
+@safe pure nothrow @nogc unittest
 {
     EntityParser!(Config.init, EntityCompileTests) foo;
 }
@@ -631,11 +631,16 @@ struct ParserState(Config cfg, R)
 }
 
 
-version(unittest) auto parserState(Config config, R)(R xmlText) @trusted
+version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure nothrow @nogc
 {
-    static ParserState!(config, R) ps;
-    ps = ParserState!(config, R)(xmlText);
-    return &ps;
+    static getPS(R xmlText) @trusted nothrow @nogc
+    {
+        static ParserState!(config, R) ps;
+        ps = ParserState!(config, R)(xmlText);
+        return &ps;
+    }
+    alias FuncType = @trusted pure nothrow @nogc ParserState!(config, R)* function(R);
+    return (cast(FuncType)&getPS)(xmlText);
 }
 
 
@@ -689,7 +694,7 @@ bool stripStartsWith(PS)(PS state, string text)
     return true;
 }
 
-unittest
+@safe pure unittest
 {
     import std.algorithm : equal, filter;
     import std.conv : to;
@@ -709,7 +714,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack.save);
+            auto state = testParser!(t[0])(haystack.save);
             assert(state.stripStartsWith(needle));
             assert(equal(state.input, remainder));
             assert(state.pos == t[1]);
@@ -719,7 +724,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack.save);
+            auto state = testParser!(t[0])(haystack.save);
             assert(state.stripStartsWith(origHaystack));
             assert(state.input.empty);
             assert(state.pos == t[1]);
@@ -730,17 +735,17 @@ unittest
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
             {
-                auto state = parserState!(t[0])(haystack.save);
+                auto state = testParser!(t[0])(haystack.save);
                 assert(!state.stripStartsWith("foo"));
                 assert(state.pos == t[1]);
             }
             {
-                auto state = parserState!(t[0])(haystack.save);
+                auto state = testParser!(t[0])(haystack.save);
                 assert(!state.stripStartsWith("hello sally"));
                 assert(state.pos == t[1]);
             }
             {
-                auto state = parserState!(t[0])(haystack.save);
+                auto state = testParser!(t[0])(haystack.save);
                 assert(!state.stripStartsWith("hello world "));
                 assert(state.pos == t[1]);
             }
@@ -795,7 +800,7 @@ loop: while(!state.input.empty)
     return strippedSpace;
 }
 
-unittest
+@safe pure unittest
 {
     import std.algorithm : equal, filter;
     import std.conv : to;
@@ -818,7 +823,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack1.save);
+            auto state = testParser!(t[0])(haystack1.save);
             assert(state.stripWS());
             assert(equal(state.input, remainder));
             assert(state.pos == t[1]);
@@ -830,7 +835,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack2.save);
+            auto state = testParser!(t[0])(haystack2.save);
             assert(state.stripWS());
             assert(equal(state.input, remainder));
             assert(state.pos == t[1]);
@@ -842,7 +847,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack3.save);
+            auto state = testParser!(t[0])(haystack3.save);
             assert(state.stripWS());
             assert(equal(state.input, remainder));
             assert(state.pos == t[1]);
@@ -854,7 +859,7 @@ unittest
                              tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
                              tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
         {
-            auto state = parserState!(t[0])(haystack4.save);
+            auto state = testParser!(t[0])(haystack4.save);
             assert(!state.stripWS());
             assert(equal(state.input, remainder));
             assert(state.pos == t[1]);
