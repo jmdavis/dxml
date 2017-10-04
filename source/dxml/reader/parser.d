@@ -12,6 +12,7 @@ import std.range : takeExactly;
 import std.traits;
 import std.typecons : Flag, Nullable;
 
+import dxml.reader.internal;
 
 /++
     The exception type thrown when the XML parser runs into invalid XML.
@@ -170,6 +171,7 @@ Config makeConfig(Args...)(Args args)
     return config;
 }
 
+///
 @safe pure nothrow @nogc unittest
 {
     {
@@ -208,6 +210,7 @@ Config makeConfig(Args...)(Args args)
   +/
 enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SplitEmpty.yes, PositionType.lineAndCol);
 
+///
 @safe pure nothrow @nogc unittest
 {
     static assert(simpleXML.skipComments == SkipComments.yes);
@@ -215,6 +218,66 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, Split
     static assert(simpleXML.skipProlog == SkipProlog.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
     static assert(simpleXML.posType == PositionType.lineAndCol);
+}
+
+
+/++
+    Represents the type of an XML entity. Used by EntityParser.
+  +/
+enum EntityType
+{
+    /// The $(D <!ATTLIST .. >) tag.
+    attlistDecl,
+
+    /// A cdata section: $(D <![CDATA[ ... ]]>).
+    cdata,
+
+    /// An XML comment: $(D <!-- ... -->).
+    comment,
+
+    /// The beginning of a $(D <!DOCTYPE .. >) tag.
+    docTypeStart,
+
+    /// The $(D >) indicating the end of a $(D <!DOCTYPE) tag.
+    docTypeEnd,
+
+    /// The $(D <!ELEMENT .. >) tag.
+    elementDecl,
+
+    /// The start tag for an element. e.g. $(D <foo name="value">).
+    elementStart,
+
+    /// The end tag for an element. e.g. $(D </foo>).
+    elementEnd,
+
+    /// The tag for an element with no contents. e.g. $(D <foo name="value"/>).
+    elementEmpty,
+
+    /// The $(D <!ENTITY .. >) tag.
+    entityDecl,
+
+    /// The $(D <!NOTATION .. >) tag.
+    notationDecl,
+
+    /++
+        A processing instruction such as <?foo?>. Note that $(D <?xml ... ?>) is
+        an $(D xmlDecl) and not a processingInstruction.
+      +/
+    processingInstruction,
+
+    /++
+        The content of an element tag that is simple text.
+
+        If there is an entity other than the end tag following the text, then
+        the text includes up to that entity.
+      +/
+    text,
+
+    /++
+        The $(D <?xml ... ?>) entity that can start an XML 1.0 document and must
+        start an XML 1.1 document.
+      +/
+    xmlDecl
 }
 
 
@@ -246,7 +309,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, Split
     If invalid XML is encountered at any point during the parsing process, an
     $(D XMLParsingException) will be thrown.
 
-    However, note that EntityParser does not care about XML validition beyond
+    However, note that EntityParser does not care about XML validation beyond
     what is required to correctly parse what has been asked to parse. For
     instance, any portions that are skipped (either due to the values in the
     Config or because a function such as skipContents is called) will only be
@@ -259,77 +322,27 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, Split
     A possible enhancement would be to add a validateXML function that
     corresponds to parseXML and fully validates the XML, but for now, no such
     function exists.
+
+    EntityParser is a reference type.
   +/
 EntityParser parseXML(Config config, R)(R xmlText)
 {
-    assert(0);
+    return EntityParser!(Config, R)(xmlText);
 }
 
-
-/++
-  +/
-enum EntityType
-{
-    /// A cdata section: $(D <![CDATA[ ... ]]>).
-    cdata,
-
-    /// An XML comment: $(D <!-- ... -->).
-    comment,
-
-    /// The $(D <!DOCTYPE .. >) tag.
-    docType,
-
-    /++
-        The start tag for an element. e.g. $(D <foo name="value">).
-      +/
-    elementStart,
-
-    /++
-        The end tag for an element. e.g. $(D </foo>).
-      +/
-    elementEnd,
-
-    /++
-        The tag for an element with no contents. e.g. $(D <foo name="value"/>).
-      +/
-    elementEmpty,
-
-    /++
-        A processing instruction such as <?foo?>. Note that $(D <?xml ... ?>) is
-        an $(D xmlDecl) and not a processingInstruction.
-      +/
-    processingInstruction,
-
-    /++
-        The content of an element tag that is simple text.
-
-        If there is an entity other than the end tag following the text, then
-        the text includes up to that entity.
-      +/
-    text,
-
-    /++
-        The $(D <?xml ... ?>) entity that can start an XML 1.0 document and must
-        start an XML 1.1 document.
-      +/
-    xmlDecl
-}
-
-
-/++
-    Represents an entity in an XML document. Which operations are legal depend
-    on the $(D type) of the Entity, and each function or property indicates
-    what the valid values of $(D type) are to call it. It is an error to call
-    any function or property when $(D type) is not one of its supported
-    $(D EntityType)s. Typically, that is checked with an assertion.
-  +/
-final class EntityParser(R)
+/// Ditto
+struct EntityParser(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
+public:
+
     import std.algorithm : canFind;
     import std.range : only;
 
     private enum compileInTests = is(R == EntityCompileTests);
+
+    /// The Config used for this parser.
+    alias config = cfg;
 
     /++
         The type used when any slice of the original text is used. If $(D R)
@@ -347,11 +360,12 @@ final class EntityParser(R)
         import std.algorithm : filter;
         import std.range : takeExactly;
 
-        static assert(is(EntityParser!string.SliceOfR == string));
+        static assert(is(EntityParser!(Config.init, string).SliceOfR == string));
 
         auto range = filter!(a => true)("some xml");
 
-        static assert(is(EntityParser!(typeof(range)).SliceOfR == typeof(takeExactly(range, 4))));
+        static assert(is(EntityParser!(Config.init, typeof(range)).SliceOfR ==
+                         typeof(takeExactly(range, 4))));
     }
 
     /++
@@ -362,7 +376,10 @@ final class EntityParser(R)
         for specific entity types (e.g. $(D attributes) would not be appropriate
         for $(D EntityType.elementEnd)).
       +/
-    EntityType type;
+    @property EntityType type()
+    {
+        return _state.type;
+    }
 
     /++
         The position of the current entity in the XML document.
@@ -372,7 +389,7 @@ final class EntityParser(R)
       +/
     @property SourcePos pos()
     {
-        assert(0);
+        return _state.pos;
     }
 
     /++
@@ -406,7 +423,7 @@ final class EntityParser(R)
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.docType))),
+          $(TR $(TD $(D EntityType.docTypeStart))),
           $(TR $(TD $(D EntityType.elementStart))),
           $(TR $(TD $(D EntityType.elementEnd))),
           $(TR $(TD $(D EntityType.elementEmpty))),
@@ -415,7 +432,7 @@ final class EntityParser(R)
     @property SliceOfR name()
     {
         with(EntityType)
-            assert(only(docType, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
+            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
 
         assert(0);
     }
@@ -505,6 +522,15 @@ final class EntityParser(R)
         assert(type == EntityType.xmlDecl);
         assert(0);
     }
+
+private:
+
+    this(R xmlText)
+    {
+        _state = new ParserState!(config, R)(xmlText);
+    }
+
+    ParserState!(config, R)* _state;
 }
 
 // This is purely to provide a way to trigger the unittest blocks in Entity
@@ -519,7 +545,7 @@ private struct EntityCompileTests
 
 unittest
 {
-    EntityParser!EntityCompileTests foo;
+    EntityParser!(Config.init, EntityCompileTests) foo;
 }
 
 
@@ -574,4 +600,285 @@ struct XMLDecl(R)
         <?xml declaration.
       +/
     Nullable!bool standalone;
+}
+
+
+//------------------------------------------------------------------------------
+// Private Section
+//------------------------------------------------------------------------------
+private:
+
+
+struct ParserState(Config cfg, R)
+{
+    alias config = cfg;
+
+    EntityType type;
+
+    static if(config.posType == PositionType.lineAndCol)
+        auto pos = SourcePos(1, 1);
+    else static if(config.posType == PositionType.line)
+        auto pos = SourcePos(1, -1);
+    else
+        SourcePos pos;
+
+    typeof(byCodeUnit(R.init)) input;
+
+    this(R xmlText)
+    {
+        input = byCodeUnit(xmlText);
+    }
+}
+
+
+version(unittest) auto parserState(Config config, R)(R xmlText) @trusted
+{
+    static ParserState!(config, R) ps;
+    ps = ParserState!(config, R)(xmlText);
+    return &ps;
+}
+
+
+// Similar to startsWith except that it consumes the part of the range that
+// matches. It also deals with incrementing state.pos.col.
+//
+// It is assumed that there are no newlines.
+bool stripStartsWith(PS)(PS state, string text)
+{
+    alias R = typeof(PS.input);
+
+    static if(hasLength!R)
+    {
+        if(state.input.length < text.length)
+            return false;
+
+        // This branch is separate so that we can take advantage of whatever
+        // speed boost comes from comparing strings directly rather than
+        // comparing individual characters.
+        static if(isWrappedString!R && is(Unqual!(ElementType!R) == char))
+        {
+            if(state.input.orig[0 .. text.length] != text)
+                return false;
+            state.input.popFrontN(text.length);
+        }
+        else
+        {
+            foreach(c; text)
+            {
+                if(state.input.front != c)
+                    return false;
+                state.input.popFront();
+            }
+        }
+    }
+    else
+    {
+        foreach(c; text)
+        {
+            if(state.input.empty)
+                return false;
+            if(state.input.front != c)
+                return false;
+            state.input.popFront();
+        }
+    }
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        state.pos.col += text.length;
+
+    return true;
+}
+
+unittest
+{
+    import std.algorithm : equal, filter;
+    import std.conv : to;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    enum origHaystack = "hello world";
+    enum needle = "hello";
+    enum remainder = " world";
+
+    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
+                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, needle.length + 1)),
+                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack.save);
+            assert(state.stripStartsWith(needle));
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, origHaystack.length + 1)),
+                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack.save);
+            assert(state.stripStartsWith(origHaystack));
+            assert(state.input.empty);
+            assert(state.pos == t[1]);
+        }
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 1)),
+                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            {
+                auto state = parserState!(t[0])(haystack.save);
+                assert(!state.stripStartsWith("foo"));
+                assert(state.pos == t[1]);
+            }
+            {
+                auto state = parserState!(t[0])(haystack.save);
+                assert(!state.stripStartsWith("hello sally"));
+                assert(state.pos == t[1]);
+            }
+            {
+                auto state = parserState!(t[0])(haystack.save);
+                assert(!state.stripStartsWith("hello world "));
+                assert(state.pos == t[1]);
+            }
+        }
+    }
+}
+
+
+// Strips whitespace while dealing with state.pos accordingly. Newlines are not
+// ignored.
+// Returns whether any whitespace was stripped.
+bool stripWS(PS)(PS state)
+{
+    alias R = typeof(PS.input);
+    enum hasLengthAndCol = hasLength!R && PS.config.posType == PositionType.lineAndCol;
+
+    bool strippedSpace = false;
+
+    static if(hasLengthAndCol)
+        size_t lineStart = state.input.length;
+
+loop: while(!state.input.empty)
+    {
+        switch(state.input.front)
+        {
+            case ' ':
+            case '\t':
+            case '\r':
+            {
+                strippedSpace = true;
+                state.input.popFront();
+                static if(!hasLength!R)
+                    nextCol!(PS.config)(state.pos);
+                break;
+            }
+            case '\n':
+            {
+                strippedSpace = true;
+                state.input.popFront();
+                static if(hasLengthAndCol)
+                    lineStart = state.input.length;
+                nextLine!(PS.config)(state.pos);
+                break;
+            }
+            default: break loop;
+        }
+    }
+
+    static if(hasLengthAndCol)
+        state.pos.col += lineStart - state.input.length;
+
+    return strippedSpace;
+}
+
+unittest
+{
+    import std.algorithm : equal, filter;
+    import std.conv : to;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    enum origHaystack1 = "  \t\rhello world";
+    enum origHaystack2 = "  \n \n \n  \nhello world";
+    enum origHaystack3 = "  \n \n \n  \n  hello world";
+    enum origHaystack4 = "hello world";
+
+    enum remainder = "hello world";
+
+    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
+                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    {
+        auto haystack1 = func(origHaystack1);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
+                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack1.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack2 = func(origHaystack2);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 1)),
+                             tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack2.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack3 = func(origHaystack3);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 3)),
+                             tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack3.save);
+            assert(state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+
+        auto haystack4 = func(origHaystack4);
+
+        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 1)),
+                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        {
+            auto state = parserState!(t[0])(haystack4.save);
+            assert(!state.stripWS());
+            assert(equal(state.input, remainder));
+            assert(state.pos == t[1]);
+        }
+    }
+}
+
+
+pragma(inline, true) void popFrontAndIncCol(PS)(PS state)
+{
+    state.input.popFront();
+    nextCol!(PS.config)(state.pos);
+}
+
+pragma(inline, true) void nextLine(Config config)(ref SourcePos pos)
+{
+    static if(config.posType != PositionType.none)
+        ++pos.line;
+    static if(config.posType == PositionType.lineAndCol)
+        pos.col = 1;
+}
+
+pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
+{
+    static if(config.posType == PositionType.lineAndCol)
+        ++pos.col;
 }
