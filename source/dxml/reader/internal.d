@@ -30,17 +30,17 @@ struct ByCodeUnit(S)
 
     @property C front() @safe const pure nothrow @nogc
     {
-        return orig[0];
+        return source[0];
     }
 
     @property bool empty() @safe const pure nothrow @nogc
     {
-        return orig.empty;
+        return source.empty;
     }
 
     void popFront() @safe pure nothrow @nogc
     {
-        orig = orig[1 .. $];
+        source = source[1 .. $];
     }
 
     auto save() @safe pure nothrow @nogc
@@ -50,20 +50,20 @@ struct ByCodeUnit(S)
 
     size_t length() @safe const pure nothrow @nogc
     {
-        return orig.length;
+        return source.length;
     }
 
     C opIndex(size_t i) @safe pure nothrow @nogc
     {
-        return orig[i];
+        return source[i];
     }
 
     auto opSlice(size_t i, size_t j) @safe pure nothrow @nogc
     {
-        return ByCodeUnit(orig[i .. j]);
+        return ByCodeUnit(source[i .. j]);
     }
 
-    S orig;
+    S source;
 }
 
 @system pure nothrow @nogc unittest
@@ -120,11 +120,11 @@ struct ByCodeUnit(S)
 
     auto str = "hello world";
     auto bcu = byCodeUnit(str);
-    assert(str is bcu.orig);
+    assert(str is bcu.source);
     str = str[4 .. $];
-    assert(str !is bcu.orig);
+    assert(str !is bcu.source);
     bcu.popFrontN(4);
-    assert(str is bcu.orig);
+    assert(str is bcu.source);
 }
 
 template isWrappedString(T)
