@@ -429,3 +429,78 @@ version(unittest) auto rasRefCharRange(R)(R range)
 static assert(isForwardRange!(RASRefCharRange!char));
 static assert(isRandomAccessRange!(RASRefCharRange!char));
 static assert(hasSlicing!(RASRefCharRange!char));
+
+
+// Like std.algorithm.equal except that it won't decode string, and it allows
+// comparing a string with a range with a character type other than char.
+// However, the text must be ASCII.
+bool equalCU(R)(R range, string text)
+    if(isInputRange!R && isSomeChar!(ElementType!R))
+{
+    static if(hasLength!R)
+    {
+        if(range.length != text.length)
+            return false;
+    }
+
+    foreach(c; text)
+    {
+        if(range.empty || range.front != c)
+            return false;
+        range.popFront();
+    }
+
+    return range.empty;
+}
+
+unittest
+{
+    import std.algorithm : filter;
+    import std.meta : AliasSeq;
+
+    foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
+    {
+        assert(equalCU(str, "hello world"));
+        assert(equalCU(byCodeUnit(str), "hello world"));
+        assert(equalCU(filter!"true"(str), "hello world"));
+        assert(equalCU(filter!"true"(byCodeUnit(str)), "hello world"));
+
+        assert(!equalCU(str, "hello worl"));
+        assert(!equalCU(byCodeUnit(str), "hello worl"));
+        assert(!equalCU(filter!"true"(str), "hello worl"));
+        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello worl"));
+
+        assert(!equalCU(str, "hello world "));
+        assert(!equalCU(byCodeUnit(str), "hello world "));
+        assert(!equalCU(filter!"true"(str), "hello world "));
+        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello world "));
+    }
+}
+
+
+// This is used for the cases where we need to take a range and strip ByCodeUnit
+// from it if it's a wrapped string and return the original otherwise.
+pragma(inline, true) auto stripBCU(R)(R range)
+    if(isInputRange!R && isSomeChar!(ElementType!R))
+{
+    static assert(!isNarrowString!R);
+    static if(isWrappedString!R)
+        return range.source;
+    else
+        return range;
+}
+
+unittest
+{
+    import std.algorithm : equal, filter;
+    import std.range : takeExactly;
+    import std.utf : codeLength;
+
+    auto bcuResult = byCodeUnit("hello").stripBCU();
+    assert(equal(bcuResult, "hello"));
+    static assert(is(typeof(bcuResult) == string));
+
+    auto filterResult = filter!"true"("hello").stripBCU();
+    assert(equal(filterResult, "hello"));
+    static assert(is(typeof(filterResult) == typeof(filter!"true"("foo"))));
+}

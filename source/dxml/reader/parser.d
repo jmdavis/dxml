@@ -11,7 +11,7 @@ import std.algorithm : startsWith;
 import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
-import std.typecons : Flag, Nullable;
+import std.typecons : Flag, Nullable, nullable;
 
 import dxml.reader.internal;
 
@@ -326,9 +326,10 @@ enum EntityType
 
     EntityParser is a reference type.
   +/
-EntityParser parseXML(Config config, R)(R xmlText)
+EntityParser!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
-    return EntityParser!(Config, R)(xmlText);
+    return EntityParser!(config, R)(xmlText);
 }
 
 /// Ditto
@@ -341,6 +342,36 @@ public:
     import std.range : only;
 
     private enum compileInTests = is(R == EntityCompileTests);
+
+    ///
+    static if(compileInTests) unittest
+    {
+        enum xml = "<?xml version='1.0'?>\n" ~
+                   "<foo attr='42'>\n" ~
+                   "    <bar/>\n" ~
+                   "    <!-- no comment -->\n" ~
+                   "    <baz hello='world'>\n" ~
+                   "    nothing to say.\n" ~
+                   "    nothing at all...\n" ~
+                   "    </baz>\n" ~
+                   "</foo>";
+
+        {
+            auto parser = parseXML(xml);
+            assert(!parser.empty);
+            assert(parser.type == EntityType.xmlDecl);
+
+            auto xmlDecl = parser.xmlDecl;
+            assert(xmlDecl.xmlVersion == "1.0");
+            assert(xmlDecl.encoding.isNull);
+            assert(xmlDecl.standalone.isNull);
+        }
+
+        {
+            auto parser = parseXML!simpleXML(xml);
+        }
+    }
+
 
     /// The Config used for this parser.
     alias config = cfg;
@@ -416,9 +447,9 @@ public:
         $(D true) if there is no more XML to process. It as en error to call
         $(D next) once $(D empty) is $(D true).
       +/
-    void empty()
+    bool empty()
     {
-        assert(0);
+        return _state.grammarPos == GrammarPos.documentEnd;
     }
 
     /++
@@ -527,7 +558,93 @@ public:
     @property XMLDecl!R xmlDecl()
     {
         assert(type == EntityType.xmlDecl);
-        assert(0);
+
+        import std.ascii : isDigit;
+
+        void throwXPE(string msg, size_t line = __LINE__)
+        {
+            throw new XMLParsingException(msg, _state.currText.pos, __FILE__, line);
+        }
+
+        XMLDecl!R retval;
+
+        // XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
+        // VersionInfo  ::= S 'version' Eq ("'" versionNum "'" | '"' VersionNum '"')
+        // Eq           ::= S? '=' S?
+        // VersionNum   ::= '1.' [0-9]+
+        // EncodingDecl ::= S 'encoding' Eq ('"' EncName '"' | "'" EncName "'" )
+        // EncName      ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
+        // SDDecl       ::= S 'standalone' Eq (("'" ('yes' | 'no') "'") | ('"' ('yes' | 'no') '"'))
+
+        // The '<?xml' and '?>' were already stripped off before _state.currText
+        // was set.
+
+        if(!stripWS(&_state.currText))
+            throwXPE("There must be whitespace after <?xml");
+
+        if(!stripStartsWith(&_state.currText, "version"))
+            throwXPE("version missing after <?xml");
+        parseEq(&_state.currText);
+
+        {
+            auto temp = takeEnquotedText(&_state.currText);
+            retval.xmlVersion = stripBCU(temp.save);
+            if(temp.length != 3)
+                throwXPE("Invalid or unsupported XML version number");
+            if(temp.front != '1')
+                throwXPE("Invalid or unsupported XML version number");
+            temp.popFront();
+            if(temp.front != '.')
+                throwXPE("Invalid or unsupported XML version number");
+            temp.popFront();
+            if(!isDigit(temp.front))
+                throwXPE("Invalid or unsupported XML version number");
+        }
+
+        auto wasSpace = stripWS(&_state.currText);
+        if(_state.currText.input.empty)
+            return retval;
+
+        if(_state.currText.input.front == 'e')
+        {
+            if(!wasSpace)
+                throwXPE("There must be whitespace before the encoding declaration");
+            popFrontAndIncCol(&_state.currText);
+            if(!stripStartsWith(&_state.currText, "ncoding"))
+                throwXPE("Invalid <?xml .. ?> declaration in prolog");
+            parseEq(&_state.currText);
+            retval.encoding = nullable(stripBCU(takeEnquotedText(&_state.currText)));
+
+            wasSpace = stripWS(&_state.currText);
+            if(_state.currText.input.empty)
+                return retval;
+        }
+
+        if(_state.currText.input.front == 's')
+        {
+            if(!wasSpace)
+                throwXPE("There must be whitespace before the standalone declaration");
+            popFrontAndIncCol(&_state.currText);
+            if(!stripStartsWith(&_state.currText, "tandalone"))
+                throwXPE("Invalid <?xml .. ?> declaration in prolog");
+            parseEq(&_state.currText);
+
+            auto pos = _state.currText.pos;
+            auto standalone = takeEnquotedText(&_state.currText);
+            if(standalone.save.equalCU("yes"))
+                retval.standalone = nullable(true);
+            else if(standalone.equalCU("no"))
+                retval.standalone = nullable(false);
+            else
+                throw new XMLParsingException("If standalone is present, its value must be yes or no", pos);
+            stripWS(&_state.currText);
+            checkNonEmpty(&_state.currText);
+        }
+
+        if(!_state.currText.input.empty)
+            throwXPE("Invalid <?xml .. ?> declaration in prolog");
+
+        return retval;
     }
 
 private:
@@ -538,8 +655,13 @@ private:
 
         if(_state.stripStartsWith("<?xml"))
         {
-            _state.currText = _state.takeUntil!"?>"();
+            _state.currText.pos = _state.pos;
+            _state.currText.input = _state.takeUntil!"?>"();
+            _state.type = EntityType.xmlDecl;
+            _state.grammarPos = GrammarPos.prologMisc1;
         }
+        else
+            parseAtMisc1(_state);
     }
 
     ParserState!(config, R)* _state;
@@ -623,14 +745,11 @@ private:
 
 struct ParserState(Config cfg, R)
 {
-    static if(isDynamicArray!R || hasSlicing!R)
-        alias SliceOfR = R;
-    else
-        alias SliceOfR = typeof(takeExactly(R.init, 42));
-
     alias config = cfg;
 
     EntityType type;
+
+    GrammarPos grammarPos;
 
     static if(config.posType == PositionType.lineAndCol)
         auto pos = SourcePos(1, 1);
@@ -639,9 +758,19 @@ struct ParserState(Config cfg, R)
     else
         SourcePos pos;
 
-    SliceOfR currText;
-
     typeof(byCodeUnit(R.init)) input;
+
+    // This mirrors the ParserState's fields so that the same parsing functions
+    // can be used to parse main text contained directly in the ParserState
+    // and the currently saved text (e.g. for the attributes of a start tag).
+    struct CurrText
+    {
+        alias config = cfg;
+        typeof(takeExactly(byCodeUnit(R.init), 42)) input;
+        SourcePos pos;
+    }
+
+    CurrText currText;
 
     this(R xmlText)
     {
@@ -663,12 +792,75 @@ version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure not
 }
 
 
+// Used to indicate where in the grammar we're currently parsing.
+enum GrammarPos
+{
+    // document ::= prolog element Misc*
+    // prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)?
+    // This is that first Misc*. The next entity to parse is either a Misc, the
+    // doctypedecl, or the root element which follows the prolog.
+    prologMisc1,
+
+    // document ::= prolog element Misc*
+    // prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)
+    // This is that second Misc*. The next entity to parse is either a Misc or
+    // the root element which follows the prolog.
+    prologMisc2,
+
+    // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+    // intSubset   ::= (markupdecl | DeclSep)*
+    // This is the intSubset such that the next thing to parse is a markupdecl,
+    // DeclSep, or the ']' that follows the intSubset.
+    intSubset,
+
+    // document ::= prolog element Misc*
+    // element  ::= EmptyElemTag | STag content ETag
+    // This at the element. The next thing to parse will either be an
+    // EmptyElemTag or STag.
+    element,
+
+    // element  ::= EmptyElemTag | STag content ETag
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // This is at the content. The next thing to parse will be a CharData,
+    // element, Reference, CDSect, PI, Comment, or ETag.
+    contentStart,
+
+    // element  ::= EmptyElemTag | STag content ETag
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // This is after the first CharData?. The next thing to parse will be a
+    // element, Reference, CDSect, PI, Comment, or ETag.
+    contentMid,
+
+    // element  ::= EmptyElemTag | STag content ETag
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // This is after at the second CharData?. The next thing to parse will be a
+    // CharData, element, Reference, CDSect, PI, Comment, or ETag.
+    contentEnd,
+
+    // document ::= prolog element Misc*
+    // This is the Misc* at the end of the document. The next thing to parse is
+    // either another Misc, or we will hit the end of the document.
+    endMisc,
+
+    // The end of the document (and the grammar) has been reached.
+    documentEnd
+}
+
+
+// Parse at GrammarPos.prologMisc1.
+void parseAtMisc1(PS)(PS state)
+{
+}
+
+
 // Similar to startsWith except that it consumes the part of the range that
 // matches. It also deals with incrementing state.pos.col.
 //
 // It is assumed that there are no newlines.
 bool stripStartsWith(PS)(PS state, string text)
 {
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
     alias R = typeof(PS.input);
 
     static if(hasLength!R)
@@ -715,8 +907,7 @@ bool stripStartsWith(PS)(PS state, string text)
 
 @safe pure unittest
 {
-    import std.algorithm : equal, filter;
-    import std.conv : to;
+    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
@@ -724,8 +915,7 @@ bool stripStartsWith(PS)(PS state, string text)
     enum needle = "hello";
     enum remainder = " world";
 
-    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
-                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    foreach(func; testRangeFuncs)
     {
         auto haystack = func(origHaystack);
 
@@ -735,7 +925,7 @@ bool stripStartsWith(PS)(PS state, string text)
         {
             auto state = testParser!(t[0])(haystack.save);
             assert(state.stripStartsWith(needle));
-            assert(equal(state.input, remainder));
+            assert(equalCU(state.input, remainder));
             assert(state.pos == t[1]);
         }
 
@@ -778,6 +968,8 @@ bool stripStartsWith(PS)(PS state, string text)
 // Returns whether any whitespace was stripped.
 bool stripWS(PS)(PS state)
 {
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
     alias R = typeof(PS.input);
     enum hasLengthAndCol = hasLength!R && PS.config.posType == PositionType.lineAndCol;
 
@@ -821,13 +1013,11 @@ bool stripWS(PS)(PS state)
 
 @safe pure unittest
 {
-    import std.algorithm : equal, filter;
-    import std.conv : to;
+    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
-    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
-                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    foreach(func; testRangeFuncs)
     {
         auto haystack1 = func("  \t\rhello world");
 
@@ -837,7 +1027,7 @@ bool stripWS(PS)(PS state)
         {
             auto state = testParser!(t[0])(haystack1.save);
             assert(state.stripWS());
-            assert(equal(state.input, "hello world"));
+            assert(equalCU(state.input, "hello world"));
             assert(state.pos == t[1]);
         }
 
@@ -849,7 +1039,7 @@ bool stripWS(PS)(PS state)
         {
             auto state = testParser!(t[0])(haystack2.save);
             assert(state.stripWS());
-            assert(equal(state.input, "hello world"));
+            assert(equalCU(state.input, "hello world"));
             assert(state.pos == t[1]);
         }
 
@@ -861,7 +1051,7 @@ bool stripWS(PS)(PS state)
         {
             auto state = testParser!(t[0])(haystack3.save);
             assert(state.stripWS());
-            assert(equal(state.input, "hello world"));
+            assert(equalCU(state.input, "hello world"));
             assert(state.pos == t[1]);
         }
 
@@ -880,11 +1070,13 @@ bool stripWS(PS)(PS state)
 }
 
 
-// Returns a slice (or TakeExactly) of state.input up to but not including the
+// Returns a slice (or takeExactly) of state.input up to but not including the
 // given text, removing that slice from state.input in the process. If the text
 // is not in state.input, then state.input will be empty.
 auto takeUntil(string text, PS)(PS state)
 {
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
     alias R = typeof(PS.input);
     enum delim = cast(ElementType!R)text[0];
     auto orig = state.input.save;
@@ -941,21 +1133,16 @@ auto takeUntil(string text, PS)(PS state)
 
     static if(state.config.posType == PositionType.lineAndCol)
         state.pos.col += count - lineStart;
-    static if(isWrappedString!R)
-        return orig.source[0 .. count];
-    else
-        return takeExactly(orig, count);
+    return takeExactly(orig, count);
 }
 
 unittest
 {
-    import std.algorithm : equal, filter;
-    import std.conv : to;
+    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
-    foreach(func; AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => filter!"true"(a),
-                            a => fwdCharRange(a), a => rasRefCharRange(a)))
+    foreach(func; testRangeFuncs)
     {
         {
             auto haystack = func("hello world");
@@ -968,8 +1155,7 @@ unittest
                 static foreach(i; 1 .. needle.length)
                 {{
                     auto state = testParser!(t[0])(haystack.save);
-                    auto taken = state.takeUntil!(needle[0 .. i])();
-                    assert(equal(taken, "hello "));
+                    assert(equal(state.takeUntil!(needle[0 .. i])(), "hello "));
                     assert(equal(state.input, "world"));
                     assert(state.pos == t[1]);
                 }}
@@ -983,8 +1169,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                auto taken = state.takeUntil!"l"();
-                assert(taken.empty);
+                assert(state.takeUntil!"l"().empty);
                 assert(equal(state.input, "lello world"));
                 assert(state.pos == t[1]);
             }
@@ -994,8 +1179,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                auto taken = state.takeUntil!"ll"();
-                assert(equal(taken, "le"));
+                assert(equal(state.takeUntil!"ll"(), "le"));
                 assert(equal(state.input, "llo world"));
                 assert(state.pos == t[1]);
             }
@@ -1013,8 +1197,7 @@ unittest
                 static foreach(i; 1 .. needle.length)
                 {{
                     auto state = testParser!(t[0])(haystack.save);
-                    auto taken = state.takeUntil!(needle[0 .. i])();
-                    assert(equal(taken, "プログラミング "));
+                    assert(equal(state.takeUntil!(needle[0 .. i])(), "プログラミング "));
                     assert(equal(state.input, "in D"));
                     assert(state.pos == t[1]);
                 }}
@@ -1024,8 +1207,185 @@ unittest
 }
 
 
+// The front of the input should be text surrounded by single or double quotes.
+// This returns a slice of the input containing that text, and the input is
+// advanced to one code unit beyond the quote.
+auto takeEnquotedText(PS)(PS state)
+{
+    import std.meta : AliasSeq;
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    checkNonEmpty(state);
+    immutable quote = state.input.front;
+    foreach(quoteChar; AliasSeq!(`"`, `'`))
+    {
+        // This would be a bit simpler if takeUntil took a runtime argument,
+        // but in all other cases, a compile-time argument makes more sense, so
+        // this seemed like a reasonable way to handle this one case.
+        if(quote == quoteChar[0])
+        {
+            popFrontAndIncCol(state);
+            auto retval = takeUntil!quoteChar(state);
+            if(state.input.empty)
+                throw new XMLParsingException("Missing closing quote", state.pos);
+            popFrontAndIncCol(state);
+            return retval;
+        }
+    }
+    throw new XMLParsingException("Expected quoted text", state.pos);
+}
+
+unittest
+{
+    import std.algorithm : equal;
+    import std.exception : assertThrown;
+    import std.range : only;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    foreach(func; testRangeFuncs)
+    {
+        foreach(quote; only("\"", "'"))
+        {
+            {
+                auto haystack = func(quote ~ quote);
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 3)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(takeEnquotedText(state).empty);
+                    assert(state.input.empty);
+                    assert(state.pos == t[1]);
+                }
+            }
+            {
+                auto haystack = func(quote ~ "hello world" ~ quote);
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 14)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeEnquotedText(state), "hello world"));
+                    assert(state.input.empty);
+                    assert(state.pos == t[1]);
+                }
+            }
+            {
+                auto haystack = func(quote ~ "hello world" ~ quote ~ " foo");
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 14)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeEnquotedText(state), "hello world"));
+                    assert(equal(state.input, " foo"));
+                    assert(state.pos == t[1]);
+                }
+            }
+            {
+                import std.utf : codeLength;
+                auto haystack = func(quote ~ "プログラミング " ~ quote ~ "in D");
+                enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング ");
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 3)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeEnquotedText(state), "プログラミング "));
+                    assert(equal(state.input, "in D"));
+                    assert(state.pos == t[1]);
+                }
+            }
+        }
+
+        foreach(str; only(`hello`, `"hello'`, `"hello`, `'hello"`, `'hello`, ``, `"'`, `"`, `'"`, `'`))
+            assertThrown!XMLParsingException(testParser!(Config.init)(func(str)).takeEnquotedText());
+    }
+}
+
+
+// Parses
+// Eq ::= S? '=' S?
+void parseEq(PS)(PS state)
+{
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    stripWS(state);
+    if(!stripStartsWith(state, "="))
+        throw new XMLParsingException("= missing", state.pos);
+    stripWS(state);
+}
+
+unittest
+{
+    import std.algorithm : equal;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    foreach(func; testRangeFuncs)
+    {
+        {
+            auto haystack = func("=");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                parseEq(state);
+                assert(state.input.empty);
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            auto haystack = func("=hello");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                parseEq(state);
+                assert(equal(state.input, "hello"));
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            auto haystack = func(" \n\n =hello");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 3)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                parseEq(state);
+                assert(equal(state.input, "hello"));
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            auto haystack = func("=\n\n\nhello");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(4, 1)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(4, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                parseEq(state);
+                assert(equal(state.input, "hello"));
+                assert(state.pos == t[1]);
+            }
+        }
+    }
+}
+
+
 pragma(inline, true) void popFrontAndIncCol(PS)(PS state)
 {
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
     state.input.popFront();
     nextCol!(PS.config)(state.pos);
 }
@@ -1042,4 +1402,28 @@ pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
 {
     static if(config.posType == PositionType.lineAndCol)
         ++pos.col;
+}
+
+pragma(inline, true) void checkNonEmpty(PS)(PS state, size_t line = __LINE__)
+{
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    if(state.input.empty)
+        throw new XMLParsingException("Prematurely reached end of document", state.pos, __FILE__, line);
+}
+
+
+version(unittest)
+{
+    // Wrapping it like this rather than assigning testRangeFuncs directly
+    // allows us to avoid having the imports be at module-level, which is
+    // generally not esirable with version(unittest).
+    alias testRangeFuncs = _testRangeFuncs!();
+    template _testRangeFuncs()
+    {
+        import std.conv : to;
+        import std.algorithm : filter;
+        import std.meta : AliasSeq;
+        alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
+                                          a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a));
+    }
 }
