@@ -7,7 +7,7 @@
   +/
 module dxml.reader.parser;
 
-import std.algorithm : startsWith;
+import std.algorithm : equal, startsWith;
 import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
@@ -370,6 +370,9 @@ public:
 
         {
             auto parser = parseXML!simpleXML(xml);
+            assert(!parser.empty);
+            //assert(parser.type == EntityType.elementStart);
+            //assert(parser.name == "foo");
         }
     }
 
@@ -441,7 +444,18 @@ public:
       +/
     void next()
     {
-        assert(0);
+        final switch(_state.grammarPos) with(GrammarPos)
+        {
+            case prologMisc1: _parseAtPrologMisc!1(); break;
+            case prologMisc2: _parseAtPrologMisc!2(); break;
+            case intSubset: assert(0);
+            case splittingEmpty: assert(0);
+            case contentStart: assert(0);
+            case contentMid: assert(0);
+            case contentEnd: assert(0);
+            case endMisc: assert(0);
+            case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
+        }
     }
 
     /++
@@ -473,7 +487,7 @@ public:
         with(EntityType)
             assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
 
-        assert(0);
+        return stripBCU(_state.name);
     }
 
     /++
@@ -743,7 +757,7 @@ private:
             static if(config.splitEmpty == SplitEmpty.no)
             {
                 _state.type = EntityType.elementEmpty;
-                _state.grammarPos = _state.tagStack.tags.empty ? GrammarPos.endMisc : GrammarPos.contentStart;
+                _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentStart;
             }
             else
             {
@@ -759,9 +773,27 @@ private:
 
         if(_state.currText.input.empty)
             throw new XMLParsingException("Tag missing name", _state.currText.pos);
-        _state.currTag = takeName(_state.currText);
+        _state.name = takeName(_state.currText);
         if(_state.type == EntityType.elementStart)
-            _state.tagStack.push(_state.currTag);
+            _state.tagStack.push(_state.name);
+    }
+
+
+    // Parse an end tag. It could be the root element, or it could be a
+    // sub-element.
+    // </ was already removed from the front of the input.
+    void _parseElementEnd()
+    {
+        import std.format : format;
+        _state.currText.pos = _state.pos;
+        _state.name = _state.takeUntil!">"();
+        assert(!_state.tagStack.empty);
+        if(!equal(_state.name.save, _state.tagStack.back.save))
+        {
+            enum fmt = "Name of end tag [%s] does not match corresponding start tag [%s]";
+            throw new XMLParsingException(format!fmt(_state.name, _state.tagStack.back), _state.currText.pos);
+        }
+        _state.tagStack.pop();
     }
 
 
@@ -889,7 +921,7 @@ struct ParserState(Config cfg, R)
 
     CurrText currText;
 
-    Taken currTag;
+    Taken name;
     TagStack!Taken tagStack;
 
     this(R xmlText)
@@ -933,11 +965,13 @@ enum GrammarPos
     // DeclSep, or the ']' that follows the intSubset.
     intSubset,
 
+    /+
     // document ::= prolog element Misc*
     // element  ::= EmptyElemTag | STag content ETag
     // This at the element. The next thing to parse will either be an
     // EmptyElemTag or STag.
     element,
+    +/
 
     // Used with SplitEmpty.yes to tell the parser that we're currently at an
     // empty element tag that we're treating as a start tag, so the next entity
@@ -1026,7 +1060,6 @@ bool stripStartsWith(PS)(PS state, string text)
 
 @safe pure unittest
 {
-    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
@@ -1132,7 +1165,6 @@ bool stripWS(PS)(PS state)
 
 @safe pure unittest
 {
-    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
@@ -1285,7 +1317,6 @@ auto takeUntil(string text, PS)(PS state)
 
 unittest
 {
-    import std.algorithm : equal;
     import std.exception : assertThrown;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
@@ -1399,6 +1430,217 @@ unittest
 }
 
 
+// Variant of takeUntil which does not return a slice. It's intended for when
+// the config indicates that something should be skipped.
+void skipUntil(string text, PS)(PS state)
+{
+    import std.algorithm : find;
+    import std.ascii : isWhite;
+
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(text.find!isWhite().empty);
+
+    alias R = typeof(PS.input);
+    bool found = false;
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        size_t takeLen = 0;
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        size_t lineStart = 0;
+
+    loop: while(!state.input.empty)
+    {
+        switch(state.input.front)
+        {
+            case cast(ElementType!R)text[0]:
+            {
+                static if(text.length == 1)
+                {
+                    found = true;
+                    state.input.popFront();
+                    break loop;
+                }
+                else static if(text.length == 2)
+                {
+                    state.input.popFront();
+                    if(!state.input.empty && state.input.front == text[1])
+                    {
+                        found = true;
+                        state.input.popFront();
+                        break loop;
+                    }
+                    static if(state.config.posType == PositionType.lineAndCol)
+                        ++takeLen;
+                    continue;
+                }
+                else
+                {
+                    state.input.popFront();
+                    auto saved = state.input.save;
+                    foreach(i, c; text[1 .. $])
+                    {
+                        if(state.input.empty)
+                        {
+                            static if(state.config.posType == PositionType.lineAndCol)
+                                takeLen += i + 1;
+                            break loop;
+                        }
+                        if(state.input.front != c)
+                        {
+                            state.input = saved;
+                            static if(state.config.posType == PositionType.lineAndCol)
+                                ++takeLen;
+                            continue loop;
+                        }
+                        state.input.popFront();
+                    }
+                    found = true;
+                    break loop;
+                }
+            }
+            static if(state.config.posType != PositionType.none)
+            {
+                case '\n':
+                {
+                    nextLine!(state.config)(state.pos);
+                    static if(state.config.posType == PositionType.lineAndCol)
+                        lineStart = ++takeLen;
+                    break;
+                }
+            }
+            default:
+            {
+                static if(state.config.posType == PositionType.lineAndCol)
+                    ++takeLen;
+                break;
+            }
+        }
+
+        state.input.popFront();
+    }
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen - lineStart + text.length;
+    if(!found)
+        throw new XMLParsingException("Failed to find: " ~ text, state.pos);
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    foreach(func; testRangeFuncs)
+    {
+        {
+            auto haystack = func("hello world");
+            enum needle = "world";
+
+            static foreach(i; 1 .. needle.length)
+            {
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 7 + i)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    state.skipUntil!(needle[0 .. i])();
+                    assert(equal(state.input, needle[i .. $]));
+                    assert(state.pos == t[1]);
+                }
+            }
+        }
+        {
+            auto haystack = func("lello world");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipUntil!"l"();
+                assert(equal(state.input, "ello world"));
+                assert(state.pos == t[1]);
+            }
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipUntil!"ll"();
+                assert(equal(state.input, "o world"));
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            auto haystack = func("llello world");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 4)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipUntil!"le"();
+                assert(equal(state.input, "llo world"));
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            import std.utf : codeLength;
+            auto haystack = func("プログラミング in D is great indeed");
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング in D is ");
+            enum needle = "great";
+            enum remainder = "great indeed";
+
+            static foreach(i; 1 .. needle.length)
+            {
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + i + 1)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    state.skipUntil!(needle[0 .. i])();
+                    assert(equal(state.input, remainder[i .. $]));
+                    assert(state.pos == t[1]);
+                }
+            }
+        }
+        foreach(origHaystack; AliasSeq!("", "a", "hello"))
+        {
+            auto haystack = func(origHaystack);
+
+            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto state = testParser!config(haystack.save);
+                assertThrown!XMLParsingException(state.skipUntil!"x"());
+            }
+        }
+        foreach(origHaystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+        {
+            auto haystack = func(origHaystack);
+
+            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto state = testParser!config(haystack.save);
+                assertThrown!XMLParsingException(state.skipUntil!"le"());
+            }
+        }
+        foreach(origHaystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        {
+            auto haystack = func(origHaystack);
+
+            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto state = testParser!config(haystack.save);
+                assertThrown!XMLParsingException(state.skipUntil!"web"());
+            }
+        }
+    }
+}
+
+
 // The front of the input should be text surrounded by single or double quotes.
 // This returns a slice of the input containing that text, and the input is
 // advanced to one code unit beyond the quote.
@@ -1424,7 +1666,6 @@ auto takeEnquotedText(PS)(PS state)
 
 unittest
 {
-    import std.algorithm : equal;
     import std.exception : assertThrown;
     import std.range : only;
     import std.meta : AliasSeq;
@@ -1509,7 +1750,6 @@ void stripEq(PS)(PS state)
 
 unittest
 {
-    import std.algorithm : equal;
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
@@ -1598,7 +1838,6 @@ auto takeName(PS)(PS state)
 
 unittest
 {
-    import std.algorithm : equal;
     import std.exception : assertThrown;
     import std.meta : AliasSeq;
     import std.typecons : tuple;

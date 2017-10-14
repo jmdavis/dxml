@@ -524,6 +524,16 @@ struct TagStack(R)
         tags.assumeSafeAppend();
     }
 
+    R back()
+    {
+        return tags.back.save;
+    }
+
+    bool empty()
+    {
+        return tags.empty;
+    }
+
     R[] tags;
 }
 
