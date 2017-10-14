@@ -504,3 +504,46 @@ unittest
     assert(equal(filterResult, "hello"));
     static assert(is(typeof(filterResult) == typeof(filter!"true"("foo"))));
 }
+
+
+// Used for keeping track of the names of start tags so that end tags can be
+// verified.
+struct TagStack(R)
+    if(isInputRange!R && isSomeChar!(ElementType!R))
+{
+    import std.range : takeExactly;
+
+    void push(R tagName)
+    {
+        tags ~= tagName;
+    }
+
+    void pop()
+    {
+        --tags.length;
+        tags.assumeSafeAppend();
+    }
+
+    R[] tags;
+}
+
+unittest
+{
+    TagStack!string stack;
+    stack.push("hello");
+    assert(stack.tags == ["hello"]);
+    stack.push("world");
+    assert(stack.tags == ["hello", "world"]);
+    stack.pop();
+    assert(stack.tags == ["hello"]);
+    stack.push("sally");
+    stack.push("poe");
+    stack.push("foo");
+    assert(stack.tags == ["hello", "sally", "poe", "foo"]);
+    stack.pop();
+    stack.pop();
+    assert(stack.tags == ["hello", "sally"]);
+    stack.pop();
+    stack.pop();
+    assert(stack.tags.empty);
+}

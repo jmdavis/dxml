@@ -12,6 +12,7 @@ import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
 import std.typecons : Flag, Nullable, nullable;
+import std.utf : decodeFront, UseReplacementDchar;
 
 import dxml.reader.internal;
 
@@ -649,13 +650,10 @@ public:
 
 private:
 
-    // Parse at GrammarPos.prologMisc1.
-    void _parseAtMisc1()
+    // Parse at GrammarPos.prologMisc1 or GrammarPos.prologMisc2.
+    void _parseAtPrologMisc(int miscNum)()
     {
-        void throwXPE(string msg, size_t line = __LINE__)
-        {
-            throw new XMLParsingException(msg, _state.pos, __FILE__, line);
-        }
+        static assert(miscNum == 1 || miscNum == 2);
 
         // document ::= prolog element Misc*
         // prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)?
@@ -664,7 +662,7 @@ private:
         stripWS(_state);
         checkNotEmpty(_state);
         if(_state.input.front != '<')
-            throwXPE("Expected <");
+            throw new XMLParsingException("Expected <", _state.pos);
         popFrontAndIncCol(_state);
         checkNotEmpty(_state);
 
@@ -673,6 +671,21 @@ private:
             // Comment or doctypedecl
             case '!':
             {
+                popFrontAndIncCol(_state);
+                if(_state.stripStartsWith("--"))
+                {
+                    _parseComment();
+                    break;
+                }
+                static if(miscNum == 1)
+                {
+                    if(_state.stripStartsWith("DOCTYPE"))
+                    {
+                        _parseDoctypeDecl();
+                        break;
+                    }
+                }
+                throw new XMLParsingException("Invalid XML", _state.pos);
             }
             // PI
             case '?':
@@ -680,27 +693,75 @@ private:
                 popFrontAndIncCol(_state);
                 _state.currText.pos = _state.pos;
                 _state.currText.input = _state.takeUntil!"?>"();
-                checkNotEmpty(_state);
                 break;
             }
             // element
             default:
             {
-                _state.grammarPos = GrammarPos.element;
-                _parseAtElement(_state);
+                _parseElementStart();
                 break;
             }
         }
-        // <!-- comment
-        // <?  PI
-        // <!DOCTYPE
-        // < element
     }
 
 
-    // Parse at GrammarPos.element.
-    void _parseAtElement(PS)(PS state)
+    // Parse comment at whatever comment position the comment is at.
+    // <!-- was already removed from the front of the input.
+    void _parseComment()
     {
+        _state.type = EntityType.comment;
+        _state.currText.pos = _state.pos;
+        _state.currText.input = _state.takeUntil!"--"();
+        if(_state.input.empty || _state.input.front != '>')
+            throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _state.pos);
+        popFrontAndIncCol(_state);
+    }
+
+
+    // Parse doctypedecl after GrammarPos.prologMisc1.
+    // <!DOCTYPE was already removed from the front of the input.
+    void _parseDoctypeDecl()
+    {
+        //...
+        _state.grammarPos = GrammarPos.prologMisc2;
+    }
+
+
+    // Parse a start tag or empty element tag. It could be the root element, or
+    // it could be a sub-element.
+    // < was already removed from the front of the input.
+    void _parseElementStart()
+    {
+        _state.currText.pos = _state.pos;
+        _state.currText.input = _state.takeUntil!">"();
+        auto temp = _state.currText.input.save;
+        temp.popFrontN(temp.length - 1);
+        if(temp.front == '/')
+        {
+            _state.currText.input = _state.currText.input.takeExactly(_state.currText.input.length - 1);
+
+            static if(config.splitEmpty == SplitEmpty.no)
+            {
+                _state.type = EntityType.elementEmpty;
+                _state.grammarPos = _state.tagStack.tags.empty ? GrammarPos.endMisc : GrammarPos.contentStart;
+            }
+            else
+            {
+                _state.type = EntityType.elementStart;
+                _state.grammarPos = GrammarPos.splittingEmpty;
+            }
+        }
+        else
+        {
+            _state.type = EntityType.elementStart;
+            _state.grammarPos = GrammarPos.contentStart;
+        }
+
+        if(_state.currText.input.empty)
+            throw new XMLParsingException("Tag missing name", _state.currText.pos);
+        _state.currTag = takeName(_state.currText);
+        if(_state.type == EntityType.elementStart)
+            _state.tagStack.push(_state.currTag);
     }
 
 
@@ -716,7 +777,7 @@ private:
             _state.grammarPos = GrammarPos.prologMisc1;
         }
         else
-            _parseAtMisc1();
+            _parseAtPrologMisc!1();
     }
 
     ParserState!(config, R)* _state;
@@ -801,6 +862,7 @@ private:
 struct ParserState(Config cfg, R)
 {
     alias config = cfg;
+    alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
 
     EntityType type;
 
@@ -821,11 +883,14 @@ struct ParserState(Config cfg, R)
     struct CurrText
     {
         alias config = cfg;
-        typeof(takeExactly(byCodeUnit(R.init), 42)) input;
+        Taken input;
         SourcePos pos;
     }
 
     CurrText currText;
+
+    Taken currTag;
+    TagStack!Taken tagStack;
 
     this(R xmlText)
     {
@@ -873,6 +938,11 @@ enum GrammarPos
     // This at the element. The next thing to parse will either be an
     // EmptyElemTag or STag.
     element,
+
+    // Used with SplitEmpty.yes to tell the parser that we're currently at an
+    // empty element tag that we're treating as a start tag, so the next entity
+    // will be an end tag even though we didn't actually parse one.
+    splittingEmpty,
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
@@ -1497,6 +1567,243 @@ unittest
                 assert(state.pos == t[1]);
             }
         }
+    }
+}
+
+
+// Takes a name (per the Name grammar rule) from the front of the input.
+auto takeName(PS)(PS state)
+{
+    import std.format : format;
+
+    auto orig = state.input.save;
+    size_t takeLen;
+    auto c = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
+    if(!isNameStartChar(c))
+        throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
+    while(!state.input.empty)
+    {
+        if(isSpace(state.input.front))
+            break;
+        size_t numCodeUnits;
+        c = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+        if(!isNameChar(c))
+            throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
+        takeLen += numCodeUnits;
+    }
+    static if(state.config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen;
+    return takeExactly(orig, takeLen);
+}
+
+unittest
+{
+    import std.algorithm : equal;
+    import std.exception : assertThrown;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+    import std.utf : codeLength;
+
+    foreach(func; testRangeFuncs)
+    {
+        foreach(str; AliasSeq!("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"))
+        {
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
+
+            foreach(c; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
+            {
+                auto haystack = func(str ~ c);
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeName(state), str));
+                    assert(equal(state.input, c));
+                    assert(state.pos == t[1]);
+                }
+            }
+        }
+
+        foreach(haystack; AliasSeq!("4", "42", "-", ".", " ", "\t", "\n", "\r", " foo", "\tfoo", "\nfoo", "\rfoo"))
+        {
+            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto state = testParser!config(haystack.save);
+                assertThrown!XMLParsingException(state.takeName());
+            }
+        }
+    }
+}
+
+
+// S := (#x20 | #x9 | #xD | #XA)+
+bool isSpace(C)(C c)
+    if(isSomeChar!C)
+{
+    switch(c)
+    {
+        case ' ':
+        case '\t':
+        case '\r':
+        case '\n': return true;
+        default : return false;
+    }
+}
+
+unittest
+{
+    foreach(char c; char.min .. char.max)
+    {
+        if(c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            assert(isSpace(c));
+        else
+            assert(!isSpace(c));
+    }
+    foreach(wchar c; wchar.min .. wchar.max / 100)
+    {
+        if(c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            assert(isSpace(c));
+        else
+            assert(!isSpace(c));
+    }
+    foreach(dchar c; dchar.min .. dchar.max / 1000)
+    {
+        if(c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            assert(isSpace(c));
+        else
+            assert(!isSpace(c));
+    }
+}
+
+
+// NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] |
+//                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
+//                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
+bool isNameStartChar(dchar c)
+{
+    import std.ascii : isAlpha;
+
+    if(isAlpha(c))
+        return true;
+    if(c == ':' || c == '_')
+        return true;
+    if(c >= 0xC0 && c <= 0xD6)
+        return true;
+    if(c >= 0xD8 && c <= 0xF6)
+        return true;
+    if(c >= 0xF8 && c <= 0x2FF)
+        return true;
+    if(c >= 0x370 && c <= 0x37D)
+        return true;
+    if(c >= 0x37F && c <= 0x1FFF)
+        return true;
+    if(c >= 0x200C && c <= 0x200D)
+        return true;
+    if(c >= 0x2070 && c <= 0x218F)
+        return true;
+    if(c >= 0x2C00 && c <= 0x2FEF)
+        return true;
+    if(c >= 0x3001 && c <= 0xD7FF)
+        return true;
+    if(c >= 0xF900 && c <= 0xFDCF)
+        return true;
+    if(c >= 0xFDF0 && c <= 0xFFFD)
+        return true;
+    if(c >= 0x10000 && c <= 0xEFFFF)
+        return true;
+    return false;
+}
+
+unittest
+{
+    import std.range : only;
+    import std.typecons : tuple;
+
+    foreach(c; char.min .. cast(char)128)
+    {
+        if(c == ':' || c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')
+            assert(isNameStartChar(c));
+        else
+            assert(!isNameStartChar(c));
+    }
+
+    foreach(t; only(tuple(0xC0, 0xD6),
+                    tuple(0xD8, 0xF6),
+                    tuple(0xF8, 0x2FF),
+                    tuple(0x370, 0x37D),
+                    tuple(0x37F, 0x1FFF),
+                    tuple(0x200C, 0x200D),
+                    tuple(0x2070, 0x218F),
+                    tuple(0x2C00, 0x2FEF),
+                    tuple(0x3001, 0xD7FF),
+                    tuple(0xF900, 0xFDCF),
+                    tuple(0xFDF0, 0xFFFD),
+                    tuple(0x10000, 0xEFFFF)))
+    {
+        assert(!isNameStartChar(t[0] - 1));
+        assert(isNameStartChar(t[0]));
+        assert(isNameStartChar(t[0] + 1));
+        assert(isNameStartChar(t[0] + (t[1] - t[0])));
+        assert(isNameStartChar(t[1] - 1));
+        assert(isNameStartChar(t[1]));
+        assert(!isNameStartChar(t[1] + 1));
+    }
+}
+
+
+// NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] |
+//                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
+//                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
+// NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
+bool isNameChar(dchar c)
+{
+    import std.ascii : isDigit;
+    return isNameStartChar(c) || isDigit(c) || c == '-' || c == '.' || c == 0xB7 ||
+           c >= 0x0300 && c <= 0x036F || c >= 0x203F && c <= 0x2040;
+}
+
+unittest
+{
+    import std.range : only;
+    import std.typecons : tuple;
+
+    foreach(c; char.min .. cast(char)128)
+    {
+        if(c == ':' || c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
+           c == '-' || c == '.' || c >= '0' && c <= '9')
+        {
+            assert(isNameChar(c));
+        }
+        else
+            assert(!isNameChar(c));
+    }
+
+    assert(!isNameChar(0xB7 - 1));
+    assert(isNameChar(0xB7));
+    assert(!isNameChar(0xB7 + 1));
+
+    foreach(t; only(tuple(0xC0, 0xD6),
+                    tuple(0xD8, 0xF6),
+                    tuple(0xF8, 0x037D), // 0xF8 - 0x2FF, 0x0300 - 0x036F, 0x37 - 0x37D
+                    tuple(0x37F, 0x1FFF),
+                    tuple(0x200C, 0x200D),
+                    tuple(0x2070, 0x218F),
+                    tuple(0x2C00, 0x2FEF),
+                    tuple(0x3001, 0xD7FF),
+                    tuple(0xF900, 0xFDCF),
+                    tuple(0xFDF0, 0xFFFD),
+                    tuple(0x10000, 0xEFFFF),
+                    tuple(0x203F, 0x2040)))
+    {
+        assert(!isNameChar(t[0] - 1));
+        assert(isNameChar(t[0]));
+        assert(isNameChar(t[0] + 1));
+        assert(isNameChar(t[0] + (t[1] - t[0])));
+        assert(isNameChar(t[1] - 1));
+        assert(isNameChar(t[1]));
+        assert(!isNameChar(t[1] + 1));
     }
 }
 
