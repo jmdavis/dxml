@@ -1226,93 +1226,7 @@ bool stripWS(PS)(PS state)
 // the process. If the text is not found, then an XMLParsingException is thrown.
 auto takeUntil(string text, PS)(PS state)
 {
-    import std.algorithm : find;
-    import std.ascii : isWhite;
-
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
-    static assert(text.find!isWhite().empty);
-
-    alias R = typeof(PS.input);
-    auto orig = state.input.save;
-    bool found = false;
-    size_t takeLen = 0;
-
-    static if(state.config.posType == PositionType.lineAndCol)
-        size_t lineStart = 0;
-
-    loop: while(!state.input.empty)
-    {
-        switch(state.input.front)
-        {
-            case cast(ElementType!R)text[0]:
-            {
-                static if(text.length == 1)
-                {
-                    found = true;
-                    state.input.popFront();
-                    break loop;
-                }
-                else static if(text.length == 2)
-                {
-                    state.input.popFront();
-                    if(!state.input.empty && state.input.front == text[1])
-                    {
-                        found = true;
-                        state.input.popFront();
-                        break loop;
-                    }
-                    ++takeLen;
-                    continue;
-                }
-                else
-                {
-                    state.input.popFront();
-                    auto saved = state.input.save;
-                    foreach(i, c; text[1 .. $])
-                    {
-                        if(state.input.empty)
-                        {
-                            takeLen += i + 1;
-                            break loop;
-                        }
-                        if(state.input.front != c)
-                        {
-                            state.input = saved;
-                            ++takeLen;
-                            continue loop;
-                        }
-                        state.input.popFront();
-                    }
-                    found = true;
-                    break loop;
-                }
-            }
-            static if(state.config.posType != PositionType.none)
-            {
-                case '\n':
-                {
-                    ++takeLen;
-                    nextLine!(state.config)(state.pos);
-                    static if(state.config.posType == PositionType.lineAndCol)
-                        lineStart = takeLen;
-                    break;
-                }
-            }
-            default:
-            {
-                ++takeLen;
-                break;
-            }
-        }
-
-        state.input.popFront();
-    }
-
-    static if(state.config.posType == PositionType.lineAndCol)
-        state.pos.col += takeLen - lineStart + text.length;
-    if(!found)
-        throw new XMLParsingException("Failed to find: " ~ text, state.pos);
-    return takeExactly(orig, takeLen);
+    return _takeUntil!(true, text, PS)(state);
 }
 
 unittest
@@ -1429,101 +1343,12 @@ unittest
     }
 }
 
-
 // Variant of takeUntil which does not return a slice. It's intended for when
 // the config indicates that something should be skipped.
-void skipUntil(string text, PS)(PS state)
+
+auto skipUntil(string text, PS)(PS state)
 {
-    import std.algorithm : find;
-    import std.ascii : isWhite;
-
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
-    static assert(text.find!isWhite().empty);
-
-    alias R = typeof(PS.input);
-    bool found = false;
-
-    static if(state.config.posType == PositionType.lineAndCol)
-        size_t takeLen = 0;
-
-    static if(state.config.posType == PositionType.lineAndCol)
-        size_t lineStart = 0;
-
-    loop: while(!state.input.empty)
-    {
-        switch(state.input.front)
-        {
-            case cast(ElementType!R)text[0]:
-            {
-                static if(text.length == 1)
-                {
-                    found = true;
-                    state.input.popFront();
-                    break loop;
-                }
-                else static if(text.length == 2)
-                {
-                    state.input.popFront();
-                    if(!state.input.empty && state.input.front == text[1])
-                    {
-                        found = true;
-                        state.input.popFront();
-                        break loop;
-                    }
-                    static if(state.config.posType == PositionType.lineAndCol)
-                        ++takeLen;
-                    continue;
-                }
-                else
-                {
-                    state.input.popFront();
-                    auto saved = state.input.save;
-                    foreach(i, c; text[1 .. $])
-                    {
-                        if(state.input.empty)
-                        {
-                            static if(state.config.posType == PositionType.lineAndCol)
-                                takeLen += i + 1;
-                            break loop;
-                        }
-                        if(state.input.front != c)
-                        {
-                            state.input = saved;
-                            static if(state.config.posType == PositionType.lineAndCol)
-                                ++takeLen;
-                            continue loop;
-                        }
-                        state.input.popFront();
-                    }
-                    found = true;
-                    break loop;
-                }
-            }
-            static if(state.config.posType != PositionType.none)
-            {
-                case '\n':
-                {
-                    nextLine!(state.config)(state.pos);
-                    static if(state.config.posType == PositionType.lineAndCol)
-                        lineStart = ++takeLen;
-                    break;
-                }
-            }
-            default:
-            {
-                static if(state.config.posType == PositionType.lineAndCol)
-                    ++takeLen;
-                break;
-            }
-        }
-
-        state.input.popFront();
-    }
-
-    static if(state.config.posType == PositionType.lineAndCol)
-        state.pos.col += takeLen - lineStart + text.length;
-    if(!found)
-        throw new XMLParsingException("Failed to find: " ~ text, state.pos);
+    return _takeUntil!(false, text, PS)(state);
 }
 
 unittest
@@ -1638,6 +1463,107 @@ unittest
             }
         }
     }
+}
+
+auto _takeUntil(bool retSlice, string text, PS)(PS state)
+{
+    import std.algorithm : find;
+    import std.ascii : isWhite;
+
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(text.find!isWhite().empty);
+
+    enum trackTakeLen = retSlice || state.config.posType == PositionType.lineAndCol;
+
+    alias R = typeof(PS.input);
+    auto orig = state.input.save;
+    bool found = false;
+
+    static if(trackTakeLen)
+        size_t takeLen = 0;
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        size_t lineStart = 0;
+
+    loop: while(!state.input.empty)
+    {
+        switch(state.input.front)
+        {
+            case cast(ElementType!R)text[0]:
+            {
+                static if(text.length == 1)
+                {
+                    found = true;
+                    state.input.popFront();
+                    break loop;
+                }
+                else static if(text.length == 2)
+                {
+                    state.input.popFront();
+                    if(!state.input.empty && state.input.front == text[1])
+                    {
+                        found = true;
+                        state.input.popFront();
+                        break loop;
+                    }
+                    static if(trackTakeLen)
+                        ++takeLen;
+                    continue;
+                }
+                else
+                {
+                    state.input.popFront();
+                    auto saved = state.input.save;
+                    foreach(i, c; text[1 .. $])
+                    {
+                        if(state.input.empty)
+                        {
+                            static if(trackTakeLen)
+                                takeLen += i + 1;
+                            break loop;
+                        }
+                        if(state.input.front != c)
+                        {
+                            state.input = saved;
+                            static if(trackTakeLen)
+                                ++takeLen;
+                            continue loop;
+                        }
+                        state.input.popFront();
+                    }
+                    found = true;
+                    break loop;
+                }
+            }
+            static if(state.config.posType != PositionType.none)
+            {
+                case '\n':
+                {
+                    static if(trackTakeLen)
+                        ++takeLen;
+                    nextLine!(state.config)(state.pos);
+                    static if(state.config.posType == PositionType.lineAndCol)
+                        lineStart = takeLen;
+                    break;
+                }
+            }
+            default:
+            {
+                static if(trackTakeLen)
+                    ++takeLen;
+                break;
+            }
+        }
+
+        state.input.popFront();
+    }
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen - lineStart + text.length;
+    if(!found)
+        throw new XMLParsingException("Failed to find: " ~ text, state.pos);
+    static if(retSlice)
+        return takeExactly(orig, takeLen);
 }
 
 

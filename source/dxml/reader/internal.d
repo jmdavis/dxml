@@ -526,7 +526,7 @@ struct TagStack(R)
 
     R back()
     {
-        return tags.back.save;
+        return tags.back;
     }
 
     bool empty()
