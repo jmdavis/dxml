@@ -174,7 +174,7 @@ struct Config
       +/
     auto splitEmpty = SplitEmpty.no;
 
-    ///
+    /// See PositionType.
     PositionType posType = PositionType.lineAndCol;
 }
 
@@ -191,11 +191,35 @@ struct Config
   +/
 Config makeConfig(Args...)(Args args)
 {
-    // FIXME Make this not compile if one of the args is not valid.
+    import std.format : format;
+    import std.meta : AliasSeq, staticIndexOf, staticMap;
+
+    template isValid(T, Types...)
+    {
+        static if(Types.length == 0)
+            enum isValid = false;
+        else static if(is(T == Types[0]))
+            enum isValid = true;
+        else
+            enum isValid = isValid!(T, Types[1 .. $]);
+    }
+
     Config config;
 
-    foreach(arg; args)
+    alias TypeOfMember(string memberName) = typeof(__traits(getMember, config, memberName));
+    alias MemberTypes = staticMap!(TypeOfMember, AliasSeq!(__traits(allMembers, Config)));
+
+    foreach(i, arg; args)
     {
+        static assert(isValid!(typeof(arg), MemberTypes),
+                      format!"Argument %s does not match the type of any members of Config"(i));
+
+        static foreach(j, Other; Args)
+        {
+            static if(i != j)
+                static assert(!is(typeof(arg) == Other), format!"Argument %s and %s have the same type"(i, j));
+        }
+
         foreach(memberName; __traits(allMembers, Config))
         {
             static if(is(typeof(__traits(getMember, config, memberName)) == typeof(arg)))
@@ -213,8 +237,9 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
-        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.skipPI == Config.init.skipPI);
+        assert(config.stripContentWS == Config.init.stripContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == Config.init.posType);
     }
@@ -223,8 +248,9 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes, PositionType.none);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
-        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.skipPI == Config.init.skipPI);
+        assert(config.stripContentWS == Config.init.stripContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == PositionType.none);
     }
@@ -233,31 +259,40 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SplitEmpty.yes, SkipComments.yes, PositionType.line);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
-        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
+        assert(config.skipPI == Config.init.skipPI);
+        assert(config.stripContentWS == Config.init.stripContentWS);
         assert(config.splitEmpty == SplitEmpty.yes);
         assert(config.posType == PositionType.line);
     }
 }
 
+unittest
+{
+    import std.typecons : Flag;
+    static assert(!__traits(compiles, makeConfig(42)));
+    static assert(!__traits(compiles, makeConfig("hello")));
+    static assert(!__traits(compiles, makeConfig(Flag!"SomeOtherFlag".yes)));
+    static assert(!__traits(compiles, makeConfig(SplitEmpty.yes, SplitEmpty.no)));
+}
 
-// FIXME Make sure that this has the correct values, since we've added more to
-// the Config without adding anything here.
+
 /++
     This config is intended for making it easy to parse XML that does not
     contain some of the more advanced XML features such as DTDs. It skips
     everything that can be configured to skip.
   +/
-enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipPI.yes, SkipProlog.yes,
-                            SplitEmpty.yes, PositionType.lineAndCol);
+enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipPI.yes,
+                            StripContentWS.yes, SplitEmpty.yes, PositionType.lineAndCol);
 
 ///
 @safe pure nothrow @nogc unittest
 {
     static assert(simpleXML.skipComments == SkipComments.yes);
     static assert(simpleXML.skipDTD == SkipDTD.yes);
-    static assert(simpleXML.skipPI == SkipPI.yes);
     static assert(simpleXML.skipProlog == SkipProlog.yes);
+    static assert(simpleXML.skipPI == SkipPI.yes);
+    static assert(simpleXML.stripContentWS == StripContentWS.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
     static assert(simpleXML.posType == PositionType.lineAndCol);
 }
@@ -524,7 +559,12 @@ public:
                     assert(0);
                     //break;
                 }
-                case splittingEmpty: assert(0);
+                case splittingEmpty:
+                {
+                    _state.type = EntityType.elementEnd;
+                    _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+                    break;
+                }
                 case contentCharData1:
                 {
                     assert(_state.type == EntityType.elementStart);
@@ -535,7 +575,7 @@ public:
                 case contentMid: _parseAtContentMid(); break;
                 case contentCharData2: _parseAtContentCharData(); break;
                 case endTag: _parseElementEnd(); break;
-                case endMisc: assert(0);
+                case endMisc: _parseAtEndMisc(); break;
                 case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
             }
             return;
@@ -929,6 +969,7 @@ private:
     void _parseElementEnd()
     {
         import std.format : format;
+        _state.type = EntityType.elementEnd;
         _state.currText.pos = _state.pos;
         _state.name = _state.takeUntilAndDrop!">"();
         assert(!_state.tagStack.empty);
@@ -1205,6 +1246,11 @@ struct ParserState(Config cfg, R)
     this(R xmlText)
     {
         input = byCodeUnit(xmlText);
+        // TODO The compiler complains if these two fields aren't initialized in
+        // the constructor, which seems like a bug. It should be reduced and
+        // reported.
+        currText = CurrText.init;
+        name = Taken.init;
     }
 }
 
