@@ -133,7 +133,7 @@ struct Config
     /++
         Whether processing instructions should be skipped.
 
-        If $(D true), any $(D Entity)s with
+        If $(D true), any $(D Entity)s with the type
         $(D EntityType.processingInstruction) will be skipped.
       +/
     auto skipPI = SkipPI.no;
@@ -241,6 +241,8 @@ Config makeConfig(Args...)(Args args)
 }
 
 
+// FIXME Make sure that this has the correct values, since we've added more to
+// the Config without adding anything here.
 /++
     This config is intended for making it easy to parse XML that does not
     contain some of the more advanced XML features such as DTDs. It skips
@@ -266,7 +268,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipPI.yes, SkipProlo
   +/
 enum EntityType
 {
-    /// The $(D <!ATTLIST .. >) tag.
+    /// The $(D <!ATTLIST ... >) tag.
     attlistDecl,
 
     /// A cdata section: $(D <![CDATA[ ... ]]>).
@@ -275,13 +277,13 @@ enum EntityType
     /// An XML comment: $(D <!-- ... -->).
     comment,
 
-    /// The beginning of a $(D <!DOCTYPE .. >) tag.
+    /// The beginning of a $(D <!DOCTYPE ... >) tag.
     docTypeStart,
 
     /// The $(D >) indicating the end of a $(D <!DOCTYPE) tag.
     docTypeEnd,
 
-    /// The $(D <!ELEMENT .. >) tag.
+    /// The $(D <!ELEMENT ... >) tag.
     elementDecl,
 
     /// The start tag for an element. e.g. $(D <foo name="value">).
@@ -293,10 +295,10 @@ enum EntityType
     /// The tag for an element with no contents. e.g. $(D <foo name="value"/>).
     elementEmpty,
 
-    /// The $(D <!ENTITY .. >) tag.
+    /// The $(D <!ENTITY ... >) tag.
     entityDecl,
 
-    /// The $(D <!NOTATION .. >) tag.
+    /// The $(D <!NOTATION ... >) tag.
     notationDecl,
 
     /++
@@ -310,6 +312,12 @@ enum EntityType
 
         If there is an entity other than the end tag following the text, then
         the text includes up to that entity.
+
+        Note however that character references (e.g. $(D "&#42")) and entity
+        references (e.g. $(D "&Name;") are left unprocessed in the text
+        (primarily because the most user-friendly thing to do with
+        them is to convert them in place, and that's best to a higher level
+        parser or helper function).
       +/
     text,
 
@@ -419,6 +427,7 @@ public:
     /// The Config used for this parser.
     alias config = cfg;
 
+
     /++
         The type used when any slice of the original text is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
@@ -428,6 +437,7 @@ public:
         alias SliceOfR = R;
     else
         alias SliceOfR = typeof(takeExactly(R.init, 42));
+
 
     // TODO re-enable these. Whenever EntityParser doesn't compile correctly due
     // to a change, these static assertions fail, and the actual errors are masked.
@@ -462,6 +472,7 @@ public:
         return _state.type;
     }
 
+
     /++
         The position of the current entity in the XML document.
 
@@ -472,6 +483,7 @@ public:
     {
         return _state.pos;
     }
+
 
     /++
         Move to the next entity.
@@ -517,10 +529,11 @@ public:
                 {
                     assert(_state.type == EntityType.elementStart);
                     _state.tagStack.push(_state.name);
-                    assert(0);
+                    _parseAtContentCharData();
+                    break;
                 }
                 case contentMid: _parseAtContentMid(); break;
-                case contentCharData2: _parseAtCharData2(); break;
+                case contentCharData2: _parseAtContentCharData(); break;
                 case endTag: _parseElementEnd(); break;
                 case endMisc: assert(0);
                 case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
@@ -528,6 +541,7 @@ public:
             return;
         }
     }
+
 
     /++
         $(D true) if there is no more XML to process. It as en error to call
@@ -537,6 +551,7 @@ public:
     {
         return _state.grammarPos == GrammarPos.documentEnd;
     }
+
 
     /++
         Gives the name of the current entity.
@@ -561,6 +576,7 @@ public:
         return stripBCU(_state.name);
     }
 
+
     /++
         Returns a range of attributes for a start tag where each attribute is
         represented as a $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
@@ -579,6 +595,7 @@ public:
         alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
         assert(0);
     }
+
 
     /++
         Returns the value of the current entity.
@@ -601,6 +618,7 @@ public:
         assert(0);
     }
 
+
     /++
         When at a start tag, moves the parser to the entity after the
         corresponding end tag tag and returns the contents between the two tags
@@ -617,6 +635,7 @@ public:
         assert(0);
     }
 
+
     /++
         When at a start tag, moves the parser to the entity after the
         corresponding end tag.
@@ -631,6 +650,7 @@ public:
 
         assert(0);
     }
+
 
     /++
         Returns the $(D XMLDecl) corresponding to the current entity.
@@ -695,7 +715,7 @@ public:
                 throwXPE("There must be whitespace before the encoding declaration");
             popFrontAndIncCol(&_state.currText);
             if(!stripStartsWith(&_state.currText, "ncoding"))
-                throwXPE("Invalid <?xml .. ?> declaration in prolog");
+                throwXPE("Invalid <?xml ... ?> declaration in prolog");
             stripEq(&_state.currText);
             retval.encoding = nullable(stripBCU(takeEnquotedText(&_state.currText)));
 
@@ -710,7 +730,7 @@ public:
                 throwXPE("There must be whitespace before the standalone declaration");
             popFrontAndIncCol(&_state.currText);
             if(!stripStartsWith(&_state.currText, "tandalone"))
-                throwXPE("Invalid <?xml .. ?> declaration in prolog");
+                throwXPE("Invalid <?xml ... ?> declaration in prolog");
             stripEq(&_state.currText);
 
             auto pos = _state.currText.pos;
@@ -725,10 +745,11 @@ public:
         }
 
         if(!_state.currText.input.empty)
-            throwXPE("Invalid <?xml .. ?> declaration in prolog");
+            throwXPE("Invalid <?xml ... ?> declaration in prolog");
 
         return retval;
     }
+
 
 private:
 
@@ -750,7 +771,8 @@ private:
 
         switch(_state.input.front)
         {
-            // Comment or doctypedecl
+            // Comment     ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+            // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
             case '!':
             {
                 popFrontAndIncCol(_state);
@@ -769,21 +791,13 @@ private:
                 }
                 throw new XMLParsingException("Invalid XML", _state.pos);
             }
-            // PI
+            // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
             {
-                popFrontAndIncCol(_state);
-                static if(config.skipProlog == SkipProlog.yes || config.skipPI == SkipPI.yes)
-                    _state.skipUntilAndDrop!"?>"();
-                else
-                {
-                    _state.type = EntityType.processingInstruction;
-                    _state.currText.pos = _state.pos;
-                    _state.currText.input = _state.takeUntilAndDrop!"?>"();
-                }
+                _parsePI!(config.skipProlog == SkipProlog.yes || config.skipPI == SkipPI.yes);
                 break;
             }
-            // element
+            // element ::= EmptyElemTag | STag content ETag
             default:
             {
                 _parseElementStart();
@@ -793,8 +807,8 @@ private:
     }
 
 
-    // Parse comment at whatever comment position the comment is at.
-    // <!-- was already removed from the front of the input.
+    // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+    // Parses a comment. <!-- was already removed from the front of the input.
     void _parseComment(bool skip = config.skipComments == SkipComments.yes)()
     {
         static if(skip)
@@ -808,6 +822,38 @@ private:
         if(_state.input.empty || _state.input.front != '>')
             throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _state.pos);
         popFrontAndIncCol(_state);
+    }
+
+
+    // PI       ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
+    // PITarget ::= Name - (('X' | 'x') ('M' | 'm') ('L' | 'l'))
+    // Parses a processing instruction. < was already removed from the input.
+    void _parsePI(bool skip = config.skipPI == SkipPI.yes)()
+    {
+        assert(_state.input.front == '?');
+        popFrontAndIncCol(_state);
+        static if(skip)
+            _state.skipUntilAndDrop!"?>"();
+        else
+        {
+            _state.type = EntityType.processingInstruction;
+            _state.currText.pos = _state.pos;
+            _state.currText.input = _state.takeUntilAndDrop!"?>"();
+        }
+    }
+
+
+    // CDSect  ::= CDStart CData CDEnd
+    // CDStart ::= '<![CDATA['
+    // CData   ::= (Char* - (Char* ']]>' Char*))
+    // CDEnd   ::= ']]>'
+    // Parses a CDATA. <!CDATA[ was already removed from the front of the input.
+    void _parseCDATA()
+    {
+        _state.type = EntityType.cdata;
+        _state.currText.pos = _state.pos;
+        _state.currText.input = _state.takeUntilAndDrop!"]]>";
+        _state.grammarPos = GrammarPos.contentCharData2;
     }
 
 
@@ -872,6 +918,8 @@ private:
         if(_state.currText.input.empty)
             throw new XMLParsingException("Tag missing name", _state.currText.pos);
         _state.name = takeName(&_state.currText);
+        stripWS(&_state.currText);
+        // The attributes should be all that's left in currText.
     }
 
 
@@ -896,9 +944,9 @@ private:
 
     // GrammarPos.contentCharData1
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
-    // Parse at the point immediately after the start tag. Nothing in content
-    // has been parsed yet.
-    void _parseAtContentCharData1()
+    // Parses at either CharData?. Nothing from the CharData? (or what's after it
+    // if it's not there) has been consumed.
+    void _parseAtContentCharData()
     {
         static if(config.stripContentWS == StripContentWS.yes)
             stripWS(_state);
@@ -935,20 +983,53 @@ private:
 
 
     // GrammarPos.contentMid
-    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // content     ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     // The text right after the start tag was what was parsed previously. So,
     // that first CharData? was what was parsed last, and this parses starting
     // right after. The < should have already been removed from the input.
     void _parseAtContentMid()
     {
-    }
+        // Note that References are treated as part of the CharData and not
+        // parsed out by the EntityParser (see EntityParser.text).
 
-
-    // GrammarPos.contentCharData2
-    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
-    // This parsers at the second CharData?.
-    void _parseAtCharData2()
-    {
+        switch(_state.input.front)
+        {
+            // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+            // CDSect  ::= CDStart CData CDEnd
+            // CDStart ::= '<![CDATA['
+            // CData   ::= (Char* - (Char* ']]>' Char*))
+            // CDEnd   ::= ']]>'
+            case '!':
+            {
+                popFrontAndIncCol(_state);
+                if(_state.stripStartsWith("--"))
+                {
+                    _parseComment();
+                    static if(config.skipComments == SkipComments.yes)
+                        _parseAtContentCharData();
+                    else
+                        _state.grammarPos = GrammarPos.contentCharData2;
+                }
+                else if(_state.stripStartsWith("[CDATA["))
+                    _parseCDATA();
+                else
+                    throw new XMLParsingException("Not valid Comment or CData section", _state.pos);
+                break;
+            }
+            // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
+            case '?':
+            {
+                _parsePI();
+                _state.grammarPos = GrammarPos.contentCharData2;
+                break;
+            }
+            // element ::= EmptyElemTag | STag content ETag
+            default:
+            {
+                _parseElementStart();
+                break;
+            }
+        }
     }
 
 
@@ -972,7 +1053,7 @@ private:
 
         switch(_state.input.front)
         {
-            // Comment
+            // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
             case '!':
             {
                 popFrontAndIncCol(_state);
@@ -983,18 +1064,10 @@ private:
                 }
                 throw new XMLParsingException("Invalid XML", _state.pos);
             }
-            // PI
+            // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
             {
-                popFrontAndIncCol(_state);
-                static if(config.skipPI == SkipPI.yes)
-                    _state.skipUntilAndDrop!"?>"();
-                else
-                {
-                    _state.type = EntityType.processingInstruction;
-                    _state.currText.pos = _state.pos;
-                    _state.currText.input = _state.takeUntilAndDrop!"?>"();
-                }
+                _parsePI();
                 break;
             }
             default: throw new XMLParsingException("Must be a comment or PI", _state.pos);
@@ -1186,20 +1259,25 @@ enum GrammarPos
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     // This is at the beginning of content at the first CharData?. The next
-    // thing to parse will be a CharData, element, Reference, CDSect, PI,
-    // Comment, or ETag.
+    // thing to parse will be a CharData, element, CDSect, PI, Comment, or ETag.
+    // References are treated as part of the CharData and not parsed out by the
+    // EntityParser (see EntityParser.text).
     contentCharData1,
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     // This is after the first CharData?. The next thing to parse will be a
-    // element, Reference, CDSect, PI, Comment, or ETag.
+    // element, CDSect, PI, Comment, or ETag.
+    // References are treated as part of the CharData and not parsed out by the
+    // EntityParser (see EntityParser.text).
     contentMid,
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
     // This is at the second CharData?. The next thing to parse will be a
-    // CharData, element, Reference, CDSect, PI, Comment, or ETag.
+    // CharData, element, CDSect, PI, Comment, or ETag.
+    // References are treated as part of the CharData and not parsed out by the
+    // EntityParser (see EntityParser.text).
     contentCharData2,
 
     // element  ::= EmptyElemTag | STag content ETag
@@ -1554,9 +1632,9 @@ unittest
     }
 }
 
-// Variant of takeUntilAndDrop which does not return a slice. It's intended for when
-// the config indicates that something should be skipped.
-auto skipUntilAndDrop(string text, PS)(PS state)
+// Variant of takeUntilAndDrop which does not return a slice. It's intended for
+// when the config indicates that something should be skipped.
+void skipUntilAndDrop(string text, PS)(PS state)
 {
     return _takeUntilAndDrop!(false, text, PS)(state);
 }
@@ -2066,7 +2144,10 @@ unittest
 }
 
 
-// Takes a name (per the Name grammar rule) from the front of the input.
+// Removes a name (per the Name grammar rule) from the front of the input and
+// returns it.
+// If delim is char.init, then XML space is the delimeter, otherwise it's
+// whatever delim is.
 auto takeName(PS)(PS state)
 {
     import std.format : format;
