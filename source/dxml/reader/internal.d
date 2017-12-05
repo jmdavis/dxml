@@ -435,7 +435,7 @@ static assert(hasSlicing!(RASRefCharRange!char));
 // comparing a string with a range with a character type other than char.
 // However, the text must be ASCII.
 bool equalCU(R)(R range, string text)
-    if(isInputRange!R && isSomeChar!(ElementType!R))
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     static if(hasLength!R)
     {
@@ -481,7 +481,7 @@ unittest
 // This is used for the cases where we need to take a range and strip ByCodeUnit
 // from it if it's a wrapped string and return the original otherwise.
 pragma(inline, true) auto stripBCU(R)(R range)
-    if(isInputRange!R && isSomeChar!(ElementType!R))
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     static assert(!isNarrowString!R);
     static if(isWrappedString!R)
@@ -509,7 +509,7 @@ unittest
 // Used for keeping track of the names of start tags so that end tags can be
 // verified.
 struct TagStack(R)
-    if(isInputRange!R && isSomeChar!(ElementType!R))
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     import std.range : takeExactly;
 

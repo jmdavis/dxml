@@ -91,6 +91,12 @@ alias SkipDTD = Flag!"SkipDTD";
 alias SkipProlog = Flag!"SkipProlog";
 
 /// Flag for use with Config.
+alias SkipPI = Flag!"SkipPI";
+
+/// Flag for use with Config.
+alias StripContentWS = Flag!"SkipContentWS";
+
+/// Flag for use with Config.
 alias SplitEmpty = Flag!"SplitEmpty";
 
 
@@ -123,6 +129,32 @@ struct Config
         from the parsing results.
       +/
     auto skipProlog = SkipProlog.no;
+
+    /++
+        Whether processing instructions should be skipped.
+
+        If $(D true), any $(D Entity)s with
+        $(D EntityType.processingInstruction) will be skipped.
+      +/
+    auto skipPI = SkipPI.no;
+
+    /++
+        Whether the whitespace immediately after a start tag or immediately
+        before an end tag should be stripped so that $(D EntityParser.text) will
+        never start or end with whitespace for $(D EntityType.text), and if
+        the text is empty, then the $(D EntityType.text) will be skipped.
+
+        With $(D StripContentWS.no), XML that is formatted with indenting and
+        newlines and the like will contain lots of $(D EntityType.text) entities
+        which are just whitespace, but with $(D StripContentWS.yes), all of the
+        formatting is lost when parsing. Which is better of course depends on
+        what the application is doing when parsing the XML.
+
+        Note that XML only considers $(D ' '), $(D '\t'), $(D '\n'), and
+        $(D '\r') to be whitespace. So, those are the only character skipped
+        with $(D StripContentsWS.yes).
+      +/
+    auto stripContentWS = StripContentWS.no;
 
     /++
         Whether the parser should report empty element tags as if they were a
@@ -159,6 +191,7 @@ struct Config
   +/
 Config makeConfig(Args...)(Args args)
 {
+    // FIXME Make this not compile if one of the args is not valid.
     Config config;
 
     foreach(arg; args)
@@ -180,6 +213,7 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == Config.init.posType);
@@ -189,6 +223,7 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes, PositionType.none);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == PositionType.none);
@@ -198,6 +233,7 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SplitEmpty.yes, SkipComments.yes, PositionType.line);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
+        assert(config.skipPI == Config.init.skipPI);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.splitEmpty == SplitEmpty.yes);
         assert(config.posType == PositionType.line);
@@ -210,13 +246,15 @@ Config makeConfig(Args...)(Args args)
     contain some of the more advanced XML features such as DTDs. It skips
     everything that can be configured to skip.
   +/
-enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SplitEmpty.yes, PositionType.lineAndCol);
+enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipPI.yes, SkipProlog.yes,
+                            SplitEmpty.yes, PositionType.lineAndCol);
 
 ///
 @safe pure nothrow @nogc unittest
 {
     static assert(simpleXML.skipComments == SkipComments.yes);
     static assert(simpleXML.skipDTD == SkipDTD.yes);
+    static assert(simpleXML.skipPI == SkipPI.yes);
     static assert(simpleXML.skipProlog == SkipProlog.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
     static assert(simpleXML.posType == PositionType.lineAndCol);
@@ -262,8 +300,8 @@ enum EntityType
     notationDecl,
 
     /++
-        A processing instruction such as <?foo?>. Note that $(D <?xml ... ?>) is
-        an $(D xmlDecl) and not a processingInstruction.
+        A processing instruction such as $(D <?foo?>). Note that
+        $(D <?xml ... ?>) is an $(D xmlDecl) and not a processingInstruction.
       +/
     processingInstruction,
 
@@ -290,8 +328,9 @@ enum EntityType
     iterated until it's consumed, and its state cannot be saved (since
     unfortunately, saving it would require allocating additional memory), but
     because there are essentially multiple ways to pop the front (e.g. choosing
-    to skip all of contents between a start tag and end tag), the input range
-    API didn't seem to appropriate, even if the result functions similarly.
+    to skip all of the contents between a start tag and end tag instead of
+    processing it), the input range API didn't seem to appropriate, even if the
+    result functions similarly.
 
     Also, unlike a range the, "front" is integrated into the EntityParser rather
     than being a value that can be extracted. So, while an entity can be queried
@@ -312,7 +351,7 @@ enum EntityType
     $(D XMLParsingException) will be thrown.
 
     However, note that EntityParser does not care about XML validation beyond
-    what is required to correctly parse what has been asked to parse. For
+    what is required to correctly parse what it has been told to parse. For
     instance, any portions that are skipped (either due to the values in the
     Config or because a function such as skipContents is called) will only be
     validated enough to correctly determine where those portions terminated.
@@ -426,7 +465,7 @@ public:
     /++
         The position of the current entity in the XML document.
 
-        How accurate the position is depends on the parser configuration that's
+        How precise the position is depends on the parser configuration that's
         used.
       +/
     @property SourcePos pos()
@@ -444,17 +483,49 @@ public:
       +/
     void next()
     {
-        final switch(_state.grammarPos) with(GrammarPos)
+        while(1)
         {
-            case prologMisc1: _parseAtPrologMisc!1(); break;
-            case prologMisc2: _parseAtPrologMisc!2(); break;
-            case intSubset: assert(0);
-            case splittingEmpty: assert(0);
-            case contentStart: assert(0);
-            case contentMid: assert(0);
-            case contentEnd: assert(0);
-            case endMisc: assert(0);
-            case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
+            final switch(_state.grammarPos) with(GrammarPos)
+            {
+                case prologMisc1:
+                {
+                    _parseAtPrologMisc!1();
+                    static if(config.skipProlog == SkipProlog.yes)
+                    {
+                        if(_state.grammarPos <= intSubset)
+                            continue;
+                    }
+                    break;
+                }
+                case prologMisc2:
+                {
+                    _parseAtPrologMisc!2();
+                    static if(config.skipProlog == SkipProlog.yes)
+                    {
+                        if(_state.grammarPos <= intSubset)
+                            continue;
+                    }
+                    break;
+                }
+                case intSubset:
+                {
+                    assert(0);
+                    //break;
+                }
+                case splittingEmpty: assert(0);
+                case contentCharData1:
+                {
+                    assert(_state.type == EntityType.elementStart);
+                    _state.tagStack.push(_state.name);
+                    assert(0);
+                }
+                case contentMid: _parseAtContentMid(); break;
+                case contentCharData2: _parseAtCharData2(); break;
+                case endTag: _parseElementEnd(); break;
+                case endMisc: assert(0);
+                case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
+            }
+            return;
         }
     }
 
@@ -541,8 +612,7 @@ public:
       +/
     @property SliceOfR contentAsText()
     {
-        with(EntityType)
-            assert(type == elementStart);
+        assert(type == EntityType.elementStart);
 
         assert(0);
     }
@@ -557,8 +627,7 @@ public:
       +/
     void skipContents()
     {
-        with(EntityType)
-            assert(type == elementStart);
+        assert(type == EntityType.elementStart);
 
         assert(0);
     }
@@ -584,7 +653,7 @@ public:
         XMLDecl!R retval;
 
         // XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
-        // VersionInfo  ::= S 'version' Eq ("'" versionNum "'" | '"' VersionNum '"')
+        // VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
         // Eq           ::= S? '=' S?
         // VersionNum   ::= '1.' [0-9]+
         // EncodingDecl ::= S 'encoding' Eq ('"' EncName '"' | "'" EncName "'" )
@@ -653,7 +722,6 @@ public:
             else
                 throw new XMLParsingException("If standalone is present, its value must be yes or no", pos);
             stripWS(&_state.currText);
-            checkNotEmpty(&_state.currText);
         }
 
         if(!_state.currText.input.empty)
@@ -688,7 +756,7 @@ private:
                 popFrontAndIncCol(_state);
                 if(_state.stripStartsWith("--"))
                 {
-                    _parseComment();
+                    _parseComment!(config.skipProlog == SkipProlog.yes || config.skipComments == SkipComments.yes)();
                     break;
                 }
                 static if(miscNum == 1)
@@ -705,8 +773,14 @@ private:
             case '?':
             {
                 popFrontAndIncCol(_state);
-                _state.currText.pos = _state.pos;
-                _state.currText.input = _state.takeUntil!"?>"();
+                static if(config.skipProlog == SkipProlog.yes || config.skipPI == SkipPI.yes)
+                    _state.skipUntilAndDrop!"?>"();
+                else
+                {
+                    _state.type = EntityType.processingInstruction;
+                    _state.currText.pos = _state.pos;
+                    _state.currText.input = _state.takeUntilAndDrop!"?>"();
+                }
                 break;
             }
             // element
@@ -721,11 +795,16 @@ private:
 
     // Parse comment at whatever comment position the comment is at.
     // <!-- was already removed from the front of the input.
-    void _parseComment()
+    void _parseComment(bool skip = config.skipComments == SkipComments.yes)()
     {
-        _state.type = EntityType.comment;
-        _state.currText.pos = _state.pos;
-        _state.currText.input = _state.takeUntil!"--"();
+        static if(skip)
+            _state.skipUntilAndDrop!"--"();
+        else
+        {
+            _state.type = EntityType.comment;
+            _state.currText.pos = _state.pos;
+            _state.currText.input = _state.takeUntilAndDrop!"--"();
+        }
         if(_state.input.empty || _state.input.front != '>')
             throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _state.pos);
         popFrontAndIncCol(_state);
@@ -736,8 +815,27 @@ private:
     // <!DOCTYPE was already removed from the front of the input.
     void _parseDoctypeDecl()
     {
-        //...
-        _state.grammarPos = GrammarPos.prologMisc2;
+        if(!_state.stripWS())
+            throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
+        static if(config.skipProlog == SkipProlog.yes)
+        {
+            _state.skipToOneOf!('[', '>')();
+            checkNotEmpty(_state);
+            if(_state.input.front == '[')
+            {
+                _state.skipUntilAndDrop!"]"();
+                _state.skipUntilAndDrop!">"();
+            }
+            else
+                popFrontAndIncCol(_state);
+            _parseAtPrologMisc!2();
+        }
+        else
+        {
+            assert(0);
+            //...
+            //_state.grammarPos = GrammarPos.prologMisc2;
+        }
     }
 
 
@@ -747,7 +845,7 @@ private:
     void _parseElementStart()
     {
         _state.currText.pos = _state.pos;
-        _state.currText.input = _state.takeUntil!">"();
+        _state.currText.input = _state.takeUntilAndDrop!">"();
         auto temp = _state.currText.input.save;
         temp.popFrontN(temp.length - 1);
         if(temp.front == '/')
@@ -757,7 +855,7 @@ private:
             static if(config.splitEmpty == SplitEmpty.no)
             {
                 _state.type = EntityType.elementEmpty;
-                _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentStart;
+                _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
             }
             else
             {
@@ -768,14 +866,12 @@ private:
         else
         {
             _state.type = EntityType.elementStart;
-            _state.grammarPos = GrammarPos.contentStart;
+            _state.grammarPos = GrammarPos.contentCharData1;
         }
 
         if(_state.currText.input.empty)
             throw new XMLParsingException("Tag missing name", _state.currText.pos);
-        _state.name = takeName(_state.currText);
-        if(_state.type == EntityType.elementStart)
-            _state.tagStack.push(_state.name);
+        _state.name = takeName(&_state.currText);
     }
 
 
@@ -786,14 +882,123 @@ private:
     {
         import std.format : format;
         _state.currText.pos = _state.pos;
-        _state.name = _state.takeUntil!">"();
+        _state.name = _state.takeUntilAndDrop!">"();
         assert(!_state.tagStack.empty);
         if(!equal(_state.name.save, _state.tagStack.back.save))
         {
-            enum fmt = "Name of end tag [%s] does not match corresponding start tag [%s]";
+            enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
             throw new XMLParsingException(format!fmt(_state.name, _state.tagStack.back), _state.currText.pos);
         }
         _state.tagStack.pop();
+        _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+    }
+
+
+    // GrammarPos.contentCharData1
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // Parse at the point immediately after the start tag. Nothing in content
+    // has been parsed yet.
+    void _parseAtContentCharData1()
+    {
+        static if(config.stripContentWS == StripContentWS.yes)
+            stripWS(_state);
+        checkNotEmpty(_state);
+        if(_state.input.front != '<')
+        {
+            _state.type = EntityType.text;
+            _state.currText.pos = _state.pos;
+            _state.currText.input = _state.takeUntilAndDrop!"<"();
+            static if(config.stripContentWS == StripContentWS.yes)
+                _state.currText.input = stripRightWS(_state.currText.input);
+            checkNotEmpty(_state);
+            if(_state.input.front == '/')
+            {
+                popFrontAndIncCol(_state);
+                _state.grammarPos = GrammarPos.endTag;
+            }
+            else
+                _state.grammarPos = GrammarPos.contentMid;
+        }
+        else
+        {
+            popFrontAndIncCol(_state);
+            checkNotEmpty(_state);
+            if(_state.input.front == '/')
+            {
+                popFrontAndIncCol(_state);
+                _parseElementEnd();
+            }
+            else
+                _parseAtContentMid();
+        }
+    }
+
+
+    // GrammarPos.contentMid
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // The text right after the start tag was what was parsed previously. So,
+    // that first CharData? was what was parsed last, and this parses starting
+    // right after. The < should have already been removed from the input.
+    void _parseAtContentMid()
+    {
+    }
+
+
+    // GrammarPos.contentCharData2
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // This parsers at the second CharData?.
+    void _parseAtCharData2()
+    {
+    }
+
+
+    // This parses the Misc* that come after the root element.
+    void _parseAtEndMisc()
+    {
+        // Misc ::= Comment | PI | S
+
+        stripWS(_state);
+
+        if(_state.input.empty)
+        {
+            _state.grammarPos = GrammarPos.documentEnd;
+            return;
+        }
+
+        if(_state.input.front != '<')
+            throw new XMLParsingException("Expected <", _state.pos);
+        popFrontAndIncCol(_state);
+        checkNotEmpty(_state);
+
+        switch(_state.input.front)
+        {
+            // Comment
+            case '!':
+            {
+                popFrontAndIncCol(_state);
+                if(_state.stripStartsWith("--"))
+                {
+                    _parseComment();
+                    break;
+                }
+                throw new XMLParsingException("Invalid XML", _state.pos);
+            }
+            // PI
+            case '?':
+            {
+                popFrontAndIncCol(_state);
+                static if(config.skipPI == SkipPI.yes)
+                    _state.skipUntilAndDrop!"?>"();
+                else
+                {
+                    _state.type = EntityType.processingInstruction;
+                    _state.currText.pos = _state.pos;
+                    _state.currText.input = _state.takeUntilAndDrop!"?>"();
+                }
+                break;
+            }
+            default: throw new XMLParsingException("Must be a comment or PI", _state.pos);
+        }
     }
 
 
@@ -804,7 +1009,7 @@ private:
         if(_state.stripStartsWith("<?xml"))
         {
             _state.currText.pos = _state.pos;
-            _state.currText.input = _state.takeUntil!"?>"();
+            _state.currText.input = _state.takeUntilAndDrop!"?>"();
             _state.type = EntityType.xmlDecl;
             _state.grammarPos = GrammarPos.prologMisc1;
         }
@@ -980,9 +1185,10 @@ enum GrammarPos
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
-    // This is at the content. The next thing to parse will be a CharData,
-    // element, Reference, CDSect, PI, Comment, or ETag.
-    contentStart,
+    // This is at the beginning of content at the first CharData?. The next
+    // thing to parse will be a CharData, element, Reference, CDSect, PI,
+    // Comment, or ETag.
+    contentCharData1,
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
@@ -992,9 +1198,14 @@ enum GrammarPos
 
     // element  ::= EmptyElemTag | STag content ETag
     // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
-    // This is after at the second CharData?. The next thing to parse will be a
+    // This is at the second CharData?. The next thing to parse will be a
     // CharData, element, Reference, CDSect, PI, Comment, or ETag.
-    contentEnd,
+    contentCharData2,
+
+    // element  ::= EmptyElemTag | STag content ETag
+    // content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+    // This is after the second CharData?. The next thing to parse is an ETag.
+    endTag,
 
     // document ::= prolog element Misc*
     // This is the Misc* at the end of the document. The next thing to parse is
@@ -1224,9 +1435,9 @@ bool stripWS(PS)(PS state)
 // Returns a slice (or takeExactly) of state.input up to but not including the
 // given text, removing both that slice and the given text from state.input in
 // the process. If the text is not found, then an XMLParsingException is thrown.
-auto takeUntil(string text, PS)(PS state)
+auto takeUntilAndDrop(string text, PS)(PS state)
 {
-    return _takeUntil!(true, text, PS)(state);
+    return _takeUntilAndDrop!(true, text, PS)(state);
 }
 
 unittest
@@ -1248,7 +1459,7 @@ unittest
                                      tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
                 {
                     auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(state.takeUntil!(needle[0 .. i])(), "hello "));
+                    assert(equal(state.takeUntilAndDrop!(needle[0 .. i])(), "hello "));
                     assert(equal(state.input, needle[i .. $]));
                     assert(state.pos == t[1]);
                 }
@@ -1262,7 +1473,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                assert(state.takeUntil!"l"().empty);
+                assert(state.takeUntilAndDrop!"l"().empty);
                 assert(equal(state.input, "ello world"));
                 assert(state.pos == t[1]);
             }
@@ -1272,7 +1483,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                assert(equal(state.takeUntil!"ll"(), "le"));
+                assert(equal(state.takeUntilAndDrop!"ll"(), "le"));
                 assert(equal(state.input, "o world"));
                 assert(state.pos == t[1]);
             }
@@ -1285,7 +1496,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                assert(equal(state.takeUntil!"le"(), "l"));
+                assert(equal(state.takeUntilAndDrop!"le"(), "l"));
                 assert(equal(state.input, "llo world"));
                 assert(state.pos == t[1]);
             }
@@ -1304,7 +1515,7 @@ unittest
                                      tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
                 {
                     auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(state.takeUntil!(needle[0 .. i])(), "プログラミング in D is "));
+                    assert(equal(state.takeUntilAndDrop!(needle[0 .. i])(), "プログラミング in D is "));
                     assert(equal(state.input, remainder[i .. $]));
                     assert(state.pos == t[1]);
                 }
@@ -1317,7 +1528,7 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntil!"x"());
+                assertThrown!XMLParsingException(state.takeUntilAndDrop!"x"());
             }
         }
         foreach(origHaystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
@@ -1327,7 +1538,7 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntil!"le"());
+                assertThrown!XMLParsingException(state.takeUntilAndDrop!"le"());
             }
         }
         foreach(origHaystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
@@ -1337,18 +1548,17 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntil!"web"());
+                assertThrown!XMLParsingException(state.takeUntilAndDrop!"web"());
             }
         }
     }
 }
 
-// Variant of takeUntil which does not return a slice. It's intended for when
+// Variant of takeUntilAndDrop which does not return a slice. It's intended for when
 // the config indicates that something should be skipped.
-
-auto skipUntil(string text, PS)(PS state)
+auto skipUntilAndDrop(string text, PS)(PS state)
 {
-    return _takeUntil!(false, text, PS)(state);
+    return _takeUntilAndDrop!(false, text, PS)(state);
 }
 
 unittest
@@ -1370,7 +1580,7 @@ unittest
                                      tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
                 {
                     auto state = testParser!(t[0])(haystack.save);
-                    state.skipUntil!(needle[0 .. i])();
+                    state.skipUntilAndDrop!(needle[0 .. i])();
                     assert(equal(state.input, needle[i .. $]));
                     assert(state.pos == t[1]);
                 }
@@ -1384,7 +1594,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                state.skipUntil!"l"();
+                state.skipUntilAndDrop!"l"();
                 assert(equal(state.input, "ello world"));
                 assert(state.pos == t[1]);
             }
@@ -1394,7 +1604,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                state.skipUntil!"ll"();
+                state.skipUntilAndDrop!"ll"();
                 assert(equal(state.input, "o world"));
                 assert(state.pos == t[1]);
             }
@@ -1407,7 +1617,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                state.skipUntil!"le"();
+                state.skipUntilAndDrop!"le"();
                 assert(equal(state.input, "llo world"));
                 assert(state.pos == t[1]);
             }
@@ -1426,7 +1636,7 @@ unittest
                                      tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
                 {
                     auto state = testParser!(t[0])(haystack.save);
-                    state.skipUntil!(needle[0 .. i])();
+                    state.skipUntilAndDrop!(needle[0 .. i])();
                     assert(equal(state.input, remainder[i .. $]));
                     assert(state.pos == t[1]);
                 }
@@ -1439,7 +1649,7 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntil!"x"());
+                assertThrown!XMLParsingException(state.skipUntilAndDrop!"x"());
             }
         }
         foreach(origHaystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
@@ -1449,7 +1659,7 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntil!"le"());
+                assertThrown!XMLParsingException(state.skipUntilAndDrop!"le"());
             }
         }
         foreach(origHaystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
@@ -1459,13 +1669,13 @@ unittest
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
                 auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntil!"web"());
+                assertThrown!XMLParsingException(state.skipUntilAndDrop!"web"());
             }
         }
     }
 }
 
-auto _takeUntil(bool retSlice, string text, PS)(PS state)
+auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
@@ -1567,6 +1777,125 @@ auto _takeUntil(bool retSlice, string text, PS)(PS state)
 }
 
 
+// Okay, this name kind of sucks, because it's too close to skipUntilAndDrop,
+// but I'd rather do this than be passing template arguments to choosed between
+// behaviors - especially when the logic is so different. It skips until it
+// reaches one of the two delimiter characters. If it finds one of them, then
+// the first character in the input is the delimiter that was found, and if it
+// doesn't find either, then the input is empty.
+void skipToOneOf(char delim1, char delim2, PS)(PS state)
+{
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(!isSpace(delim1) && !isSpace(delim2));
+
+    while(!state.input.empty)
+    {
+        switch(state.input.front)
+        {
+            case delim1:
+            case delim2: return;
+            static if(state.config.posType != PositionType.none)
+            {
+                case '\n':
+                {
+                    nextLine!(state.config)(state.pos);
+                    state.input.popFront();
+                    break;
+                }
+            }
+            default:
+            {
+                popFrontAndIncCol(state);
+                break;
+            }
+        }
+
+    }
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    foreach(func; testRangeFuncs)
+    {
+        {
+            auto haystack = func("hello world");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('o', 'w')();
+                assert(equal(state.input, "o world"));
+                assert(state.pos == t[1]);
+            }
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 7)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('r', 'w')();
+                assert(equal(state.input, "world"));
+                assert(state.pos == t[1]);
+            }
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 12)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('a', 'b')();
+                assert(state.input.empty);
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            auto haystack = func("abc\n\n\n  \n\n   wxyzzy \nf\ng");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 6)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('z', 'y')();
+                assert(equal(state.input, "yzzy \nf\ng"));
+                assert(state.pos == t[1]);
+            }
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(8, 1)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(8, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('o', 'g')();
+                assert(equal(state.input, "g"));
+                assert(state.pos == t[1]);
+            }
+        }
+        {
+            import std.utf : codeLength;
+            auto haystack = func("プログラミング in D is great indeed");
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング in D is ");
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                auto state = testParser!(t[0])(haystack.save);
+                state.skipToOneOf!('g', 'x')();
+                assert(equal(state.input, "great indeed"));
+                assert(state.pos == t[1]);
+            }
+        }
+    }
+}
+
+
 // The front of the input should be text surrounded by single or double quotes.
 // This returns a slice of the input containing that text, and the input is
 // advanced to one code unit beyond the quote.
@@ -1578,13 +1907,13 @@ auto takeEnquotedText(PS)(PS state)
     immutable quote = state.input.front;
     foreach(quoteChar; AliasSeq!(`"`, `'`))
     {
-        // This would be a bit simpler if takeUntil took a runtime argument,
-        // but in all other cases, a compile-time argument makes more sense, so
-        // this seemed like a reasonable way to handle this one case.
+        // This would be a bit simpler if takeUntilAndDrop took a runtime
+        // argument, but in all other cases, a compile-time argument makes more
+        // sense, so this seemed like a reasonable way to handle this one case.
         if(quote == quoteChar[0])
         {
             popFrontAndIncCol(state);
-            return takeUntil!quoteChar(state);
+            return takeUntilAndDrop!quoteChar(state);
         }
     }
     throw new XMLParsingException("Expected quoted text", state.pos);
@@ -1969,6 +2298,51 @@ unittest
         assert(isNameChar(t[1] - 1));
         assert(isNameChar(t[1]));
         assert(!isNameChar(t[1] + 1));
+    }
+}
+
+
+// Similar to Phobos' stripRight, but it only strips XML whitespace, and it
+// works on non-bidirectional ranges, as ugly as that is (it would be so much
+// nicer if we didn't care about having dxml be flexible enough to work with
+// arbitrary ranges of characters). It is expected however that what's being
+// passed to stripRightWS is the result of a previous call to takeExactly.
+R stripRightWS(R)(R range)
+    if(isForwardRange!R && isSomeChar!(ElementType!R) && is(typeof(takeExactly(range, 42)) == R))
+{
+    static if(isBidirectionalRange!R)
+    {
+        while(!range.empty && !isSpace(range.back))
+            range.popBack();
+    }
+    else
+    {
+        size_t wsLen = 0;
+        auto orig = range.save;
+        while(!range.empty)
+        {
+            if(isSpace(range.front))
+                ++wsLen;
+            else
+                wsLen = 0;
+            range.popFront();
+        }
+        return takeExactly(orig, orig.length - wsLen);
+    }
+}
+
+unittest
+{
+    import std.meta : AliasSeq;
+    import std.typecons : tuple;
+
+    foreach(t; AliasSeq!(tuple("hello", "hello"), tuple("hello \t\r\n", "hello"),
+                         tuple("  a  aca ana ra . a", "  a  aca ana ra . a"),
+                         tuple("  a  aca ana ra . a ", "  a  aca ana ra . a"),
+                         tuple("hello\v", "hello\v")))
+    {
+        foreach(func; testRangeFuncs)
+            assert(equal(stripRightWS(byCodeUnit(t[0])), t[1]));
     }
 }
 
