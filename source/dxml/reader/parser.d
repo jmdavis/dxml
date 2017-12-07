@@ -779,6 +779,7 @@ public:
 
             this(typeof(_text) text)
             {
+                _front = Attribute.init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
                 _text = text;
                 if(_text.input.empty)
                     empty = true;
@@ -788,7 +789,7 @@ public:
 
             bool empty;
             Attribute _front;
-            typeof(_state).CurrText _text;
+            typeof(_state.currText) _text;
         }
 
         return Range(_state.currText);
@@ -868,7 +869,11 @@ public:
             throw new XMLParsingException(msg, _state.currText.pos, __FILE__, line);
         }
 
-        XMLDecl!R retval;
+        // We shouldn't need to use .init like this, but when compiling the
+        // examples with filter, we get an error about accessing the frame
+        // pointer if we don't, which seems like a bug in dmd which should
+        // probably be reduced and reported.
+        XMLDecl!R retval = XMLDecl!R.init;
 
         // XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
         // VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
@@ -1413,11 +1418,8 @@ struct ParserState(Config cfg, R)
     this(R xmlText)
     {
         input = byCodeUnit(xmlText);
-        // TODO The compiler complains if these two fields aren't initialized in
-        // the constructor, which seems like a bug. It should be reduced and
-        // reported.
-        currText = CurrText.init;
-        name = Taken.init;
+        currText = typeof(currText).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
+        name = typeof(name).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
     }
 }
 
