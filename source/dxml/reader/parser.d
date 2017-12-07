@@ -448,6 +448,67 @@ public:
             assert(xmlDecl.xmlVersion == "1.0");
             assert(xmlDecl.encoding.isNull);
             assert(xmlDecl.standalone.isNull);
+
+            parser.next();
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "foo");
+
+            {
+                auto attrs = parser.attributes;
+                assert(walkLength(attrs.save) == 1);
+                assert(attrs.front.name == "attr");
+                assert(attrs.front.value == "42");
+            }
+
+            parser.next();
+            // The default Config doesn't strip anything out, including the
+            // whitespace between element tags.
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+
+            parser.next();
+            assert(parser.type == EntityType.elementEmpty);
+            assert(parser.name == "bar");
+
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+
+            parser.next();
+            assert(parser.type == EntityType.comment);
+            assert(parser.text == " no comment ");
+
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+
+            parser.next();
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "baz");
+
+            {
+                auto attrs = parser.attributes;
+                assert(walkLength(attrs.save) == 1);
+                assert(attrs.front.name == "hello");
+                assert(attrs.front.value == "world");
+            }
+
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    nothing to say.\n    nothing at all...\n    ");
+
+            parser.next();
+            assert(parser.type == EntityType.elementEnd); // </baz>
+
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n");
+
+            parser.next();
+            assert(parser.type == EntityType.elementEnd); // </foo>
+
+            parser.next();
+            assert(parser.empty);
         }
 
         {
