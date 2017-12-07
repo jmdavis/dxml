@@ -953,6 +953,108 @@ public:
         return retval;
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : replace;
+        import std.exception : assertThrown;
+        import std.meta : AliasSeq;
+        import std.range : only;
+        {
+            foreach(i; 0 .. 4)
+            {
+                auto xml = "<?xml version='1.0'?><root/>";
+                if(i > 1)
+                    xml = xml.replace(`'`, `"`);
+                if(i % 2 == 1)
+                    xml = xml.replace("1.0", "1.1");
+                auto parser = parseXML(xml);
+                auto xmlDecl = parser.xmlDecl;
+                assert(xmlDecl.xmlVersion == (i % 2 == 0 ? "1.0" : "1.1"));
+                assert(xmlDecl.encoding.isNull);
+                assert(xmlDecl.standalone.isNull);
+            }
+        }
+        {
+            foreach(i; 0 .. 4)
+            {
+                auto xml = "<?xml version='1.0' encoding='UTF-8'?><root/>";
+                if(i > 1)
+                    xml = xml.replace(`'`, `"`);
+                if(i % 2 == 1)
+                    xml = xml.replace("1.0", "1.1");
+                auto parser = parseXML(xml);
+                auto xmlDecl = parser.xmlDecl;
+                assert(xmlDecl.xmlVersion == (i % 2 == 0 ? "1.0" : "1.1"));
+                assert(xmlDecl.encoding == "UTF-8");
+                assert(xmlDecl.standalone.isNull);
+            }
+        }
+        {
+            foreach(i; 0 .. 8)
+            {
+                auto xml = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?><root/>";
+                if(i > 3)
+                    xml = xml.replace(`'`, `"`).replace("yes", "no");
+                if(i % 2 == 1)
+                    xml = xml.replace("1.0", "1.1");
+                auto parser = parseXML(xml);
+                auto xmlDecl = parser.xmlDecl;
+                assert(xmlDecl.xmlVersion == (i % 2 == 0 ? "1.0" : "1.1"));
+                assert(xmlDecl.encoding == "UTF-8");
+                assert(xmlDecl.standalone == (i < 4));
+            }
+        }
+        {
+            foreach(i; 0 .. 8)
+            {
+                auto xml = "<?xml version='1.0' standalone='yes'?><root/>";
+                if(i > 3)
+                    xml = xml.replace(`'`, `"`).replace("yes", "no");
+                if(i % 2 == 1)
+                    xml = xml.replace("1.0", "1.1");
+                auto parser = parseXML(xml);
+                auto xmlDecl = parser.xmlDecl;
+                assert(xmlDecl.xmlVersion == (i % 2 == 0 ? "1.0" : "1.1"));
+                assert(xmlDecl.encoding.isNull);
+                assert(xmlDecl.standalone == (i < 4));
+            }
+        }
+
+        assertThrown(parseXML("<?xml version='1.0'><root/>"));
+        assertThrown(parseXML("<?xml version='1.0'><?root/>"));
+        assertThrown(parseXML("<?xml version='1.0'? ><root/>"));
+        assertThrown(parseXML("< ?xml version='1.0'?><root/>"));
+
+        foreach(xml; only("<?xml version='1.a'?><root/>",
+                          "<?xml version='0.0'?><root/>",
+                          "<?xml version='2.0'?><root/>",
+                          "<?xml version='10'?><root/>",
+                          "<?xml version='100'?><root/>",
+                          "<?xml version='1,0'?><root/>",
+                          "<?xml versio='1.0'?><root/>",
+                          "<?xml version='1.0 '?><root/>",
+                          "<?xml?><root/>",
+                          "<?xml version='1.0'encoding='UTF-8'?><root/>",
+                          "<?xml version='1.0' encoding='UTF-8'standalone='yes'?><root/>",
+                          "<?xml version='1.0'standalone='yes'?><root/>",
+                          "<?xml version='1.0'\vencoding='UTF-8'?><root/>",
+                          "<?xml version='1.0' encoding='UTF-8'\vstandalone='yes'?><root/>",
+                          "<?xml version='1.0'\vstandalone='yes'?><root/>",
+                          "<?xml version='1.0' standalone='yes' encoding='UTF-8'?><root/>",
+                          "<?xml version='1.0' standalone='YES'?><root/>",
+                          "<?xml version='1.0' standalone='NO'?><root/>",
+                          "<?xml version='1.0' standalone='y'?><root/>",
+                          "<?xml version='1.0' standalone='n'?><root/>",
+                          "<?xml version='1.0  standalone='yes'?><root/>",
+                          "<?xml version='1.0  standalone='yes''?><root/>",
+                          "<?xml version='1.0' ecoding='UTF-8'?><root/>",
+                          "<?xml version='1.0' silly='yes'?><root/>"))
+        {
+            auto parser = parseXML(xml);
+            assertThrown!XMLParsingException(parser.xmlDecl);
+        }
+    }
+
 
 private:
 
@@ -1301,6 +1403,114 @@ private:
         }
         else
             _parseAtPrologMisc!1();
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.meta : AliasSeq;
+        import std.range : only;
+        import std.typecons : tuple;
+        {
+            auto xml = "<root/>";
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 8)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "\n\t\n <root/>   \n";
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 9)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(12, 3)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(12, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
+
+            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
+                                 tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
+                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+
+        {
+            auto xml = "<root/>";
+
+            foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(1, 8)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(1, -1)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "\n\t\n <root/>   \n";
+
+            foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(3, 9)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(3, -1)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
+
+            foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(12, 10)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(12, -1)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
+
+            foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(6, 23)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(6, -1)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
+        {
+            auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
+
+            foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(7, 13)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(7, -1)),
+                                 tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+            {
+                assert(parseXML!(t[0])(xml).pos == t[1]);
+            }
+        }
     }
 
     ParserState!(config, R)* _state;
