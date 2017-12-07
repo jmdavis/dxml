@@ -453,8 +453,50 @@ public:
         {
             auto parser = parseXML!simpleXML(xml);
             assert(!parser.empty);
-            //assert(parser.type == EntityType.elementStart);
-            //assert(parser.name == "foo");
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "foo");
+
+            {
+                auto attrs = parser.attributes;
+                assert(walkLength(attrs.save) == 1);
+                assert(attrs.front.name == "attr");
+                assert(attrs.front.value == "42");
+            }
+
+            parser.next();
+            // simpleXML is set to split empty tags so that <bar/> is treated
+            // as the same as <bar></bar> so that code does not have to
+            // explicitly handle empty tags.
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "bar");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+
+            parser.next();
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "baz");
+
+            {
+                auto attrs = parser.attributes;
+                assert(walkLength(attrs.save) == 1);
+                assert(attrs.front.name == "hello");
+                assert(attrs.front.value == "world");
+            }
+
+            parser.next();
+            assert(parser.type == EntityType.text);
+            // simpleXML is set to strip whitespace at the beginning and
+            // end of an element tag's content.
+            assert(parser.text == "nothing to say.\n    nothing at all...");
+
+            parser.next();
+            assert(parser.type == EntityType.elementEnd); // </baz>
+
+            parser.next();
+            assert(parser.type == EntityType.elementEnd); // </foo>
+
+            parser.next();
+            assert(parser.empty);
         }
     }
 
@@ -618,8 +660,8 @@ public:
 
 
     /++
-        Returns a range of attributes for a start tag where each attribute is
-        represented as a $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
+        Returns a lazy range of attributes for a start tag where each attribute
+        is represented as a $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
 
         $(TABLE,
           $(TR $(TH Supported $(D EntityType)s)),
@@ -631,9 +673,64 @@ public:
         with(EntityType)
             assert(only(elementStart, elementEmpty).canFind(type));
 
+        // STag         ::= '<' Name (S Attribute)* S? '>'
+        // Attribute    ::= Name Eq AttValue
+        // EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
+
         import std.typecons : Tuple;
         alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
-        assert(0);
+
+        static struct Range
+        {
+            @property Attribute front()
+            {
+                assert(!empty);
+                return _front;
+            }
+
+            void popFront()
+            {
+                if(_text.input.empty)
+                {
+                    empty = true;
+                    return;
+                }
+
+                auto state = &_text;
+                auto pos = state.pos;
+
+                auto name = stripBCU(state.takeName!'='());
+                stripWS(state);
+
+                auto value = stripBCU(takeEnquotedText(state));
+                stripWS(state);
+
+                _front = Attribute(name, value);
+            }
+
+            @property auto save()
+            {
+                auto retval = this;
+                retval._front = Attribute(_front[0].save, _front[1].save);
+                retval._text.input = retval._text.input.save;
+                return retval;
+            }
+
+            this(typeof(_text) text)
+            {
+                _text = text;
+                if(_text.input.empty)
+                    empty = true;
+                else
+                    popFront();
+            }
+
+            bool empty;
+            Attribute _front;
+            typeof(_state).CurrText _text;
+        }
+
+        return Range(_state.currText);
     }
 
 
@@ -655,7 +752,7 @@ public:
         with(EntityType)
             assert(only(cdata, comment, processingInstruction, text).canFind(type));
 
-        assert(0);
+        return stripBCU(_state.currText.input);
     }
 
 
@@ -1122,10 +1219,19 @@ private:
 
         if(_state.stripStartsWith("<?xml"))
         {
-            _state.currText.pos = _state.pos;
-            _state.currText.input = _state.takeUntilAndDrop!"?>"();
-            _state.type = EntityType.xmlDecl;
-            _state.grammarPos = GrammarPos.prologMisc1;
+            static if(config.skipProlog == SkipProlog.yes)
+            {
+                _state.skipUntilAndDrop!"?>"();
+                _state.grammarPos = GrammarPos.prologMisc1;
+                next();
+            }
+            else
+            {
+                _state.currText.pos = _state.pos;
+                _state.currText.input = _state.takeUntilAndDrop!"?>"();
+                _state.type = EntityType.xmlDecl;
+                _state.grammarPos = GrammarPos.prologMisc1;
+            }
         }
         else
             _parseAtPrologMisc!1();
@@ -2193,28 +2299,87 @@ unittest
 // Removes a name (per the Name grammar rule) from the front of the input and
 // returns it.
 // If delim is char.init, then XML space is the delimeter, otherwise it's
-// whatever delim is.
-auto takeName(PS)(PS state)
+// whatever delim is, but all the XML space between the name and the delimiter
+// is stripped. The delimiter is also stripped.
+auto takeName(char delim = char.init, PS)(PS state)
 {
+
     import std.format : format;
+    enum hasDelim = delim != char.init;
+
+    assert(!state.input.empty);
+
+    static if(hasDelim)
+    {
+        if(state.input.front == delim)
+            throw new XMLParsingException("Cannot have empty name", state.pos);
+    }
 
     auto orig = state.input.save;
     size_t takeLen;
     auto c = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
     if(!isNameStartChar(c))
         throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
-    while(!state.input.empty)
+
+    if(state.input.empty)
     {
-        if(isSpace(state.input.front))
-            break;
-        size_t numCodeUnits;
-        c = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-        if(!isNameChar(c))
-            throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
-        takeLen += numCodeUnits;
+        static if(hasDelim)
+            throw new XMLParsingException("Missing " ~ delim, state.pos);
     }
-    static if(state.config.posType == PositionType.lineAndCol)
+    else
+    {
+        while(true)
+        {
+            static if(hasDelim)
+            {
+                if(isSpace(state.input.front))
+                {
+                    static if(state.config.posType == PositionType.lineAndCol)
+                        state.pos.col += takeLen;
+                    stripWS(state);
+                    if(state.input.empty)
+                        throw new XMLParsingException("Missing " ~ delim, state.pos);
+                    if(state.input.front != delim)
+                    {
+                        throw new XMLParsingException("Characters other than whitespace between name and " ~ delim,
+                                                      state.pos);
+                    }
+                    popFrontAndIncCol(state);
+                    break;
+                }
+                else if(state.input.front == delim)
+                {
+                    static if(state.config.posType == PositionType.lineAndCol)
+                        state.pos.col += takeLen;
+                    popFrontAndIncCol(state);
+                    break;
+                }
+            }
+            else
+            {
+                if(isSpace(state.input.front))
+                    break;
+            }
+
+            size_t numCodeUnits;
+            c = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+            if(!isNameChar(c))
+                throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
+            takeLen += numCodeUnits;
+
+            if(state.input.empty)
+            {
+                static if(hasDelim)
+                    throw new XMLParsingException("Missing " ~ delim, state.pos);
+                else
+                    break;
+            }
+        }
+    }
+
+    static if(!hasDelim && state.config.posType == PositionType.lineAndCol)
         state.pos.col += takeLen;
+
     return takeExactly(orig, takeLen);
 }
 
@@ -2231,9 +2396,9 @@ unittest
         {
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
-            foreach(c; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
+            foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
             {
-                auto haystack = func(str ~ c);
+                auto haystack = func(str ~ remainder);
 
                 foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1)),
                                      tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
@@ -2241,7 +2406,38 @@ unittest
                 {
                     auto state = testParser!(t[0])(haystack.save);
                     assert(equal(takeName(state), str));
-                    assert(equal(state.input, c));
+                    assert(equal(state.input, remainder));
+                    assert(state.pos == t[1]);
+                }
+            }
+
+            foreach(ends; AliasSeq!(tuple("=", ""), tuple(" =", ""), tuple("\t\r=  ", "  "),
+                                    tuple("=foo", "foo"), tuple(" =foo", "foo"), tuple("\t\r=  bar", "  bar")))
+            {
+                auto haystack = func(str ~ ends[0]);
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1 + ends[0].length - ends[1].length)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeName!'='(state), str));
+                    assert(equal(state.input, ends[1]));
+                    assert(state.pos == t[1]);
+                }
+            }
+
+            {
+                auto ends = tuple("\n\n  \n \n \r\t  =blah", "blah");
+                auto haystack = func(str ~ ends[0]);
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 7)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto state = testParser!(t[0])(haystack.save);
+                    assert(equal(takeName!'='(state), str));
+                    assert(equal(state.input, ends[1]));
                     assert(state.pos == t[1]);
                 }
             }
@@ -2251,9 +2447,15 @@ unittest
         {
             foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
             {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeName());
+                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName());
+                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName!'='());
             }
+        }
+
+        foreach(haystack; AliasSeq!("fo o=bar", "\nfoo=bar", "foo", "f", "=bar"))
+        {
+            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName!'='());
         }
     }
 }
