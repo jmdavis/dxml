@@ -94,7 +94,7 @@ alias SkipProlog = Flag!"SkipProlog";
 alias SkipPI = Flag!"SkipPI";
 
 /// Flag for use with Config.
-alias StripContentWS = Flag!"SkipContentWS";
+alias SkipContentWS = Flag!"SkipContentWS";
 
 /// Flag for use with Config.
 alias SplitEmpty = Flag!"SplitEmpty";
@@ -139,14 +139,12 @@ struct Config
     auto skipPI = SkipPI.no;
 
     /++
-        Whether the whitespace immediately after a start tag or immediately
-        before an end tag should be stripped so that $(D EntityParser.text) will
-        never start or end with whitespace for $(D EntityType.text), and if
-        the text is empty, then the $(D EntityType.text) will be skipped.
+        Whether $(D EntityType.text) entities that contain only whitespace will
+        be skipped.
 
-        With $(D StripContentWS.no), XML that is formatted with indenting and
+        With $(D SkipContentWS.no), XML that is formatted with indenting and
         newlines and the like will contain lots of $(D EntityType.text) entities
-        which are just whitespace, but with $(D StripContentWS.yes), all of the
+        which are just whitespace, but with $(D SkipContentWS.yes), all of the
         formatting is lost when parsing. Which is better of course depends on
         what the application is doing when parsing the XML.
 
@@ -154,7 +152,7 @@ struct Config
         $(D '\r') to be whitespace. So, those are the only character skipped
         with $(D StripContentsWS.yes).
       +/
-    auto stripContentWS = StripContentWS.no;
+    auto skipContentWS = SkipContentWS.yes;
 
     /++
         Whether the parser should report empty element tags as if they were a
@@ -239,7 +237,7 @@ Config makeConfig(Args...)(Args args)
         assert(config.skipDTD == Config.init.skipDTD);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.skipPI == Config.init.skipPI);
-        assert(config.stripContentWS == Config.init.stripContentWS);
+        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == Config.init.posType);
     }
@@ -250,7 +248,7 @@ Config makeConfig(Args...)(Args args)
         assert(config.skipDTD == Config.init.skipDTD);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.skipPI == Config.init.skipPI);
-        assert(config.stripContentWS == Config.init.stripContentWS);
+        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == PositionType.none);
     }
@@ -261,7 +259,7 @@ Config makeConfig(Args...)(Args args)
         assert(config.skipDTD == Config.init.skipDTD);
         assert(config.skipProlog == Config.init.skipProlog);
         assert(config.skipPI == Config.init.skipPI);
-        assert(config.stripContentWS == Config.init.stripContentWS);
+        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == SplitEmpty.yes);
         assert(config.posType == PositionType.line);
     }
@@ -283,7 +281,7 @@ unittest
     everything that can be configured to skip.
   +/
 enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipPI.yes,
-                            StripContentWS.yes, SplitEmpty.yes, PositionType.lineAndCol);
+                            SplitEmpty.yes, PositionType.lineAndCol);
 
 ///
 @safe pure nothrow @nogc unittest
@@ -292,7 +290,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipP
     static assert(simpleXML.skipDTD == SkipDTD.yes);
     static assert(simpleXML.skipProlog == SkipProlog.yes);
     static assert(simpleXML.skipPI == SkipPI.yes);
-    static assert(simpleXML.stripContentWS == StripContentWS.yes);
+    static assert(simpleXML.skipContentWS == SkipContentWS.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
     static assert(simpleXML.posType == PositionType.lineAndCol);
 }
@@ -461,26 +459,12 @@ public:
             }
 
             parser.next();
-            // The default Config doesn't strip anything out, including the
-            // whitespace between element tags.
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-
-            parser.next();
             assert(parser.type == EntityType.elementEmpty);
             assert(parser.name == "bar");
 
             parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-
-            parser.next();
             assert(parser.type == EntityType.comment);
             assert(parser.text == " no comment ");
-
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
 
             parser.next();
             assert(parser.type == EntityType.elementStart);
@@ -499,10 +483,6 @@ public:
 
             parser.next();
             assert(parser.type == EntityType.elementEnd); // </baz>
-
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n");
 
             parser.next();
             assert(parser.type == EntityType.elementEnd); // </foo>
@@ -546,9 +526,7 @@ public:
 
             parser.next();
             assert(parser.type == EntityType.text);
-            // simpleXML is set to strip whitespace at the beginning and
-            // end of an element tag's content.
-            assert(parser.text == "nothing to say.\n    nothing at all...");
+            assert(parser.text == "\n    nothing to say.\n    nothing at all...\n    ");
 
             parser.next();
             assert(parser.type == EntityType.elementEnd); // </baz>
@@ -815,6 +793,158 @@ public:
             assert(only(cdata, comment, processingInstruction, text).canFind(type));
 
         return stripBCU(_state.currText.input);
+    }
+
+    ///
+    unittest
+    {
+        enum xml = "<?xml version='1.0'?>\n" ~
+                   "<?instructionName?>\n" ~
+                   "<?foo here is something to say?>\n" ~
+                   "<root>\n" ~
+                   "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+                   "    <!-- some random comment -->\n" ~
+                   "    <p>something here</p>\n" ~
+                   "    <p>\n" ~
+                   "       something else\n" ~
+                   "       here</p>\n" ~
+                   "</root>";
+        {
+            auto parser = parseXML(xml);
+
+            // "<?xml version='1.0'?>\n" ~
+            assert(parser.type == EntityType.xmlDecl);
+            parser.next();
+
+            // "<?instructionName?>\n" ~
+            assert(parser.type == EntityType.processingInstruction);
+            assert(parser.name == "instructionName");
+            assert(parser.text.empty);
+            parser.next();
+
+            // "<?foo here is something to say?>\n" ~
+            assert(parser.type == EntityType.processingInstruction);
+            assert(parser.name == "foo");
+            assert(parser.text == "here is something to say");
+            parser.next();
+
+            // "<root>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+
+            // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+            assert(parser.type == EntityType.cdata);
+            assert(parser.text == " Yay! random text >> << ");
+            parser.next();
+
+            // "    <!-- some random comment -->\n" ~
+            assert(parser.type == EntityType.comment);
+            assert(parser.text == " some random comment ");
+            parser.next();
+
+            // "    <p>something here</p>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "something here");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+
+            // "    <p>\n" ~
+            // "       something else\n" ~
+            // "       here</p>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n       something else\n       here");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+
+            // "</root>"
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+            assert(parser.empty);
+        }
+        {
+            auto parser = parseXML!(makeConfig(SkipContentWS.no))(xml);
+
+            // "<?xml version='1.0'?>\n" ~
+            assert(parser.type == EntityType.xmlDecl);
+            parser.next();
+
+            // "<?instructionName?>\n" ~
+            assert(parser.type == EntityType.processingInstruction);
+            assert(parser.name == "instructionName");
+            assert(parser.text.empty);
+            parser.next();
+
+            // "<?foo here is something to say?>\n" ~
+            assert(parser.type == EntityType.processingInstruction);
+            assert(parser.name == "foo");
+            assert(parser.text == "here is something to say");
+            parser.next();
+
+            // "<root>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+
+            // With SkipContentWS.no, no EntityType.text entities are skipped,
+            // even if they only contain whitespace, resulting in a number of
+            // entities of type EntityType.text which just contain whitespace
+            // if the XML has been formatted to be human readable.
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+            parser.next();
+
+            // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+            assert(parser.type == EntityType.cdata);
+            assert(parser.text == " Yay! random text >> << ");
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+            parser.next();
+
+            // "    <!-- some random comment -->\n" ~
+            assert(parser.type == EntityType.comment);
+            assert(parser.text == " some random comment ");
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+            parser.next();
+
+            // "    <p>something here</p>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "something here");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n    ");
+            parser.next();
+
+            // "    <p>\n" ~
+            // "       something else\n" ~
+            // "       here</p>\n" ~
+            assert(parser.type == EntityType.elementStart);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n       something else\n       here");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+            assert(parser.type == EntityType.text);
+            assert(parser.text == "\n");
+            parser.next();
+
+            // "</root>"
+            assert(parser.type == EntityType.elementEnd);
+            parser.next();
+            assert(parser.empty);
+        }
     }
 
 
@@ -1141,9 +1271,33 @@ private:
             _state.skipUntilAndDrop!"?>"();
         else
         {
+            auto pos = _state.pos;
             _state.type = EntityType.processingInstruction;
             _state.currText.pos = _state.pos;
             _state.currText.input = _state.takeUntilAndDrop!"?>"();
+            _state.name = takeName(&_state.currText);
+            stripWS(&_state.currText);
+            if(walkLength(_state.name.save) == 3)
+            {
+                // FIXME icmp doesn't compile right now due to an issue with
+                // byUTF that needs to be looked into.
+                /+
+                import std.uni : icmp;
+                if(icmp(_state.name.save, "xml") == 0)
+                    throw new XMLParsingException("Processing instructions cannot be named xml", pos);
+                +/
+                if(_state.name.front == 'x' || _state.name.front == 'X')
+                {
+                    _state.name.popFront();
+                    if(_state.name.front == 'm' || _state.name.front == 'M')
+                    {
+                        _state.name.popFront();
+                        if(_state.name.front == 'l' || _state.name.front == 'L')
+                            throw new XMLParsingException("Processing instructions cannot be named xml", pos);
+                    }
+                }
+            }
+            stripWS(_state);
         }
     }
 
@@ -1254,16 +1408,24 @@ private:
     // if it's not there) has been consumed.
     void _parseAtContentCharData()
     {
-        static if(config.stripContentWS == StripContentWS.yes)
-            stripWS(_state);
         checkNotEmpty(_state);
+        static if(config.skipContentWS == SkipContentWS.yes)
+        {
+            auto origInput = _state.input.save;
+            auto origPos = _state.pos;
+            stripWS(_state);
+            checkNotEmpty(_state);
+            if(_state.input.front != '<')
+            {
+                _state.input = origInput;
+                _state.pos = origPos;
+            }
+        }
         if(_state.input.front != '<')
         {
             _state.type = EntityType.text;
             _state.currText.pos = _state.pos;
             _state.currText.input = _state.takeUntilAndDrop!"<"();
-            static if(config.stripContentWS == StripContentWS.yes)
-                _state.currText.input = stripRightWS(_state.currText.input);
             checkNotEmpty(_state);
             if(_state.input.front == '/')
             {
