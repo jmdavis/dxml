@@ -3,7 +3,8 @@
 /++
     Copyright: Copyright 2017
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
-    Author:   Jonathan M Davis
+    Authors:   Jonathan M Davis
+    Source:    $(LINK_TO_SRC dxml/reader/_parser.d)
   +/
 module dxml.reader.parser;
 
@@ -24,8 +25,8 @@ class XMLParsingException : Exception
     /++
         The position in the XML input where the problem is.
 
-        How informative it is depends on the $(D PositionType) used when parsing
-        the XML.
+        How informative it is depends on the $(LREF PositionType) used when
+        parsing the XML.
       +/
     SourcePos pos;
 
@@ -40,7 +41,7 @@ package:
 
 
 /++
-    Where in the XML text an $(D Entity) is. If the $(D PositionType) when
+    Where in the XML text an entity is. If the $(LREF PositionType) when
     parsing does not keep track of a given field, then that field will always be
     $(D -1).
   +/
@@ -64,9 +65,9 @@ struct SourcePos
 /++
     At what level of granularity the position in the XML file should be kept
     track of (be it for error reporting or any other use the application might
-    have for that information). $(D none) is the most efficient but least
-    informative, whereas $(D lineAndCol) is the most informative but least
-    efficient.
+    have for that information). $(LREF _PositionType.none) is the most
+    efficient but least informative, whereas $(LREF _PositionType.lineAndCol)
+    is the most informative but least efficient.
   +/
 enum PositionType
 {
@@ -81,76 +82,85 @@ enum PositionType
 }
 
 
-/// Flag for use with Config.
-alias SkipComments = Flag!"SkipComments";
-
-/// Flag for use with Config.
-alias SkipDTD = Flag!"SkipDTD";
-
-/// Flag for use with Config.
-alias SkipProlog = Flag!"SkipProlog";
-
-/// Flag for use with Config.
-alias SkipPI = Flag!"SkipPI";
-
-/// Flag for use with Config.
-alias SkipContentWS = Flag!"SkipContentWS";
-
-/// Flag for use with Config.
-alias SplitEmpty = Flag!"SplitEmpty";
-
-
 /++
     Used to configure how the parser works.
+
+    See_Also:
+        $(LREF makeConfig)$(BR)
+        $(LREF parseXML)
   +/
 struct Config
 {
     /++
         Whether the comments should be skipped while parsing.
 
-        If $(D true), any $(D Entity)s of type $(D EntityType.comment) will be
+        If $(D true), any entities of type $(LREF EntityType.comment) will be
         omitted from the parsing results.
+
+        Defaults to $(D SkipComments.no).
       +/
     auto skipComments = SkipComments.no;
 
     /++
-        Whether the DOCTYPE entities should be skipped while parsing.
+        Whether the `<!DOCTYPE ... >` entities should be skipped while parsing.
 
-        If $(D true), any $(D Entity)s of type $(D EntityType.dtdStartTag) and
-        $(D EntityType.dtdEndTag) and any entities in between will be omitted
+        If $(D true), any entities of type $(LREF EntityType.dtdStartTag) and
+        $(LREF EntityType.dtdEndTag) and any entities in between will be omitted
         from the parsing results.
+
+        Defaults to $(D SkipDTD.no).
       +/
     auto skipDTD = SkipDTD.no;
 
     /++
         Whether the prolog should be skipped while parsing.
 
-        If $(D true), any $(D Entity)s prior to the root element will omitted
+        If $(D true), any entities prior to the root element will omitted
         from the parsing results.
+
+        Defaults to $(D SkipProlog.no).
       +/
     auto skipProlog = SkipProlog.no;
 
     /++
         Whether processing instructions should be skipped.
 
-        If $(D true), any $(D Entity)s with the type
-        $(D EntityType.processingInstruction) will be skipped.
+        If $(D true), any entities with the type
+        $(LREF EntityType.processingInstruction) will be skipped.
+
+        Defaults to $(D SkipPI.no).
       +/
     auto skipPI = SkipPI.no;
 
     /++
-        Whether $(D EntityType.text) entities that contain only whitespace will
-        be skipped.
+        Whether $(LREF EntityType.text) entities that contain only whitespace
+        will be skipped.
 
-        With $(D SkipContentWS.no), XML that is formatted with indenting and
-        newlines and the like will contain lots of $(D EntityType.text) entities
-        which are just whitespace, but with $(D SkipContentWS.yes), all of the
-        formatting is lost when parsing. Which is better of course depends on
-        what the application is doing when parsing the XML.
+        With $(LREF SkipContentWS.no), XML that is formatted with indenting and
+        newlines and the like will contain lots of $(LREF EntityType.text)
+        entities which are just whitespace, but with $(LREF SkipContentWS.yes),
+        all of the formatting is lost when parsing, and if the program wants to
+        treat that whitespace as significant, then it has a problem. Which is
+        better of course depends on what the application is doing when parsing
+        the XML.
+
+        However, note that $(I some) formatting will be lost regardless,
+        because any whitespace which is not part of an $(LREF EntityType.text)
+        entity will be parsed without being communicated to the program
+        (e.g. the program using $(LREF parseXML) won't know what whitespace
+        was between $(LREF EntityType.processingInstruction) entities and won't
+        know what kind of whitespace or how much there was between the name of
+        a start tag and its attributes).
 
         Note that XML only considers $(D ' '), $(D '\t'), $(D '\n'), and
         $(D '\r') to be whitespace. So, those are the only character skipped
-        with $(D StripContentsWS.yes).
+        with $(LREF StripContentsWS.yes), and those are the characters that
+        $(LREF EntityParser) expects at any point in the XML that is supposed
+        to contain whitespace.
+
+        Defaults to $(D SkipContentWS.yes).
+
+        See_Also: $(LREF EntityParser.text)
       +/
     auto skipContentWS = SkipContentWS.yes;
 
@@ -158,10 +168,10 @@ struct Config
         Whether the parser should report empty element tags as if they were a
         start tag followed by an end tag with nothing in between.
 
-        If $(D true), then whenever an $(D EntityType.elementEmpty) is
+        If $(D true), then whenever an $(LREF EntityType.elementEmpty) is
         encountered, the parser will claim that that entity is an
-        $(D EntityType.elementStart), and then it will provide an
-        $(D EntityType.elementEnd) as the next entity before the entity that
+        $(LREF EntityType.elementStart), and then it will provide an
+        $(LREF EntityType.elementEnd) as the next entity before the entity that
         actually follows it.
 
         The purpose of this is to simplify the code using the parser, since most
@@ -169,12 +179,84 @@ struct Config
         and end tag with nothing in between. But since some code will care about
         the difference, the behavior is configurable rather than simply always
         treating them as the same.
+
+        Defaults to $(D SplitEmpty.no).
       +/
     auto splitEmpty = SplitEmpty.no;
 
-    /// See PositionType.
+    ///
+    unittest
+    {
+        enum configSplitYes = makeConfig(SplitEmpty.yes);
+
+        {
+            auto parser = parseXML("<root></root>");
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.empty);
+        }
+        {
+            // No difference if the tags are already split.
+            auto parser = parseXML!configSplitYes("<root></root>");
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.empty);
+        }
+        {
+            // This treats <root></root> and <root/> as distinct.
+            auto parser = parseXML("<root/>");
+            assert(parser.type == EntityType.elementEmpty);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.empty);
+        }
+        {
+            // This is parsed as if it were <root></root> insead of <root/>.
+            auto parser = parseXML!configSplitYes("<root/>");
+            assert(parser.type == EntityType.elementStart);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.type == EntityType.elementEnd);
+            assert(parser.name == "root");
+            parser.next();
+            assert(parser.empty);
+        }
+    }
+
+    /++
+        Defaults to $(LREF PositionType.lineAndCol).
+
+        See_Also: $(LREF PositionType)
+      +/
     PositionType posType = PositionType.lineAndCol;
 }
+
+
+/// See_Also: $(LREF2 skipComments, Config)
+alias SkipComments = Flag!"SkipComments";
+
+/// See_Also: $(LREF2 skipDTD, Config)
+alias SkipDTD = Flag!"SkipDTD";
+
+/// See_Also: $(LREF2 skipProlog, Config)
+alias SkipProlog = Flag!"SkipProlog";
+
+/// See_Also: $(LREF2 skipPI, Config)
+alias SkipPI = Flag!"SkipPI";
+
+/// See_Also: $(LREF2 skipContentWS, Config)
+alias SkipContentWS = Flag!"SkipContentWS";
+
+/// See_Also: $(LREF2 splitEmpty, Config)
+alias SplitEmpty = Flag!"SplitEmpty";
 
 
 /++
@@ -241,7 +323,6 @@ Config makeConfig(Args...)(Args args)
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == Config.init.posType);
     }
-
     {
         auto config = makeConfig(SkipComments.yes, PositionType.none);
         assert(config.skipComments == SkipComments.yes);
@@ -252,9 +333,10 @@ Config makeConfig(Args...)(Args args)
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == PositionType.none);
     }
-
     {
-        auto config = makeConfig(SplitEmpty.yes, SkipComments.yes, PositionType.line);
+        auto config = makeConfig(SplitEmpty.yes,
+                                 SkipComments.yes,
+                                 PositionType.line);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipDTD == Config.init.skipDTD);
         assert(config.skipProlog == Config.init.skipProlog);
@@ -301,42 +383,89 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipP
   +/
 enum EntityType
 {
-    /// The $(D <!ATTLIST ... >) tag.
+    /++
+        The `<!ATTLIST ... >` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+      +/
     attlistDecl,
 
-    /// A cdata section: $(D <![CDATA[ ... ]]>).
+    /++
+        A cdata section: `<![CDATA[ ... ]]>`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-cdata-sect)
+      +/
     cdata,
 
-    /// An XML comment: $(D <!-- ... -->).
+    /++
+        An XML comment: `<!-- ... -->`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-comments)
+      +/
     comment,
 
-    /// The beginning of a $(D <!DOCTYPE ... >) tag.
+    /++
+        The beginning of a `<!DOCTYPE ... >` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
+      +/
     docTypeStart,
 
-    /// The $(D >) indicating the end of a $(D <!DOCTYPE) tag.
+    /++
+        The `>` indicating the end of a `<!DOCTYPE` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
+      +/
     docTypeEnd,
 
-    /// The $(D <!ELEMENT ... >) tag.
-    elementDecl,
+    /++
+        The `<!ELEMENT ... >` tag.
 
-    /// The start tag for an element. e.g. $(D <foo name="value">).
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#elemdecls)
+      +/
+    elementTypeDecl,
+
+    /++
+        The start tag for an element. e.g. `<foo name="value">`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
+      +/
     elementStart,
 
-    /// The end tag for an element. e.g. $(D </foo>).
+    /++
+        The end tag for an element. e.g. `</foo>`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
+      +/
     elementEnd,
 
-    /// The tag for an element with no contents. e.g. $(D <foo name="value"/>).
+    /++
+        The tag for an element with no contents. e.g. `<foo name="value"/>`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
+      +/
     elementEmpty,
 
-    /// The $(D <!ENTITY ... >) tag.
+    /++
+        The `<!ENTITY ... >` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-entity-decl)
+      +/
     entityDecl,
 
-    /// The $(D <!NOTATION ... >) tag.
+    /++
+        The `<!NOTATION ... >` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#Notations)
+      +/
     notationDecl,
 
     /++
-        A processing instruction such as $(D <?foo?>). Note that
-        $(D <?xml ... ?>) is an $(D xmlDecl) and not a processingInstruction.
+        A processing instruction such as `<?foo?>`. Note that
+        `<?xml ... ?>` is an $(LREF EntityType.xmlDecl) and not an
+        $(LREF EntityType.processingInstruction).
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-pi)
       +/
     processingInstruction,
 
@@ -347,16 +476,20 @@ enum EntityType
         the text includes up to that entity.
 
         Note however that character references (e.g. $(D "&#42")) and entity
-        references (e.g. $(D "&Name;") are left unprocessed in the text
+        references (e.g. $(D "&Name;")) are left unprocessed in the text
         (primarily because the most user-friendly thing to do with
         them is to convert them in place, and that's best to a higher level
         parser or helper function).
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
       +/
     text,
 
     /++
-        The $(D <?xml ... ?>) entity that can start an XML 1.0 document and must
+        The `<?xml ... ?>` entity that can start an XML 1.0 document and must
         start an XML 1.1 document.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
     xmlDecl
 }
@@ -365,55 +498,64 @@ enum EntityType
 /++
     Lazily parses the given XML.
 
+    EntityParser is essentially a
+    $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX) parser, though it evolved
+    into that rather than being based on what Java did, so its API is likely
+    to differ from other implementations.
+
     The resulting EntityParser is similar to an input range with how it's
     iterated until it's consumed, and its state cannot be saved (since
-    unfortunately, saving it would require allocating additional memory), but
-    because there are essentially multiple ways to pop the front (e.g. choosing
-    to skip all of the contents between a start tag and end tag instead of
-    processing it), the input range API didn't seem to appropriate, even if the
-    result functions similarly.
+    unfortunately, saving would essentially require duplicating the entire
+    parser, including all of the memory that it's allocated), but because there
+    are essentially multiple ways to pop the front (e.g. choosing to skip all of
+    the contents between a start tag and end tag instead of processing it), the
+    input range API didn't seem to appropriate, even if the result functions
+    similarly.
 
     Also, unlike a range the, "front" is integrated into the EntityParser rather
     than being a value that can be extracted. So, while an entity can be queried
     while it is the "front", it can't be kept around after the EntityParser has
     moved to the next entity. Only the information that has been queried for
-    that entity can be retained (e.g. its name, attributes, or textual value).
+    that entity can be retained (e.g. its $(LREF2 name, _EntityParser),
+    $(LREF2 attributes, _EntityParser), or $(LREF2 text, _EntityParser)ual value).
     While that does place some restrictions on how an algorithm operating on an
     EntityParser can operate, it does allow for more efficient processing.
 
-    A range wrapper for an EntityParser could definitely be written, but it
-    would be less efficient and less flexible, and if something like that is
-    really needed, it may make more sense to simply use dxml.reader.dom. Some
-    of the aspects of XML's design simply make it difficult to avoid allocating
-    for each entity if an entity is treated as an element that can be returned
-    by front and retained after a call to popFront.
-
     If invalid XML is encountered at any point during the parsing process, an
-    $(D XMLParsingException) will be thrown.
+    $(LREF XMLParsingException) will be thrown.
 
-    However, note that EntityParser does not care about XML validation beyond
-    what is required to correctly parse what it has been told to parse. For
-    instance, any portions that are skipped (either due to the values in the
-    Config or because a function such as skipContents is called) will only be
-    validated enough to correctly determine where those portions terminated.
-    Similarly, if the functions to process the value of an entity are not
-    called (e.g. $(D attributes) for $(D EntityType.elementStart) and
-    $(D xmlSpec) for $(D EntityType.xmlSpec)), then those portions of the XML
-    will not be validated beyond what is required to iterate to the next entity.
+    However, note that EntityParser does not generally care about XML validation
+    beyond what is required to correctly parse what it has been told to parse.
+    In particular, any portions that are skipped (either due to the values in
+    the $(LREF Config) or because a function such as
+    $(LREF2 skipContents, _EntityParser) is called) will only be validated
+    enough to correctly determine where those portions terminated. Similarly,
+    if the functions to process the value of an entity are not called (e.g.
+    $(LREF2 attributes, _EntityParser) for $(LREF EntityType.elementStart) and
+    $(LREF2 xmlSpec, _EntityParser) for $(LREF EntityType.xmlSpec)), then those
+    portions of the XML will not be validated beyond what is required to iterate
+    to the next entity.
 
-    A possible enhancement would be to add a validateXML function that
+    A possible enhancement would be to add a $(D validateXML) function that
     corresponds to parseXML and fully validates the XML, but for now, no such
     function exists.
 
     EntityParser is a reference type.
-  +/
-EntityParser!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    return EntityParser!(config, R)(xmlText);
-}
 
-/// Ditto
+    Note that while EntityParser is not $(D @nogc), it is designed to allocate
+    very miminally. The parser state is allocated on the heap so that it is a
+    reference type, and it has to allocate on the heap to retain a stack of the
+    names of element tags so that it can validate the XML properly as well as
+    provide the full path for a given entity, but it does no allocation
+    whatsoever with the text that it's given. It operates entirely on slices
+    (or the result of $(PHOBOS_REF takeExactly, std, range)), and that's what
+    it returns from any function that returns a portion of the XML. Helper
+    functions (such as $(LREF cleanText)) may allocate, but if so, their
+    documentation makes that clear. The only other case where it may allocate
+    is when throwing an $(LREF XMLException).
+
+    See_Also: $(MOD_REF dxml, reader, dom)
+  +/
 struct EntityParser(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
@@ -424,141 +566,27 @@ public:
 
     private enum compileInTests = is(R == EntityCompileTests);
 
-    ///
-    static if(compileInTests) unittest
-    {
-        enum xml = "<?xml version='1.0'?>\n" ~
-                   "<foo attr='42'>\n" ~
-                   "    <bar/>\n" ~
-                   "    <!-- no comment -->\n" ~
-                   "    <baz hello='world'>\n" ~
-                   "    nothing to say.\n" ~
-                   "    nothing at all...\n" ~
-                   "    </baz>\n" ~
-                   "</foo>";
-
-        {
-            auto parser = parseXML(xml);
-            assert(!parser.empty);
-            assert(parser.type == EntityType.xmlDecl);
-
-            auto xmlDecl = parser.xmlDecl;
-            assert(xmlDecl.xmlVersion == "1.0");
-            assert(xmlDecl.encoding.isNull);
-            assert(xmlDecl.standalone.isNull);
-
-            parser.next();
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "foo");
-
-            {
-                auto attrs = parser.attributes;
-                assert(walkLength(attrs.save) == 1);
-                assert(attrs.front.name == "attr");
-                assert(attrs.front.value == "42");
-            }
-
-            parser.next();
-            assert(parser.type == EntityType.elementEmpty);
-            assert(parser.name == "bar");
-
-            parser.next();
-            assert(parser.type == EntityType.comment);
-            assert(parser.text == " no comment ");
-
-            parser.next();
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "baz");
-
-            {
-                auto attrs = parser.attributes;
-                assert(walkLength(attrs.save) == 1);
-                assert(attrs.front.name == "hello");
-                assert(attrs.front.value == "world");
-            }
-
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    nothing to say.\n    nothing at all...\n    ");
-
-            parser.next();
-            assert(parser.type == EntityType.elementEnd); // </baz>
-
-            parser.next();
-            assert(parser.type == EntityType.elementEnd); // </foo>
-
-            parser.next();
-            assert(parser.empty);
-        }
-
-        {
-            auto parser = parseXML!simpleXML(xml);
-            assert(!parser.empty);
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "foo");
-
-            {
-                auto attrs = parser.attributes;
-                assert(walkLength(attrs.save) == 1);
-                assert(attrs.front.name == "attr");
-                assert(attrs.front.value == "42");
-            }
-
-            parser.next();
-            // simpleXML is set to split empty tags so that <bar/> is treated
-            // as the same as <bar></bar> so that code does not have to
-            // explicitly handle empty tags.
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "bar");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-
-            parser.next();
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "baz");
-
-            {
-                auto attrs = parser.attributes;
-                assert(walkLength(attrs.save) == 1);
-                assert(attrs.front.name == "hello");
-                assert(attrs.front.value == "world");
-            }
-
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    nothing to say.\n    nothing at all...\n    ");
-
-            parser.next();
-            assert(parser.type == EntityType.elementEnd); // </baz>
-
-            parser.next();
-            assert(parser.type == EntityType.elementEnd); // </foo>
-
-            parser.next();
-            assert(parser.empty);
-        }
-    }
-
-
     /// The Config used for this parser.
     alias config = cfg;
-
 
     /++
         The type used when any slice of the original text is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
-        otherwise, it's the result of calling $(D takeExactly) on the text.
+        otherwise, it's the result of calling
+        $(PHOBOS_REF takeExactly, std, range) on the text.
       +/
     static if(isDynamicArray!R || hasSlicing!R)
         alias SliceOfR = R;
     else
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
-
     // TODO re-enable these. Whenever EntityParser doesn't compile correctly due
     // to a change, these static assertions fail, and the actual errors are masked.
     // So, rather than continuing to deal with that whenever I change somethnig,
     // I'm leaving these commented out for now.
+    // Also, unfortunately, https://issues.dlang.org/show_bug.cgi?id=11133
+    // currently prevents this from showing up in the docs, and I don't know of
+    // a workaround that works.
     /+
     ///
     static if(compileInTests) @safe unittest
@@ -575,13 +603,14 @@ public:
     }
     +/
 
+
     /++
         The type of the current entity.
 
         The value of this member determines which member functions and
         properties are allowed to be called, since some are only appropriate
-        for specific entity types (e.g. $(D attributes) would not be appropriate
-        for $(D EntityType.elementEnd)).
+        for specific entity types (e.g. $(LREF2 attributes, EntityParser) would
+        not be appropriate for $(LREF EntityType.elementEnd)).
       +/
     @property EntityType type()
     {
@@ -594,6 +623,8 @@ public:
 
         How precise the position is depends on the parser configuration that's
         used.
+
+        See_Also: $(LREF PositionType)
       +/
     @property SourcePos pos()
     {
@@ -665,8 +696,8 @@ public:
 
 
     /++
-        $(D true) if there is no more XML to process. It as en error to call
-        $(D next) once $(D empty) is $(D true).
+        $(D true) if there is no more XML to process. It as an error to call
+        $(D next) once empty is $(D true).
       +/
     bool empty()
     {
@@ -681,13 +712,16 @@ public:
         not contain any of the names of any of the parent entities that this
         entity has.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.docTypeStart))),
-          $(TR $(TD $(D EntityType.elementStart))),
-          $(TR $(TD $(D EntityType.elementEnd))),
-          $(TR $(TD $(D EntityType.elementEmpty))),
-          $(TR $(TD $(D EntityType.processingInstruction))))
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 docTypeStart, EntityType)))
+            $(TR $(TD $(LREF2 elementStart, EntityType)))
+            $(TR $(TD $(LREF2 elementEnd, EntityType)))
+            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+        )
+
+        See_Also: $(LREF path, EntityParser)$(BR)$(LREF parentPath, EntityParser)
       +/
     @property SliceOfR name()
     {
@@ -699,13 +733,78 @@ public:
 
 
     /++
-        Returns a lazy range of attributes for a start tag where each attribute
-        is represented as a $(D Tuple!(SliceOfR, "name", SliceOfR, "value")).
+        Gives the path of the current entity as a lazy range.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.elementStart))))
-          $(TR $(TD $(D EntityType.elementEmpty))))
+        Unlike $(LREF2 name, EntityParser), this includes the names of all of
+        the parent entities. The path does not take into account the fact that
+        there may be multiple entities with the same path (e.g. a start tag
+        could have multiple start tags in its contents which have the same
+        name). The path is simply the list of the names of the parent tags plus
+        the name of the current tag.
+
+        Note that the range returned by path is only valid until
+        $(LREF next, EntityParser) is called. Each element in the range will
+        continue to be valid, but the range itself will not be (since the range
+        refers to the internal stack of tag names, which can change when
+        $(LREF next, EntityParser) is called).
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 docTypeStart, EntityType)))
+            $(TR $(TD $(LREF2 elementStart, EntityType)))
+            $(TR $(TD $(LREF2 elementEnd, EntityType)))
+            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+         )
+
+        See_Also: $(LREF name, EntityParser)$(BR)$(LREF parentPath, EntityParser)
+      +/
+    @property auto path()
+    {
+        with(EntityType)
+            assert(only(docTypeStart, elementStart, elementEmpty, elementEnd, processingInstruction).canFind(type));
+
+        assert(0);
+    }
+
+
+    /++
+        Gives the path of the parent entity as a lazy range.
+
+        Unlike $(LREF2 name, EntityParser), this includes the names of all of
+        the parent entities. However, unlike $(LREF2 name, EntityParser) and
+        $(LREF2 path, EntityParser), parentPath works with all entity types
+        (though in the case of root-level elements, it will be empty). Like
+        (LREF2 path, EntityParser), no effort is made to make the path unique.
+        It is simply a list of the names of the parent tags.
+
+        Note that the range returned by parentPath is only valid until
+        $(LREF next, EntityParser) is called. Each element in the range will
+        continue to be valid, but the range itself will not be (since the range
+        refers to the internal stack of tag names, which can change when
+        $(LREF next, EntityParser) is called).
+
+        See_Also: $(LREF name, EntityParser)$(BR)$(LREF path, EntityParser)
+      +/
+    @property auto parentPath()
+    {
+        with(EntityType)
+            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
+
+        assert(0);
+    }
+
+
+    /++
+        Returns a lazy range of attributes for a start tag where each attribute
+        is represented as a
+        $(D Tuple!($(LREF2 SliceOfR, EntityParser), "name", $(LREF2 SliceOfR, EntityParser), "value")).
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 elementStart, EntityType)))
+            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+        )
       +/
     @property auto attributes()
     {
@@ -777,15 +876,16 @@ public:
     /++
         Returns the value of the current entity.
 
-        In the case of $(D EntityType.processingInstruction), this is the text
+        In the case of $(LREF EntityType.processingInstruction), this is the text
         that follows the name.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.cdata))),
-          $(TR $(TD $(D EntityType.comment))),
-          $(TR $(TD $(D EntityType.processingInstruction))),
-          $(TR $(TD $(D EntityType.text))))
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 cdata, EntityType)))
+            $(TR $(TD $(LREF2 comment, EntityType)))
+            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+            $(TR $(TD $(LREF2 _text, EntityType)))
+        )
       +/
     @property SliceOfR text()
     {
@@ -796,7 +896,7 @@ public:
     }
 
     ///
-    unittest
+    static if(compileInTests) unittest
     {
         enum xml = "<?xml version='1.0'?>\n" ~
                    "<?instructionName?>\n" ~
@@ -953,9 +1053,10 @@ public:
         corresponding end tag tag and returns the contents between the two tags
         as text, leaving any markup in between as unprocessed text.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.elementStart))))
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 elementStart, EntityType)))
+        )
       +/
     @property SliceOfR contentAsText()
     {
@@ -969,9 +1070,10 @@ public:
         When at a start tag, moves the parser to the entity after the
         corresponding end tag.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.elementStart))))
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 elementStart, EntityType)))
+        )
       +/
     void skipContents()
     {
@@ -982,11 +1084,12 @@ public:
 
 
     /++
-        Returns the $(D XMLDecl) corresponding to the current entity.
+        Returns the $(LREF XMLDecl) corresponding to the current entity.
 
-        $(TABLE,
-          $(TR $(TH Supported $(D EntityType)s)),
-          $(TR $(TD $(D EntityType.xmlDecl))))
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 _xmlDecl, EntityType)))
+        )
       +/
     @property XMLDecl!R xmlDecl()
     {
@@ -1678,6 +1781,130 @@ private:
     ParserState!(config, R)* _state;
 }
 
+/// Ditto
+EntityParser!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    return EntityParser!(config, R)(xmlText);
+}
+
+///
+unittest
+{
+    enum xml = "<?xml version='1.0'?>\n" ~
+               "<foo attr='42'>\n" ~
+               "    <bar/>\n" ~
+               "    <!-- no comment -->\n" ~
+               "    <baz hello='world'>\n" ~
+               "    nothing to say.\n" ~
+               "    nothing at all...\n" ~
+               "    </baz>\n" ~
+               "</foo>";
+
+    {
+        auto parser = parseXML(xml);
+        assert(!parser.empty);
+        assert(parser.type == EntityType.xmlDecl);
+
+        auto xmlDecl = parser.xmlDecl;
+        assert(xmlDecl.xmlVersion == "1.0");
+        assert(xmlDecl.encoding.isNull);
+        assert(xmlDecl.standalone.isNull);
+
+        parser.next();
+        assert(parser.type == EntityType.elementStart);
+        assert(parser.name == "foo");
+
+        {
+            auto attrs = parser.attributes;
+            assert(walkLength(attrs.save) == 1);
+            assert(attrs.front.name == "attr");
+            assert(attrs.front.value == "42");
+        }
+
+        parser.next();
+        assert(parser.type == EntityType.elementEmpty);
+        assert(parser.name == "bar");
+
+        parser.next();
+        assert(parser.type == EntityType.comment);
+        assert(parser.text == " no comment ");
+
+        parser.next();
+        assert(parser.type == EntityType.elementStart);
+        assert(parser.name == "baz");
+
+        {
+            auto attrs = parser.attributes;
+            assert(walkLength(attrs.save) == 1);
+            assert(attrs.front.name == "hello");
+            assert(attrs.front.value == "world");
+        }
+
+        parser.next();
+        assert(parser.type == EntityType.text);
+        assert(parser.text ==
+               "\n    nothing to say.\n    nothing at all...\n    ");
+
+        parser.next();
+        assert(parser.type == EntityType.elementEnd); // </baz>
+
+        parser.next();
+        assert(parser.type == EntityType.elementEnd); // </foo>
+
+        parser.next();
+        assert(parser.empty);
+    }
+
+    {
+        auto parser = parseXML!simpleXML(xml);
+        assert(!parser.empty);
+        assert(parser.type == EntityType.elementStart);
+        assert(parser.name == "foo");
+
+        {
+            auto attrs = parser.attributes;
+            assert(walkLength(attrs.save) == 1);
+            assert(attrs.front.name == "attr");
+            assert(attrs.front.value == "42");
+        }
+
+        parser.next();
+        // simpleXML is set to split empty tags so that <bar/> is treated
+        // as the same as <bar></bar> so that code does not have to
+        // explicitly handle empty tags.
+        assert(parser.type == EntityType.elementStart);
+        assert(parser.name == "bar");
+        parser.next();
+        assert(parser.type == EntityType.elementEnd);
+
+        parser.next();
+        assert(parser.type == EntityType.elementStart);
+        assert(parser.name == "baz");
+
+        {
+            auto attrs = parser.attributes;
+            assert(walkLength(attrs.save) == 1);
+            assert(attrs.front.name == "hello");
+            assert(attrs.front.value == "world");
+        }
+
+        parser.next();
+        assert(parser.type == EntityType.text);
+        assert(parser.text ==
+               "\n    nothing to say.\n    nothing at all...\n    ");
+
+        parser.next();
+        assert(parser.type == EntityType.elementEnd); // </baz>
+
+        parser.next();
+        assert(parser.type == EntityType.elementEnd); // </foo>
+
+        parser.next();
+        assert(parser.empty);
+    }
+}
+
 // This is purely to provide a way to trigger the unittest blocks in Entity
 // without compiling them in normally.
 private struct EntityCompileTests
@@ -1688,14 +1915,12 @@ private struct EntityCompileTests
     @property typeof(this) save() { assert(0); }
 }
 
-@safe pure nothrow @nogc unittest
-{
-    EntityParser!(Config.init, EntityCompileTests) foo;
-}
+version(unittest)
+    EntityParser!(Config.init, EntityCompileTests) _entityParserTests;
 
 
 /++
-    Information parsed from a <?xml ... ?> declaration.
+    Information parsed from a `<?xml ... ?>` declaration.
 
     Note that while XML 1.1 requires this declaration, it's optional in XML
     1.0.
@@ -1707,7 +1932,10 @@ struct XMLDecl(R)
     /++
         The type used when any slice of the original text is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
-        otherwise, it's the result of calling $(D takeExactly) on the text.
+        otherwise, it's the result of calling
+        $(PHOBOS_REF takeExcatly, std, range) on the text.
+
+        See_Also: $(LREF XMLParser._SliceOfR)
       +/
     static if(isDynamicArray!R || hasSlicing!R)
         alias SliceOfR = R;
@@ -1724,17 +1952,12 @@ struct XMLDecl(R)
 
         Note that dxml only supports UTF-8, UTF-16, and UTF-32, and it is
         assumed that the encoding matches the character type. The parser
-        ignores this field aside from providing its value as part of an XMLDecl.
+        ignores this field aside from providing its value as part of an
+        $(LREF XMLDecl).
 
-        And as the current XML spec points out, including the encoding as part
-        of the XML itself doesn't really work anyway, because you have to know
-        the encoding before you can read the text. One possible enhancement
-        would be to provide a function specifically for parsing the XML
-        declaration and attempting to determine the encoding in the process
-        (which the spec discusses), in which case, the caller could then use
-        that information to convert the text to UTF-8, UTF-16, or UTF-32 before
-        passing it to $(D parseXML), but dxml does not currently have such a
-        function.
+        Anyone looking to make their program determine the encoding based on
+        the $(D "encoding") field, should read
+        $(LINK http://www.w3.org/TR/REC-xml/#sec-guessing).
       +/
     Nullable!SliceOfR encoding;
 
@@ -1742,7 +1965,7 @@ struct XMLDecl(R)
         $(D true) if the XML document does $(I not) contain any external
         references. $(D false) if it does or may contain external references.
         It's null if the $(D "standalone") declaration was not included in the
-        <?xml declaration.
+        `<?xml ..?>` declaration.
       +/
     Nullable!bool standalone;
 }

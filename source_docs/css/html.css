@@ -1,0 +1,656 @@
+body
+{
+    background: #F5F5F5;
+    color: #000000;
+    font-size: 93.75%;
+    line-height: 1.4;
+    margin: 15px;
+    padding: 15px;
+    text-align: justify;
+}
+
+/* This is needed so that sidebar-underbar stretches to the bottom of the page */
+body > .container
+{
+    position: relative;
+}
+
+/* TC: Formats D_CODE */
+.d_code
+{
+    font-family: "Courier New", monospace;
+    background: #DFDFDF;
+    border-radius: 4px;
+    padding: 1ex;
+    margin: 1em 0 1em 0;
+    line-height: normal;
+    border: 1px solid #CCCCCC;
+    width: auto;
+}
+
+/* TC: Formats D / D_INLINECODE */
+.d_inlinecode
+{
+    font-weight: bold;
+}
+
+/* SPAN: Formats D_COMMENT */
+.d_comment
+{
+    color: green;
+}
+
+/* SPAN: Formats D_KEYWORD */
+.d_keyword
+{
+    color: blue;
+}
+
+/* SPAN: Formats D_PARAM */
+.d_param
+{
+    font-style: italic;
+}
+
+/* SPAN: Formats D_PSYMBOL */
+.d_psymbol
+{
+    font-weight: bold;
+}
+
+/* SPAN: Formats D_STRING */
+.d_string
+{
+    color: red;
+}
+
+/* SPAN: Formats the DDOC_AUTHORS section's title */
+.ddoc_authors_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_AUTHORS section */
+.ddoc_authors
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DDOC_BLANKLINE */
+.ddoc_blankline
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats the DDOC_BUGS section's title */
+.ddoc_bugs_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_BUGS section*/
+.ddoc_bugs
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DDOC_CLASS_MEMBERS, overriding DDOC_MEMBERS */
+.ddoc_class_members
+{
+}
+
+/* SPAN: Formats DDOC_CONSTRAINT */
+.ddoc_constraint
+{
+    opacity: .35;
+}
+
+.ddoc_constraint:before
+{
+    content: "____";
+    visibility: hidden;
+}
+
+.ddoc_constraint:hover
+{
+    color: #C16400;
+    text-weight: bold;
+    opacity: 1;
+}
+
+/* SPAN: Formats the DDOC_COPYRIGHT section's title */
+.ddoc_copyright_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_COPYRIGHT section*/
+.ddoc_copyright
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats the DDOC_DATE section's title */
+.ddoc_date_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_DATE section*/
+.ddoc_date
+{
+}
+
+/* TD: Formats DDOC_DECL */
+.ddoc_decl
+{
+    background: #E6E6E6;
+    border-left: 5px solid #130AAD;
+    text-align: left;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+.ddoc_decl > div
+{
+    border: 1px solid #D6D6D6;
+    border-top-right-radius: 4px;
+    padding: 0.6em 1em;
+}
+
+.ddoc_decl + dd
+{
+    border: 1px solid #D6D6D6;
+    border-top: none;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+/* TD: Formats DDOC_DECL_DD */
+.ddoc_decl_dd
+{
+    margin: 0;
+    margin-bottom: 2em;
+    padding: 1ex;
+    padding-left: 2em;
+}
+
+/* These deal with the little anchor icon that pops up for the anchors
+   for symbol declarations. */
+.ddoc_decl_anchor
+{
+    visibility: hidden;
+    float: right;
+    margin-top: 5px;
+    margin-right: 5px;
+    text-decoration: none;
+}
+
+dt.ddoc_decl:hover .ddoc_decl_anchor
+{
+    visibility: visible;
+}
+
+/* SPAN: Formats the DDOC_DEPRECATED section's title */
+.ddoc_deprecated_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_DEPRECATED section*/
+.ddoc_deprecated
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DDOC_DESCRIPTION */
+.ddoc_description
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats DDOC_ENUM_BASETYPE */
+.ddoc_enum_basetype
+{
+}
+
+/* DIV: Formats DDOC_ENUM_MEMBERS, overriding DDOC_MEMBERS */
+.ddoc_enum_members
+{
+}
+
+/* SPAN: Formats the DDOC_EXAMPLES section's title */
+.ddoc_examples_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_EXAMPLES section*/
+.ddoc_examples
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats the DDOC_HISTORY section's title */
+.ddoc_history_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_HISTORY section*/
+.ddoc_history
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats DDOC_KEYWORD */
+.ddoc_keyword
+{
+    font-size: 120%;
+    font-weight: bold;
+    color: blue;
+}
+
+/* SPAN: Formats the DDOC_LICENSE section's title */
+.ddoc_license_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_LICENSE section*/
+.ddoc_license
+{
+    margin: 1em 0;
+}
+
+/* DL: Formats DDOC_MEMBERS and is the default for the other
+       DDOC_*_MEMBERS macros) */
+.ddoc_members
+{
+}
+
+/* DIV: Formats DDOC_MODULE_MEMBERS, overriding DDOC_MEMBERS */
+.ddoc_MODULE_members
+{
+}
+
+/* TC: Formats DDOC_PARAM */
+.ddoc_param
+{
+}
+
+/* SPAN: Formats the DDOC_PARAMS section's title */
+.ddoc_params_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_PARAMS section*/
+.ddoc_params
+{
+    margin: 1em 0;
+}
+
+/* TABLE: Formats the table in the DDOC_PARAMS section's body */
+.ddoc_params_table
+{
+}
+
+/* TD: Formats DDOC_PARAM_DESC */
+.ddoc_param_desc
+{
+}
+
+/* TD: Formats DDOC_PARAM_ID */
+.ddoc_param_id
+{
+}
+
+/* TR: Formats DDOC_PARAM_ROW */
+.ddoc_param_row
+{
+}
+
+/* SPAN: Formats DDOC_PSUPER_SYMBOL */
+.ddoc_psuper_symbol
+{
+}
+
+/* SPAN: Formats DDOC_PSYMBOL */
+.ddoc_psymbol
+{
+    color: #006F14;
+    font-size: 120%;
+    font-weight: bold;
+}
+
+/* SPAN: Formats the DDOC_RETURNS section's title */
+.ddoc_returns_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_RETURNS section*/
+.ddoc_returns
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats DDOC_SECTION_H */
+.ddoc_section_nonstandard_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats DDOC_SECTION */
+.ddoc_section_nonstandard
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats the DDOC_SEE_ALSO section's title */
+.ddoc_see_also_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_SEE_ALSO section*/
+.ddoc_see_also
+{
+}
+
+/* SPAN: Formats the DDOC_STANDARDS section's title */
+.ddoc_standards_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_STANDARDS section*/
+.ddoc_standards
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DDOC_STRUCT_MEMBERS, overriding DDOC_MEMBERS */
+.ddoc_struct_members
+{
+}
+
+/* DIV: Formats DDOC_SUMMARY */
+.ddoc_summary
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DDOC_TEMPLATE_MEMBERS, overriding DDOC_MEMBERS */
+.ddoc_template_members
+{
+}
+
+/* SPAN: Formats DDOC_TEMPLATE_PARAM */
+.ddoc_template_param
+{
+}
+
+/* SPAN: Formats DDOC_TEMPLATE_PARAM_LIST */
+.ddoc_template_param_list
+{
+}
+
+/* SPAN: Formats the DDOC_THROWS section's title */
+.ddoc_throws_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_THROWS section*/
+.ddoc_throws
+{
+    margin: 1em 0;
+}
+
+/* SPAN: Formats the DDOC_VERSION section's title */
+.ddoc_version_header
+{
+    display: block;
+    font-weight: bold;
+}
+
+/* DIV: Formats the entire DDOC_VERSION section*/
+.ddoc_version
+{
+    margin: 1em 0;
+}
+
+/* DIV: Formats DEPRECATED */
+.deprecated
+{
+}
+
+/* These are for the jump links */
+.quickindex
+{
+    background: #E6E6E6;
+    font-weight: normal;
+}
+
+.quickindex a
+{
+    text-decoration: none;
+}
+
+.quickindex a:hover {
+    text-decoration: underline;
+}
+
+/* These are for the navigation bar on the side with the module menu */
+.sidebar, .sidebar-underbar
+{
+    background: #F5F5F5;
+    border: 0 solid #CCCCCC;
+    border-width: 1px 1px 1px;
+    padding-left: 1em;
+    padding-right: 1em;
+    width: 15em;
+}
+
+.sidebar
+{
+    float: left;
+    position: relative;
+    padding-bottom: 2em;
+}
+
+.sidebar-underbar
+{
+    top: 2em;
+    bottom: 0;
+    content: "";
+    position: absolute;
+}
+
+.sidebar a
+{
+    text-decoration: none;
+}
+
+.sidebar a:hover, .sidebar .expand-toggle:hover
+{
+    text-decoration: underline;
+}
+
+.sidebar h2
+{
+    border-bottom: 1px solid #CCCCCC;
+    font-size: 1em;
+    margin-right: -1em;
+}
+
+.sidebar ul
+{
+    list-style: none;
+    margin: 0;
+    padding-left: 1em;
+}
+
+.sidebar > ul
+{
+    padding-left: 0;
+}
+
+.sidebar li a
+{
+    display: block;
+    position: relative;
+    white-space: nowrap;
+}
+
+.sidebar li.active > a
+{
+    color: #742620;
+    text-decoration: underline;
+}
+
+.sidebar + #content
+{
+    margin-left: 19em;
+}
+
+.expand-container
+{
+    color: #444444;
+}
+
+/* */
+
+.expand-container > .expand-toggle::after
+{
+    content: " \f0d7"; /* caret down */
+    font-family: FontAwesome;
+}
+.expand-container.open > .expand-toggle::after
+{
+    content: " \f0d8"; /* caret up */
+}
+
+.expand-container > *
+{
+    display: none;
+}
+
+.sidebar.expand-container > *
+{
+    display: block;
+}
+
+.expand-container.open > *,
+.expand-container > .expand-toggle
+{
+    display: block;
+}
+
+/* These add the lines to the sidebar */
+.sidebar ul ul ul
+{
+    border-left: 1px solid #CCCCCC;
+}
+
+.sidebar li li > a > span,
+.sidebar li li > h7 > span
+{
+    border-left: 1px solid #CCCCCC;
+}
+
+.sidebar ul ul li > a > span::before,
+.sidebar ul ul li > h7 > span::before
+{
+    border-bottom: 1px solid #CCCCCC;
+    content: "";
+    display: inline-block;
+    width: 0.5ex;
+    margin-right: 0.5ex;
+
+    height: 1em;
+    position: relative;
+    bottom: 0.5ex;
+}
+
+.sidebar ul ul li:last-child > ul
+{
+    border-left: none;
+}
+
+.sidebar ul ul li:last-child > a > span,
+.sidebar ul ul li:last-child > h7 > span
+{
+    border-left: none;
+}
+
+.sidebar ul ul li:last-child > a > span::before,
+.sidebar ul ul li:last-child > h7 > span::before
+{
+    border-left: 1px solid #CCCCCC;
+}
+
+/* The modules listed on the index page */
+.module_index
+{
+    font-size: 1.2em;
+}
+
+/* Customize how TABLEs look */
+table
+{
+    border: solid #046000;
+    border-width: 2px 2px 2px 2px;
+    border-collapse: collapse;
+}
+
+table tr
+{
+    border: none;
+}
+
+table td, table th, table caption
+{
+    text-align: left;
+    vertical-align: top;
+    padding: 0.3em;
+}
+
+table td
+{
+    border: none;
+    border-bottom: 1px solid #E6E6E6;
+    text-align: justify;
+}
+
+table th
+{
+    border: none;
+    border-bottom: 1px solid #046000;
+}
+
+table td:not(:last-child), table th:not(:last-child)
+{
+    padding-right: 1em;
+}
+
+table a
+{
+    text-decoration: none;
+}

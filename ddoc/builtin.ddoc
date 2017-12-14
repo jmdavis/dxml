@@ -1,0 +1,66 @@
+_=Definitions for the ddoc macros that are built into the language but aren't
+specifically replacements for html (those are in html.ddoc). All of these
+except for D (which is a Phobos replacement for D_INLINECODE) are described in
+https://dlang.org/spec/ddoc.html
+
+D=$(D_INLINECODE $0)
+D_CODE=$(TC pre, d_code notranslate, $0)
+D_INLINECODE=$(SPANC d_inlinecode donthyphenate notranslate, $0)
+_=
+
+D_COMMENT=$(SPANC d_comment, $0)
+D_KEYWORD=$(SPANC d_keyword, $0)
+D_PARAM=$(SPANC d_param, $0)
+D_PSYMBOL=$(SPANC d_psymbol, $0)
+D_STRING=$(SPANC d_string, $0)
+_=
+
+DDOC_ANCHOR=$(ADEF .$1)$(DIVCID quickindex, quickindex.$1, )
+DDOC_AUTHORS=$(SECTION ddoc_authors, Authors, $0)
+DDOC_BACKQUOTED=$(D $0)
+DDOC_BLANKLINE=$(DIVC ddoc_blankline)$(LF)
+DDOC_BUGS=$(SECTION ddoc_bugs, Bugs, $0)
+DDOC_CLASS_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_class_members, $0))$(LF)
+DDOC_COMMENT=<!--$0-->
+DDOC_CONSTRAINT=$(BR)$(SPANC ddoc_constraint, if($0))
+DDOC_COPYRIGHT=$(SECTION ddoc_copyright, Copyright, $0)
+DDOC_DATE=$(SECTION ddoc_date, Date, $0)
+DDOC_DECL=$(TC dt, ddoc_decl, $(DIV, $0))
+DDOC_DECL_DD=$(DDC ddoc_decl_dd, $0)
+DDOC_DEPRECATED=$(SECTION ddoc_deprecated, Deprecated, $0)
+DDOC_DESCRIPTION=$(DIVC ddoc_description, $0)$(LF)
+DDOC_DITTO=$(LF)$0
+DDOC_ENUM_BASETYPE=$(SPANC ddoc_enum_basetype, $0)
+DDOC_ENUM_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_enum_members, $0))$(LF)
+DDOC_EXAMPLES=$(SECTION ddoc_examples, Examples, $0)
+DDOC_HISTORY=$(SECTION ddoc_history, History, $0)
+DDOC_KEYWORD=$(TC code, ddoc_keyword, $0)
+DDOC_LICENSE=$(SECTION ddoc_license, License, $0)
+DDOC_MEMBER=$0
+DDOC_MEMBER_HEADER=
+DDOC_MEMBER_HEADER_ANCHOR=
+DDOC_MEMBERS=$(DLC ddoc_members, $0)
+DDOC_MODULE_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_module_members, $0))$(LF)
+DDOC_OVERLOAD_SEPARATOR=$(DDOC_BLANKLINE)
+DDOC_PARAM=$(TC code, ddoc_param, $0)
+DDOC_PARAMS=$(SECTION ddoc_params, Parameters, $(TC table, ddoc_params_table, $0))$(LF)
+DDOC_PARAM_DESC=$(TDC ddoc_param_desc, $0)
+DDOC_PARAM_ID=$(TDC ddoc_param_id, $0)$(LF)
+DDOC_PARAM_ROW=$(TRC ddoc_param, $0)$(LF)
+DDOC_PSUPER_SYMBOL=$(SPANC ddoc_psuper_symbol, $0)
+DDOC_PSYMBOL=$(TC code, ddoc_psymbol, $0)
+DDOC_RETURNS=$(SECTION ddoc_return, Returns, $0)
+DDOC_SECTION=$(DIVC ddoc_section_nonstandard, $1)$(LF)
+DDOC_SECTIONS=$0
+DDOC_SECTION_H=$(SPANC ddoc_section_nonstandard_header, $0:)$(LF)
+DDOC_SEE_ALSO=$(SECTION ddoc_see_also, See Also, $0)
+DDOC_STANDARDS=$(SECTION ddoc_standards, Standards, $0)
+DDOC_STRUCT_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_struct_members, $0))$(LF)
+DDOC_SUMMARY=$(DIVC ddoc_summary, $0)
+DDOC_TEMPLATE_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_template_members, $0))$(LF)
+DDOC_TEMPLATE_PARAM=$(SPANC ddoc_template_param, $0)
+DDOC_TEMPLATE_PARAM_LIST=$(SPAN class="ddoc_template_param_list" title="Template parameter list", $0)
+DDOC_THROWS=$(SECTION ddoc_throws, Throws, $0)
+DDOC_VERSION=$(SECTION ddoc_version, Version, $0)
+DEPRECATED=$(SPANC deprecated, $0)
+_=

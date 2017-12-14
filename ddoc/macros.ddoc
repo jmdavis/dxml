@@ -1,0 +1,16 @@
+_=Fundamental macros that apply to all generated formats
+This is mostly the same as the corresponding file in the dlang.org repo.
+
+ARGS=$0
+BACKTICK=`
+CONCAT=$1$(CONCAT $+)
+COMMA=,
+COMMENT =
+DOLLAR=$
+LPAREN=(
+RPAREN=)
+TAIL=$+
+COLON=:
+LF=$(LF)
+$(LF)
+_=

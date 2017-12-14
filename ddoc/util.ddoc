@@ -1,0 +1,13 @@
+_=This contains helper macros for defining other macros (e.g. some of them
+help make the DDOC_* macros cleaner). They aren't standard at all and
+aren't designed with the idea that anyone would put them in the documentation
+(though there's nothing stopping anyone from using them in the documentation).
+
+SECTION=$(DIVC $1, $(SPANC $1_header, $2:)$(LF) $(TAIL $+))$(LF)
+_=
+
+DOT_PREFIXED=.$1$(DOT_PREFIXED $+)
+DOT_PREFIXED_SKIP=$(DOT_PREFIXED $+)
+UNDERSCORE_PREFIXED=_$1$(UNDERSCORE_PREFIXED $+)
+UNDERSCORE_PREFIXED_SKIP=$(UNDERSCORE_PREFIXED $+)
+_=

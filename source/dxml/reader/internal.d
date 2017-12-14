@@ -1,9 +1,9 @@
 // Written in the D programming language
 
-/++
+/+
     Copyright: Copyright 2017
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
-    Author:   Jonathan M Davis
+    Authors:   Jonathan M Davis
   +/
 module dxml.reader.internal;
 
@@ -131,6 +131,135 @@ template isWrappedString(T)
 {
     enum isWrappedString = isInstanceOf!(ByCodeUnit, T);
 }
+
+
+// Like std.algorithm.equal except that it won't decode string, and it allows
+// comparing a string with a range with a character type other than char.
+// However, the text must be ASCII.
+bool equalCU(R)(R range, string text)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    static if(hasLength!R)
+    {
+        if(range.length != text.length)
+            return false;
+    }
+
+    foreach(c; text)
+    {
+        if(range.empty || range.front != c)
+            return false;
+        range.popFront();
+    }
+
+    return range.empty;
+}
+
+unittest
+{
+    import std.algorithm : filter;
+    import std.meta : AliasSeq;
+
+    foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
+    {
+        assert(equalCU(str, "hello world"));
+        assert(equalCU(byCodeUnit(str), "hello world"));
+        assert(equalCU(filter!"true"(str), "hello world"));
+        assert(equalCU(filter!"true"(byCodeUnit(str)), "hello world"));
+
+        assert(!equalCU(str, "hello worl"));
+        assert(!equalCU(byCodeUnit(str), "hello worl"));
+        assert(!equalCU(filter!"true"(str), "hello worl"));
+        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello worl"));
+
+        assert(!equalCU(str, "hello world "));
+        assert(!equalCU(byCodeUnit(str), "hello world "));
+        assert(!equalCU(filter!"true"(str), "hello world "));
+        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello world "));
+    }
+}
+
+
+// This is used for the cases where we need to take a range and strip ByCodeUnit
+// from it if it's a wrapped string and return the original otherwise.
+pragma(inline, true) auto stripBCU(R)(R range)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    static assert(!isNarrowString!R);
+    static if(isWrappedString!R)
+        return range.source;
+    else
+        return range;
+}
+
+unittest
+{
+    import std.algorithm : equal, filter;
+    import std.range : takeExactly;
+    import std.utf : codeLength;
+
+    auto bcuResult = byCodeUnit("hello").stripBCU();
+    assert(equal(bcuResult, "hello"));
+    static assert(is(typeof(bcuResult) == string));
+
+    auto filterResult = filter!"true"("hello").stripBCU();
+    assert(equal(filterResult, "hello"));
+    static assert(is(typeof(filterResult) == typeof(filter!"true"("foo"))));
+}
+
+
+// Used for keeping track of the names of start tags so that end tags can be
+// verified.
+struct TagStack(R)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    import std.range : takeExactly;
+
+    void push(R tagName)
+    {
+        tags ~= tagName;
+    }
+
+    void pop()
+    {
+        --tags.length;
+        tags.assumeSafeAppend();
+    }
+
+    R back()
+    {
+        return tags.back;
+    }
+
+    bool empty()
+    {
+        return tags.empty;
+    }
+
+    R[] tags;
+}
+
+unittest
+{
+    TagStack!string stack;
+    stack.push("hello");
+    assert(stack.tags == ["hello"]);
+    stack.push("world");
+    assert(stack.tags == ["hello", "world"]);
+    stack.pop();
+    assert(stack.tags == ["hello"]);
+    stack.push("sally");
+    stack.push("poe");
+    stack.push("foo");
+    assert(stack.tags == ["hello", "sally", "poe", "foo"]);
+    stack.pop();
+    stack.pop();
+    assert(stack.tags == ["hello", "sally"]);
+    stack.pop();
+    stack.pop();
+    assert(stack.tags.empty);
+}
+
 
 //------------------------------------------------------------------------------
 // Unit test helpers
@@ -429,131 +558,3 @@ version(unittest) auto rasRefCharRange(R)(R range)
 static assert(isForwardRange!(RASRefCharRange!char));
 static assert(isRandomAccessRange!(RASRefCharRange!char));
 static assert(hasSlicing!(RASRefCharRange!char));
-
-
-// Like std.algorithm.equal except that it won't decode string, and it allows
-// comparing a string with a range with a character type other than char.
-// However, the text must be ASCII.
-bool equalCU(R)(R range, string text)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    static if(hasLength!R)
-    {
-        if(range.length != text.length)
-            return false;
-    }
-
-    foreach(c; text)
-    {
-        if(range.empty || range.front != c)
-            return false;
-        range.popFront();
-    }
-
-    return range.empty;
-}
-
-unittest
-{
-    import std.algorithm : filter;
-    import std.meta : AliasSeq;
-
-    foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
-    {
-        assert(equalCU(str, "hello world"));
-        assert(equalCU(byCodeUnit(str), "hello world"));
-        assert(equalCU(filter!"true"(str), "hello world"));
-        assert(equalCU(filter!"true"(byCodeUnit(str)), "hello world"));
-
-        assert(!equalCU(str, "hello worl"));
-        assert(!equalCU(byCodeUnit(str), "hello worl"));
-        assert(!equalCU(filter!"true"(str), "hello worl"));
-        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello worl"));
-
-        assert(!equalCU(str, "hello world "));
-        assert(!equalCU(byCodeUnit(str), "hello world "));
-        assert(!equalCU(filter!"true"(str), "hello world "));
-        assert(!equalCU(filter!"true"(byCodeUnit(str)), "hello world "));
-    }
-}
-
-
-// This is used for the cases where we need to take a range and strip ByCodeUnit
-// from it if it's a wrapped string and return the original otherwise.
-pragma(inline, true) auto stripBCU(R)(R range)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    static assert(!isNarrowString!R);
-    static if(isWrappedString!R)
-        return range.source;
-    else
-        return range;
-}
-
-unittest
-{
-    import std.algorithm : equal, filter;
-    import std.range : takeExactly;
-    import std.utf : codeLength;
-
-    auto bcuResult = byCodeUnit("hello").stripBCU();
-    assert(equal(bcuResult, "hello"));
-    static assert(is(typeof(bcuResult) == string));
-
-    auto filterResult = filter!"true"("hello").stripBCU();
-    assert(equal(filterResult, "hello"));
-    static assert(is(typeof(filterResult) == typeof(filter!"true"("foo"))));
-}
-
-
-// Used for keeping track of the names of start tags so that end tags can be
-// verified.
-struct TagStack(R)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
-{
-    import std.range : takeExactly;
-
-    void push(R tagName)
-    {
-        tags ~= tagName;
-    }
-
-    void pop()
-    {
-        --tags.length;
-        tags.assumeSafeAppend();
-    }
-
-    R back()
-    {
-        return tags.back;
-    }
-
-    bool empty()
-    {
-        return tags.empty;
-    }
-
-    R[] tags;
-}
-
-unittest
-{
-    TagStack!string stack;
-    stack.push("hello");
-    assert(stack.tags == ["hello"]);
-    stack.push("world");
-    assert(stack.tags == ["hello", "world"]);
-    stack.pop();
-    assert(stack.tags == ["hello"]);
-    stack.push("sally");
-    stack.push("poe");
-    stack.push("foo");
-    assert(stack.tags == ["hello", "sally", "poe", "foo"]);
-    stack.pop();
-    stack.pop();
-    assert(stack.tags == ["hello", "sally"]);
-    stack.pop();
-    stack.pop();
-    assert(stack.tags.empty);
-}

@@ -1,0 +1,6 @@
+Ddoc
+
+$(MODULE_INDEX)
+
+Macros:
+    TITLE=Documentation for $(PROJECT_NAME)
