@@ -64,10 +64,11 @@ struct SourcePos
 
 /++
     At what level of granularity the position in the XML file should be kept
-    track of (be it for error reporting or any other use the application might
-    have for that information). $(LREF _PositionType.none) is the most
-    efficient but least informative, whereas $(LREF _PositionType.lineAndCol)
-    is the most informative but least efficient.
+    track of (it's used in $(LREF XMLParsingException) to indicate where the
+    in the text the invalid XML was found). $(LREF _PositionType.none) is the
+    most efficient but least informative, whereas
+    $(LREF _PositionType.lineAndCol) is the most informative but least
+    efficient.
   +/
 enum PositionType
 {
@@ -232,9 +233,13 @@ struct Config
     }
 
     /++
+        This affects how precise the position information is in
+        $(LREF XMLParsingException)s that get thrown when invalid XML is
+        encountered while parsing.
+
         Defaults to $(LREF PositionType.lineAndCol).
 
-        See_Also: $(LREF PositionType)
+        See_Also: $(LREF PositionType)$(BR)$(LREF SourcePos)
       +/
     PositionType posType = PositionType.lineAndCol;
 }
@@ -615,20 +620,6 @@ public:
     @property EntityType type()
     {
         return _state.type;
-    }
-
-
-    /++
-        The position of the current entity in the XML document.
-
-        How precise the position is depends on the parser configuration that's
-        used.
-
-        See_Also: $(LREF PositionType)
-      +/
-    @property SourcePos pos()
-    {
-        return _state.pos;
     }
 
 
@@ -1682,7 +1673,7 @@ private:
                                  tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1692,7 +1683,7 @@ private:
                                  tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1702,7 +1693,7 @@ private:
                                  tuple(makeConfig(PositionType.line), SourcePos(12, -1)),
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1712,7 +1703,7 @@ private:
                                  tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1722,7 +1713,7 @@ private:
                                  tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
 
@@ -1733,7 +1724,7 @@ private:
                                  tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(1, -1)),
                                  tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1743,7 +1734,7 @@ private:
                                  tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(3, -1)),
                                  tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1753,7 +1744,7 @@ private:
                                  tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(12, -1)),
                                  tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1763,7 +1754,7 @@ private:
                                  tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(6, -1)),
                                  tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
         {
@@ -1773,7 +1764,7 @@ private:
                                  tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(7, -1)),
                                  tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
             {
-                assert(parseXML!(t[0])(xml).pos == t[1]);
+                assert(parseXML!(t[0])(xml)._state.pos == t[1]);
             }
         }
     }
