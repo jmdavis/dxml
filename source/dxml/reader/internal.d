@@ -12,124 +12,29 @@ import std.traits;
 
 package:
 
-// We have this rather than using std.utf.byCodeUnit, because
-// std.utf.byCodeUnit does not provide access to the underlying string.
-auto byCodeUnit(R)(R range)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
+
+template isWrappedString(R)
+    if(isInputRange!R && isSomeChar!(ElementType!R))
 {
-    static if(isNarrowString!R)
-        return ByCodeUnit!R(range);
+    import std.utf : byCodeUnit;
+    static if(!is(typeof(byCodeUnit(R.init)) == R))
+        enum isWrappedString = false;
+    else static if(is(typeof(R.init.source)))
+        enum isWrappedString = isNarrowString!(typeof(R.init.source));
     else
-        return range;
+        enum isWrappedString = false;
 }
 
-struct ByCodeUnit(S)
-    if(isNarrowString!S && !is(S == enum))
-{
-    alias C = ElementEncodingType!S;
-
-    @property C front() @safe const pure nothrow @nogc
-    {
-        return source[0];
-    }
-
-    @property bool empty() @safe const pure nothrow @nogc
-    {
-        return source.empty;
-    }
-
-    void popFront() @safe pure nothrow @nogc
-    {
-        source = source[1 .. $];
-    }
-
-    auto save() @safe pure nothrow @nogc
-    {
-        return this;
-    }
-
-    size_t length() @safe const pure nothrow @nogc
-    {
-        return source.length;
-    }
-
-    C opIndex(size_t i) @safe pure nothrow @nogc
-    {
-        return source[i];
-    }
-
-    auto opSlice(size_t i, size_t j) @safe pure nothrow @nogc
-    {
-        return ByCodeUnit(source[i .. j]);
-    }
-
-    S source;
-}
-
-@system pure nothrow @nogc unittest
+unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
-
-    foreach(C; AliasSeq!(char, wchar, dchar))
-    {
-        static if(is(C == char))
-            enum str = "hello";
-        else static if(is(C == wchar))
-            enum str = "hello"w;
-        else
-            enum str = "hello"d;
-
-        foreach(S; AliasSeq!(C[], const(C)[], immutable(C)[]))
-        {
-            static if(is(C == dchar))
-                static assert(is(typeof(byCodeUnit(cast(S)str)) == S));
-            else
-                static assert(is(typeof(byCodeUnit(cast(S)str)) == ByCodeUnit!(typeof(S.init[]))));
-
-            static assert(is(typeof(byCodeUnit(filter!"true"(cast(S)str))) == typeof(filter!"true"(cast(S)str))));
-        }
-
-        foreach(D; AliasSeq!(C, const C, immutable C))
-            static assert(is(typeof(byCodeUnit(FwdCharRange!D(cast(D[])str))) == FwdCharRange!D));
-    }
-}
-
-@safe pure nothrow @nogc unittest
-{
-    import std.meta : AliasSeq;
-
-    foreach(str; AliasSeq!("hello"c, "ディラン"c, "hello"w, "ディラン"w, "hello"d, "ディラン"d))
-    {
-        foreach(range; AliasSeq!(str, raCharRange(str)))
-        {
-            auto bcu = byCodeUnit(range);
-            assert(bcu.length == str.length);
-
-            auto bcu2 = bcu.save;
-            foreach(c; str)
-            {
-                assert(bcu.front == c);
-                bcu.popFront();
-            }
-
-            foreach(i, c; str)
-                assert(bcu2[i] == c);
-        }
-    }
-
-    auto str = "hello world";
-    auto bcu = byCodeUnit(str);
-    assert(str is bcu.source);
-    str = str[4 .. $];
-    assert(str !is bcu.source);
-    bcu.popFrontN(4);
-    assert(str is bcu.source);
-}
-
-template isWrappedString(T)
-{
-    enum isWrappedString = isInstanceOf!(ByCodeUnit, T);
+    import std.utf : byCodeUnit;
+    foreach(T; AliasSeq!(string, wstring, dstring, typeof(filter!(a => true)("hello"))))
+        static assert(!isWrappedString!T);
+    static assert(isWrappedString!(typeof(byCodeUnit("hello"))));
+    static assert(isWrappedString!(typeof(byCodeUnit("hello"w))));
+    static assert(!isWrappedString!(typeof(byCodeUnit("hello"d))));
 }
 
 
@@ -159,6 +64,7 @@ unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
+    import std.utf : byCodeUnit;
 
     foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
     {
@@ -196,7 +102,7 @@ unittest
 {
     import std.algorithm : equal, filter;
     import std.range : takeExactly;
-    import std.utf : codeLength;
+    import std.utf : byCodeUnit, codeLength;
 
     auto bcuResult = byCodeUnit("hello").stripBCU();
     assert(equal(bcuResult, "hello"));

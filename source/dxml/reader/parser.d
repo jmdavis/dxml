@@ -13,7 +13,7 @@ import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
 import std.typecons : Flag, Nullable, nullable;
-import std.utf : decodeFront, UseReplacementDchar;
+import std.utf : byCodeUnit, decodeFront, UseReplacementDchar;
 
 import dxml.reader.internal;
 
@@ -3319,8 +3319,9 @@ R stripRightWS(R)(R range)
 {
     static if(isBidirectionalRange!R)
     {
-        while(!range.empty && !isSpace(range.back))
+        while(!range.empty && isSpace(range.back))
             range.popBack();
+        return range;
     }
     else
     {
