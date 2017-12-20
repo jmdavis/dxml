@@ -4,9 +4,9 @@
     Copyright: Copyright 2017
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
-    Source:    $(LINK_TO_SRC dxml/reader/_parser.d)
+    Source:    $(LINK_TO_SRC dxml/reader/_cursor.d)
   +/
-module dxml.reader.parser;
+module dxml.reader.cursor;
 
 import std.algorithm : equal, startsWith;
 import std.range.primitives;
@@ -156,12 +156,12 @@ struct Config
         Note that XML only considers $(D ' '), $(D '\t'), $(D '\n'), and
         $(D '\r') to be whitespace. So, those are the only character skipped
         with $(LREF StripContentsWS.yes), and those are the characters that
-        $(LREF EntityParser) expects at any point in the XML that is supposed
+        $(LREF EntityCursor) expects at any point in the XML that is supposed
         to contain whitespace.
 
         Defaults to $(D SkipContentWS.yes).
 
-        See_Also: $(LREF EntityParser.text)
+        See_Also: $(LREF EntityCursor.text)
       +/
     auto skipContentWS = SkipContentWS.yes;
 
@@ -191,44 +191,44 @@ struct Config
         enum configSplitYes = makeConfig(SplitEmpty.yes);
 
         {
-            auto parser = parseXML("<root></root>");
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.empty);
+            auto cursor = parseXML("<root></root>");
+            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.empty);
         }
         {
             // No difference if the tags are already split.
-            auto parser = parseXML!configSplitYes("<root></root>");
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.empty);
+            auto cursor = parseXML!configSplitYes("<root></root>");
+            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.empty);
         }
         {
             // This treats <root></root> and <root/> as distinct.
-            auto parser = parseXML("<root/>");
-            assert(parser.type == EntityType.elementEmpty);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.empty);
+            auto cursor = parseXML("<root/>");
+            assert(cursor.type == EntityType.elementEmpty);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.empty);
         }
         {
             // This is parsed as if it were <root></root> insead of <root/>.
-            auto parser = parseXML!configSplitYes("<root/>");
-            assert(parser.type == EntityType.elementStart);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            assert(parser.name == "root");
-            parser.next();
-            assert(parser.empty);
+            auto cursor = parseXML!configSplitYes("<root/>");
+            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.name == "root");
+            cursor.next();
+            assert(cursor.empty);
         }
     }
 
@@ -384,7 +384,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipP
 
 
 /++
-    Represents the type of an XML entity. Used by EntityParser.
+    Represents the type of an XML entity. Used by EntityCursor.
   +/
 enum EntityType
 {
@@ -503,12 +503,12 @@ enum EntityType
 /++
     Lazily parses the given XML.
 
-    EntityParser is essentially a
+    EntityCursor is essentially a
     $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX) parser, though it evolved
     into that rather than being based on what Java did, so its API is likely
     to differ from other implementations.
 
-    The resulting EntityParser is similar to an input range with how it's
+    The resulting EntityCursor is similar to an input range with how it's
     iterated until it's consumed, and its state cannot be saved (since
     unfortunately, saving would essentially require duplicating the entire
     parser, including all of the memory that it's allocated), but because there
@@ -517,27 +517,27 @@ enum EntityType
     input range API didn't seem to appropriate, even if the result functions
     similarly.
 
-    Also, unlike a range the, "front" is integrated into the EntityParser rather
+    Also, unlike a range the, "front" is integrated into the EntityCursor rather
     than being a value that can be extracted. So, while an entity can be queried
-    while it is the "front", it can't be kept around after the EntityParser has
+    while it is the "front", it can't be kept around after the EntityCursor has
     moved to the next entity. Only the information that has been queried for
-    that entity can be retained (e.g. its $(LREF2 name, _EntityParser),
-    $(LREF2 attributes, _EntityParser), or $(LREF2 text, _EntityParser)ual value).
+    that entity can be retained (e.g. its $(LREF2 name, _EntityCursor),
+    $(LREF2 attributes, _EntityCursor), or $(LREF2 text, _EntityCursor)ual value).
     While that does place some restrictions on how an algorithm operating on an
-    EntityParser can operate, it does allow for more efficient processing.
+    EntityCursor can operate, it does allow for more efficient processing.
 
     If invalid XML is encountered at any point during the parsing process, an
     $(LREF XMLParsingException) will be thrown.
 
-    However, note that EntityParser does not generally care about XML validation
+    However, note that EntityCursor does not generally care about XML validation
     beyond what is required to correctly parse what it has been told to parse.
     In particular, any portions that are skipped (either due to the values in
     the $(LREF Config) or because a function such as
-    $(LREF2 skipContents, _EntityParser) is called) will only be validated
+    $(LREF2 skipContents, _EntityCursor) is called) will only be validated
     enough to correctly determine where those portions terminated. Similarly,
     if the functions to process the value of an entity are not called (e.g.
-    $(LREF2 attributes, _EntityParser) for $(LREF EntityType.elementStart) and
-    $(LREF2 xmlSpec, _EntityParser) for $(LREF EntityType.xmlSpec)), then those
+    $(LREF2 attributes, _EntityCursor) for $(LREF EntityType.elementStart) and
+    $(LREF2 xmlSpec, _EntityCursor) for $(LREF EntityType.xmlSpec)), then those
     portions of the XML will not be validated beyond what is required to iterate
     to the next entity.
 
@@ -545,9 +545,9 @@ enum EntityType
     corresponds to parseXML and fully validates the XML, but for now, no such
     function exists.
 
-    EntityParser is a reference type.
+    EntityCursor is a reference type.
 
-    Note that while EntityParser is not $(D @nogc), it is designed to allocate
+    Note that while EntityCursor is not $(D @nogc), it is designed to allocate
     very miminally. The parser state is allocated on the heap so that it is a
     reference type, and it has to allocate on the heap to retain a stack of the
     names of element tags so that it can validate the XML properly as well as
@@ -561,7 +561,7 @@ enum EntityType
 
     See_Also: $(MOD_REF dxml, reader, dom)
   +/
-struct EntityParser(Config cfg, R)
+struct EntityCursor(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
 public:
@@ -571,7 +571,7 @@ public:
 
     private enum compileInTests = is(R == EntityCompileTests);
 
-    /// The Config used for this parser.
+    /// The Config used for when parsing the XML.
     alias config = cfg;
 
     /++
@@ -585,7 +585,7 @@ public:
     else
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
-    // TODO re-enable these. Whenever EntityParser doesn't compile correctly due
+    // TODO re-enable these. Whenever EntityCursor doesn't compile correctly due
     // to a change, these static assertions fail, and the actual errors are masked.
     // So, rather than continuing to deal with that whenever I change somethnig,
     // I'm leaving these commented out for now.
@@ -599,11 +599,11 @@ public:
         import std.algorithm : filter;
         import std.range : takeExactly;
 
-        static assert(is(EntityParser!(Config.init, string).SliceOfR == string));
+        static assert(is(EntityCursor!(Config.init, string).SliceOfR == string));
 
         auto range = filter!(a => true)("some xml");
 
-        static assert(is(EntityParser!(Config.init, typeof(range)).SliceOfR ==
+        static assert(is(EntityCursor!(Config.init, typeof(range)).SliceOfR ==
                          typeof(takeExactly(range, 4))));
     }
     +/
@@ -614,7 +614,7 @@ public:
 
         The value of this member determines which member functions and
         properties are allowed to be called, since some are only appropriate
-        for specific entity types (e.g. $(LREF2 attributes, EntityParser) would
+        for specific entity types (e.g. $(LREF2 attributes, EntityCursor) would
         not be appropriate for $(LREF EntityType.elementEnd)).
       +/
     @property EntityType type()
@@ -679,7 +679,7 @@ public:
                 case contentCharData2: _parseAtContentCharData(); break;
                 case endTag: _parseElementEnd(); break;
                 case endMisc: _parseAtEndMisc(); break;
-                case documentEnd: assert(0, "It's invalid to call next when the EntityParser is empty");
+                case documentEnd: assert(0, "It's invalid to call next when the EntityCursor is empty");
             }
             return;
         }
@@ -712,7 +712,7 @@ public:
             $(TR $(TD $(LREF2 processingInstruction, EntityType)))
         )
 
-        See_Also: $(LREF path, EntityParser)$(BR)$(LREF parentPath, EntityParser)
+        See_Also: $(LREF path, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
       +/
     @property SliceOfR name()
     {
@@ -726,7 +726,7 @@ public:
     /++
         Gives the path of the current entity as a lazy range.
 
-        Unlike $(LREF2 name, EntityParser), this includes the names of all of
+        Unlike $(LREF2 name, EntityCursor), this includes the names of all of
         the parent entities. The path does not take into account the fact that
         there may be multiple entities with the same path (e.g. a start tag
         could have multiple start tags in its contents which have the same
@@ -734,10 +734,10 @@ public:
         the name of the current tag.
 
         Note that the range returned by path is only valid until
-        $(LREF next, EntityParser) is called. Each element in the range will
+        $(LREF next, EntityCursor) is called. Each element in the range will
         continue to be valid, but the range itself will not be (since the range
         refers to the internal stack of tag names, which can change when
-        $(LREF next, EntityParser) is called).
+        $(LREF next, EntityCursor) is called).
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
@@ -748,7 +748,7 @@ public:
             $(TR $(TD $(LREF2 processingInstruction, EntityType)))
          )
 
-        See_Also: $(LREF name, EntityParser)$(BR)$(LREF parentPath, EntityParser)
+        See_Also: $(LREF name, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
       +/
     @property auto path()
     {
@@ -762,20 +762,20 @@ public:
     /++
         Gives the path of the parent entity as a lazy range.
 
-        Unlike $(LREF2 name, EntityParser), this includes the names of all of
-        the parent entities. However, unlike $(LREF2 name, EntityParser) and
-        $(LREF2 path, EntityParser), parentPath works with all entity types
+        Unlike $(LREF2 name, EntityCursor), this includes the names of all of
+        the parent entities. However, unlike $(LREF2 name, EntityCursor) and
+        $(LREF2 path, EntityCursor), parentPath works with all entity types
         (though in the case of root-level elements, it will be empty). Like
-        (LREF2 path, EntityParser), no effort is made to make the path unique.
+        (LREF2 path, EntityCursor), no effort is made to make the path unique.
         It is simply a list of the names of the parent tags.
 
         Note that the range returned by parentPath is only valid until
-        $(LREF next, EntityParser) is called. Each element in the range will
+        $(LREF next, EntityCursor) is called. Each element in the range will
         continue to be valid, but the range itself will not be (since the range
         refers to the internal stack of tag names, which can change when
-        $(LREF next, EntityParser) is called).
+        $(LREF next, EntityCursor) is called).
 
-        See_Also: $(LREF name, EntityParser)$(BR)$(LREF path, EntityParser)
+        See_Also: $(LREF name, EntityCursor)$(BR)$(LREF path, EntityCursor)
       +/
     @property auto parentPath()
     {
@@ -789,7 +789,7 @@ public:
     /++
         Returns a lazy range of attributes for a start tag where each attribute
         is represented as a
-        $(D Tuple!($(LREF2 SliceOfR, EntityParser), "name", $(LREF2 SliceOfR, EntityParser), "value")).
+        $(D Tuple!($(LREF2 SliceOfR, EntityCursor), "name", $(LREF2 SliceOfR, EntityCursor), "value")).
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
@@ -901,146 +901,146 @@ public:
                    "       here</p>\n" ~
                    "</root>";
         {
-            auto parser = parseXML(xml);
+            auto cursor = parseXML(xml);
 
             // "<?xml version='1.0'?>\n" ~
-            assert(parser.type == EntityType.xmlDecl);
-            parser.next();
+            assert(cursor.type == EntityType.xmlDecl);
+            cursor.next();
 
             // "<?instructionName?>\n" ~
-            assert(parser.type == EntityType.processingInstruction);
-            assert(parser.name == "instructionName");
-            assert(parser.text.empty);
-            parser.next();
+            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.name == "instructionName");
+            assert(cursor.text.empty);
+            cursor.next();
 
             // "<?foo here is something to say?>\n" ~
-            assert(parser.type == EntityType.processingInstruction);
-            assert(parser.name == "foo");
-            assert(parser.text == "here is something to say");
-            parser.next();
+            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.name == "foo");
+            assert(cursor.text == "here is something to say");
+            cursor.next();
 
             // "<root>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
 
             // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(parser.type == EntityType.cdata);
-            assert(parser.text == " Yay! random text >> << ");
-            parser.next();
+            assert(cursor.type == EntityType.cdata);
+            assert(cursor.text == " Yay! random text >> << ");
+            cursor.next();
 
             // "    <!-- some random comment -->\n" ~
-            assert(parser.type == EntityType.comment);
-            assert(parser.text == " some random comment ");
-            parser.next();
+            assert(cursor.type == EntityType.comment);
+            assert(cursor.text == " some random comment ");
+            cursor.next();
 
             // "    <p>something here</p>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "something here");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "something here");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
 
             // "    <p>\n" ~
             // "       something else\n" ~
             // "       here</p>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n       something else\n       here");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n       something else\n       here");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
 
             // "</root>"
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
-            assert(parser.empty);
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
+            assert(cursor.empty);
         }
         {
-            auto parser = parseXML!(makeConfig(SkipContentWS.no))(xml);
+            auto cursor = parseXML!(makeConfig(SkipContentWS.no))(xml);
 
             // "<?xml version='1.0'?>\n" ~
-            assert(parser.type == EntityType.xmlDecl);
-            parser.next();
+            assert(cursor.type == EntityType.xmlDecl);
+            cursor.next();
 
             // "<?instructionName?>\n" ~
-            assert(parser.type == EntityType.processingInstruction);
-            assert(parser.name == "instructionName");
-            assert(parser.text.empty);
-            parser.next();
+            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.name == "instructionName");
+            assert(cursor.text.empty);
+            cursor.next();
 
             // "<?foo here is something to say?>\n" ~
-            assert(parser.type == EntityType.processingInstruction);
-            assert(parser.name == "foo");
-            assert(parser.text == "here is something to say");
-            parser.next();
+            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.name == "foo");
+            assert(cursor.text == "here is something to say");
+            cursor.next();
 
             // "<root>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
 
             // With SkipContentWS.no, no EntityType.text entities are skipped,
             // even if they only contain whitespace, resulting in a number of
             // entities of type EntityType.text which just contain whitespace
             // if the XML has been formatted to be human readable.
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-            parser.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n    ");
+            cursor.next();
 
             // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(parser.type == EntityType.cdata);
-            assert(parser.text == " Yay! random text >> << ");
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-            parser.next();
+            assert(cursor.type == EntityType.cdata);
+            assert(cursor.text == " Yay! random text >> << ");
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n    ");
+            cursor.next();
 
             // "    <!-- some random comment -->\n" ~
-            assert(parser.type == EntityType.comment);
-            assert(parser.text == " some random comment ");
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-            parser.next();
+            assert(cursor.type == EntityType.comment);
+            assert(cursor.text == " some random comment ");
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n    ");
+            cursor.next();
 
             // "    <p>something here</p>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "something here");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n    ");
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "something here");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n    ");
+            cursor.next();
 
             // "    <p>\n" ~
             // "       something else\n" ~
             // "       here</p>\n" ~
-            assert(parser.type == EntityType.elementStart);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n       something else\n       here");
-            parser.next();
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
-            assert(parser.type == EntityType.text);
-            assert(parser.text == "\n");
-            parser.next();
+            assert(cursor.type == EntityType.elementStart);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n       something else\n       here");
+            cursor.next();
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
+            assert(cursor.type == EntityType.text);
+            assert(cursor.text == "\n");
+            cursor.next();
 
             // "</root>"
-            assert(parser.type == EntityType.elementEnd);
-            parser.next();
-            assert(parser.empty);
+            assert(cursor.type == EntityType.elementEnd);
+            cursor.next();
+            assert(cursor.empty);
         }
     }
 
 
     /++
-        When at a start tag, moves the parser to the entity after the
+        When at a start tag, moves the cursor to the entity after the
         corresponding end tag tag and returns the contents between the two tags
         as text, leaving any markup in between as unprocessed text.
 
@@ -1058,7 +1058,7 @@ public:
 
 
     /++
-        When at a start tag, moves the parser to the entity after the
+        When at a start tag, moves the cursor to the entity after the
         corresponding end tag.
 
         $(TABLE
@@ -1194,8 +1194,8 @@ public:
                         xml = xml.replace(`'`, `"`);
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
-                    auto parser = parseXML(func(xml));
-                    auto xmlDecl = parser.xmlDecl;
+                    auto cursor = parseXML(func(xml));
+                    auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(xmlDecl.encoding.isNull);
                     assert(xmlDecl.standalone.isNull);
@@ -1209,8 +1209,8 @@ public:
                         xml = xml.replace(`'`, `"`);
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
-                    auto parser = parseXML(func(xml));
-                    auto xmlDecl = parser.xmlDecl;
+                    auto cursor = parseXML(func(xml));
+                    auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(equalCU(xmlDecl.encoding.get, "UTF-8"));
                     assert(xmlDecl.standalone.isNull);
@@ -1224,8 +1224,8 @@ public:
                         xml = xml.replace(`'`, `"`).replace("yes", "no");
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
-                    auto parser = parseXML(func(xml));
-                    auto xmlDecl = parser.xmlDecl;
+                    auto cursor = parseXML(func(xml));
+                    auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(equalCU(xmlDecl.encoding.get, "UTF-8"));
                     assert(xmlDecl.standalone == (i < 4));
@@ -1239,8 +1239,8 @@ public:
                         xml = xml.replace(`'`, `"`).replace("yes", "no");
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
-                    auto parser = parseXML(func(xml));
-                    auto xmlDecl = parser.xmlDecl;
+                    auto cursor = parseXML(func(xml));
+                    auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(xmlDecl.encoding.isNull);
                     assert(xmlDecl.standalone == (i < 4));
@@ -1277,8 +1277,8 @@ public:
                               "<?xml version='1.0' ecoding='UTF-8'?><root/>",
                               "<?xml version='1.0' silly='yes'?><root/>"))
             {
-                auto parser = parseXML(func(xml));
-                assertThrown!XMLParsingException(parser.xmlDecl);
+                auto cursor = parseXML(func(xml));
+                assertThrown!XMLParsingException(cursor.xmlDecl);
             }
         }
     }
@@ -1556,7 +1556,7 @@ private:
     void _parseAtContentMid()
     {
         // Note that References are treated as part of the CharData and not
-        // parsed out by the EntityParser (see EntityParser.text).
+        // parsed out by the EntityCursor (see EntityCursor.text).
 
         switch(_state.input.front)
         {
@@ -1781,10 +1781,10 @@ private:
 }
 
 /// Ditto
-EntityParser!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
+EntityCursor!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
-    return EntityParser!(config, R)(xmlText);
+    return EntityCursor!(config, R)(xmlText);
 }
 
 ///
@@ -1801,106 +1801,105 @@ unittest
                "</foo>";
 
     {
-        auto parser = parseXML(xml);
-        assert(!parser.empty);
-        assert(parser.type == EntityType.xmlDecl);
+        auto cursor = parseXML(xml);
+        assert(!cursor.empty);
+        assert(cursor.type == EntityType.xmlDecl);
 
-        auto xmlDecl = parser.xmlDecl;
+        auto xmlDecl = cursor.xmlDecl;
         assert(xmlDecl.xmlVersion == "1.0");
         assert(xmlDecl.encoding.isNull);
         assert(xmlDecl.standalone.isNull);
 
-        parser.next();
-        assert(parser.type == EntityType.elementStart);
-        assert(parser.name == "foo");
+        cursor.next();
+        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.name == "foo");
 
         {
-            auto attrs = parser.attributes;
+            auto attrs = cursor.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "attr");
             assert(attrs.front.value == "42");
         }
 
-        parser.next();
-        assert(parser.type == EntityType.elementEmpty);
-        assert(parser.name == "bar");
+        cursor.next();
+        assert(cursor.type == EntityType.elementEmpty);
+        assert(cursor.name == "bar");
 
-        parser.next();
-        assert(parser.type == EntityType.comment);
-        assert(parser.text == " no comment ");
+        cursor.next();
+        assert(cursor.type == EntityType.comment);
+        assert(cursor.text == " no comment ");
 
-        parser.next();
-        assert(parser.type == EntityType.elementStart);
-        assert(parser.name == "baz");
+        cursor.next();
+        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.name == "baz");
 
         {
-            auto attrs = parser.attributes;
+            auto attrs = cursor.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "hello");
             assert(attrs.front.value == "world");
         }
 
-        parser.next();
-        assert(parser.type == EntityType.text);
-        assert(parser.text ==
+        cursor.next();
+        assert(cursor.type == EntityType.text);
+        assert(cursor.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        parser.next();
-        assert(parser.type == EntityType.elementEnd); // </baz>
+        cursor.next();
+        assert(cursor.type == EntityType.elementEnd); // </baz>
 
-        parser.next();
-        assert(parser.type == EntityType.elementEnd); // </foo>
+        cursor.next();
+        assert(cursor.type == EntityType.elementEnd); // </foo>
 
-        parser.next();
-        assert(parser.empty);
+        cursor.next();
+        assert(cursor.empty);
     }
-
     {
-        auto parser = parseXML!simpleXML(xml);
-        assert(!parser.empty);
-        assert(parser.type == EntityType.elementStart);
-        assert(parser.name == "foo");
+        auto cursor = parseXML!simpleXML(xml);
+        assert(!cursor.empty);
+        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.name == "foo");
 
         {
-            auto attrs = parser.attributes;
+            auto attrs = cursor.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "attr");
             assert(attrs.front.value == "42");
         }
 
-        parser.next();
+        cursor.next();
         // simpleXML is set to split empty tags so that <bar/> is treated
         // as the same as <bar></bar> so that code does not have to
         // explicitly handle empty tags.
-        assert(parser.type == EntityType.elementStart);
-        assert(parser.name == "bar");
-        parser.next();
-        assert(parser.type == EntityType.elementEnd);
+        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.name == "bar");
+        cursor.next();
+        assert(cursor.type == EntityType.elementEnd);
 
-        parser.next();
-        assert(parser.type == EntityType.elementStart);
-        assert(parser.name == "baz");
+        cursor.next();
+        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.name == "baz");
 
         {
-            auto attrs = parser.attributes;
+            auto attrs = cursor.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "hello");
             assert(attrs.front.value == "world");
         }
 
-        parser.next();
-        assert(parser.type == EntityType.text);
-        assert(parser.text ==
+        cursor.next();
+        assert(cursor.type == EntityType.text);
+        assert(cursor.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        parser.next();
-        assert(parser.type == EntityType.elementEnd); // </baz>
+        cursor.next();
+        assert(cursor.type == EntityType.elementEnd); // </baz>
 
-        parser.next();
-        assert(parser.type == EntityType.elementEnd); // </foo>
+        cursor.next();
+        assert(cursor.type == EntityType.elementEnd); // </foo>
 
-        parser.next();
-        assert(parser.empty);
+        cursor.next();
+        assert(cursor.empty);
     }
 }
 
@@ -1915,7 +1914,7 @@ private struct EntityCompileTests
 }
 
 version(unittest)
-    EntityParser!(Config.init, EntityCompileTests) _entityParserTests;
+    EntityCursor!(Config.init, EntityCompileTests) _entityCursorTests;
 
 
 /++
@@ -1934,7 +1933,7 @@ struct XMLDecl(R)
         otherwise, it's the result of calling
         $(PHOBOS_REF takeExcatly, std, range) on the text.
 
-        See_Also: $(LREF XMLParser._SliceOfR)
+        See_Also: $(LREF EntityCursor._SliceOfR)
       +/
     static if(isDynamicArray!R || hasSlicing!R)
         alias SliceOfR = R;
@@ -2072,7 +2071,7 @@ enum GrammarPos
     // This is at the beginning of content at the first CharData?. The next
     // thing to parse will be a CharData, element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityParser (see EntityParser.text).
+    // EntityCursor (see EntityCursor.text).
     contentCharData1,
 
     // element  ::= EmptyElemTag | STag content ETag
@@ -2080,7 +2079,7 @@ enum GrammarPos
     // This is after the first CharData?. The next thing to parse will be a
     // element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityParser (see EntityParser.text).
+    // EntityCursor (see EntityCursor.text).
     contentMid,
 
     // element  ::= EmptyElemTag | STag content ETag
@@ -2088,7 +2087,7 @@ enum GrammarPos
     // This is at the second CharData?. The next thing to parse will be a
     // CharData, element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityParser (see EntityParser.text).
+    // EntityCursor (see EntityCursor.text).
     contentCharData2,
 
     // element  ::= EmptyElemTag | STag content ETag

@@ -65,7 +65,7 @@ unittest
     This is used for the cases where we need to take a range and strip
     ByCodeUnit from it if it's a wrapped string and return the original
     otherwise - e.g. when we want to return a slice of the XML text via a
-    property of EntityParser.
+    property of EntityCursor.
 
     Typically, we're either operating on a string that we needed to wrap using
     byCodeUnit, or we're operating on a range that didn't need to be wrapped,
