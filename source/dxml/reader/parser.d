@@ -719,7 +719,7 @@ public:
         with(EntityType)
             assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
 
-        return stripBCU(_state.name);
+        return stripBCU!R(_state.name);
     }
 
 
@@ -828,10 +828,10 @@ public:
                 auto state = &_text;
                 auto pos = state.pos;
 
-                auto name = stripBCU(state.takeName!'='());
+                auto name = stripBCU!R(state.takeName!'='());
                 stripWS(state);
 
-                auto value = stripBCU(takeEnquotedText(state));
+                auto value = stripBCU!R(takeEnquotedText(state));
                 stripWS(state);
 
                 _front = Attribute(name, value);
@@ -883,7 +883,7 @@ public:
         with(EntityType)
             assert(only(cdata, comment, processingInstruction, text).canFind(type));
 
-        return stripBCU(_state.currText.input);
+        return stripBCU!R(_state.currText.input);
     }
 
     ///
@@ -1119,7 +1119,7 @@ public:
 
         {
             auto temp = takeEnquotedText(&_state.currText);
-            retval.xmlVersion = stripBCU(temp.save);
+            retval.xmlVersion = stripBCU!R(temp.save);
             if(temp.length != 3)
                 throwXPE("Invalid or unsupported XML version number");
             if(temp.front != '1')
@@ -1144,7 +1144,7 @@ public:
             if(!stripStartsWith(&_state.currText, "ncoding"))
                 throwXPE("Invalid <?xml ... ?> declaration in prolog");
             stripEq(&_state.currText);
-            retval.encoding = nullable(stripBCU(takeEnquotedText(&_state.currText)));
+            retval.encoding = nullable(stripBCU!R(takeEnquotedText(&_state.currText)));
 
             wasSpace = stripWS(&_state.currText);
             if(_state.currText.input.empty)
@@ -1979,6 +1979,7 @@ private:
 struct ParserState(Config cfg, R)
 {
     alias config = cfg;
+    alias Text = R;
     alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
 
     EntityType type;
@@ -2000,6 +2001,7 @@ struct ParserState(Config cfg, R)
     struct CurrText
     {
         alias config = cfg;
+        alias Text = R;
         Taken input;
         SourcePos pos;
     }
@@ -2122,7 +2124,7 @@ bool stripStartsWith(PS)(PS state, string text)
         // This branch is separate so that we can take advantage of whatever
         // speed boost comes from comparing strings directly rather than
         // comparing individual characters.
-        static if(isWrappedString!R && is(Unqual!(ElementType!R) == char))
+        static if(isDynamicArray!(PS.Text) && is(Unqual!(ElementEncodingType!(PS.Text)) == char))
         {
             if(state.input.source[0 .. text.length] != text)
                 return false;
@@ -3396,6 +3398,7 @@ version(unittest)
         import std.algorithm : filter;
         import std.meta : AliasSeq;
         alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
-                                          a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a));
+                                          a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a),
+                                          a => byCodeUnit(a));
     }
 }

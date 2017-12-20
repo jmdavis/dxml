@@ -7,36 +7,12 @@
   +/
 module dxml.reader.internal;
 
+import std.range : takeExactly;
 import std.range.primitives;
 import std.traits;
+import std.utf : byCodeUnit;
 
 package:
-
-
-template isWrappedString(R)
-    if(isInputRange!R && isSomeChar!(ElementType!R))
-{
-    import std.utf : byCodeUnit;
-    static if(!is(typeof(byCodeUnit(R.init)) == R))
-        enum isWrappedString = false;
-    else static if(is(typeof(R.init.source)))
-        enum isWrappedString = isNarrowString!(typeof(R.init.source));
-    else
-        enum isWrappedString = false;
-}
-
-unittest
-{
-    import std.algorithm : filter;
-    import std.meta : AliasSeq;
-    import std.utf : byCodeUnit;
-    foreach(T; AliasSeq!(string, wstring, dstring, typeof(filter!(a => true)("hello"))))
-        static assert(!isWrappedString!T);
-    static assert(isWrappedString!(typeof(byCodeUnit("hello"))));
-    static assert(isWrappedString!(typeof(byCodeUnit("hello"w))));
-    static assert(!isWrappedString!(typeof(byCodeUnit("hello"d))));
-}
-
 
 // Like std.algorithm.equal except that it won't decode string, and it allows
 // comparing a string with a range with a character type other than char.
@@ -64,7 +40,6 @@ unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
-    import std.utf : byCodeUnit;
 
     foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
     {
@@ -86,13 +61,27 @@ unittest
 }
 
 
-// This is used for the cases where we need to take a range and strip ByCodeUnit
-// from it if it's a wrapped string and return the original otherwise.
-pragma(inline, true) auto stripBCU(R)(R range)
-    if(isForwardRange!R && isSomeChar!(ElementType!R))
+/+
+    This is used for the cases where we need to take a range and strip
+    ByCodeUnit from it if it's a wrapped string and return the original
+    otherwise - e.g. when we want to return a slice of the XML text via a
+    property of EntityParser.
+
+    Typically, we're either operating on a string that we needed to wrap using
+    byCodeUnit, or we're operating on a range that didn't need to be wrapped,
+    but it's possible for someone to give us a range that's the result of
+    calling byCodeUnit on a range that gets wrapped by byCodeUnit, and in that
+    case, when we call byCodeUnit on it (e.g. in ParserState's constructor), it
+    would just return the same type, meaning that if we just always stripped off
+    the byCodeUnit wrapper with stripBCU, we wouldn't be returning the range
+    type that we were given, which is the whole point of stripBCU. So, by taking
+    into account the range type we were given with Orig, we're able to correctly
+    determine whether we need to strip off the byCodeUnit wrapper.
+  +/
+pragma(inline, true) auto stripBCU(Orig, R)(R range)
+    if(is(typeof(takeExactly(byCodeUnit(Orig.init), 42)) == R))
 {
-    static assert(!isNarrowString!R);
-    static if(isWrappedString!R)
+    static if(isNarrowString!Orig)
         return range.source;
     else
         return range;
@@ -102,15 +91,20 @@ unittest
 {
     import std.algorithm : equal, filter;
     import std.range : takeExactly;
-    import std.utf : byCodeUnit, codeLength;
 
-    auto bcuResult = byCodeUnit("hello").stripBCU();
+    auto bcu = byCodeUnit("hello");
+    auto bcuResult = bcu.stripBCU!string();
     assert(equal(bcuResult, "hello"));
     static assert(is(typeof(bcuResult) == string));
 
-    auto filterResult = filter!"true"("hello").stripBCU();
-    assert(equal(filterResult, "hello"));
-    static assert(is(typeof(filterResult) == typeof(filter!"true"("foo"))));
+    auto unstripped = bcu.stripBCU!(typeof(bcu))();
+    assert(equal(bcuResult, "hello"));
+    static assert(is(typeof(unstripped) == typeof(bcu)));
+
+    auto filtered = filter!"true"("hello").takeExactly(3);
+    auto filterResult = filtered.stripBCU!(typeof(filtered))();
+    assert(equal(filterResult, "hel"));
+    static assert(is(typeof(filterResult) == typeof(filtered)));
 }
 
 
