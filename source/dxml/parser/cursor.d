@@ -4,9 +4,9 @@
     Copyright: Copyright 2017
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
-    Source:    $(LINK_TO_SRC dxml/reader/_cursor.d)
+    Source:    $(LINK_TO_SRC dxml/parser/_cursor.d)
   +/
-module dxml.reader.cursor;
+module dxml.parser.cursor;
 
 import std.algorithm : equal, startsWith;
 import std.range.primitives;
@@ -15,7 +15,7 @@ import std.traits;
 import std.typecons : Flag, Nullable, nullable;
 import std.utf : byCodeUnit, decodeFront, UseReplacementDchar;
 
-import dxml.reader.internal;
+import dxml.parser.internal;
 
 /++
     The exception type thrown when the XML parser runs into invalid XML.
@@ -559,7 +559,7 @@ enum EntityType
     documentation makes that clear. The only other case where it may allocate
     is when throwing an $(LREF XMLException).
 
-    See_Also: $(MOD_REF dxml, reader, dom)
+    See_Also: $(MOD_REF dxml, parser, dom)
   +/
 struct EntityCursor(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
