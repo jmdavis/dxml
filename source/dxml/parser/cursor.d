@@ -410,14 +410,22 @@ enum EntityType
     comment,
 
     /++
-        The beginning of a `<!DOCTYPE ... >` tag.
+        The beginning of a `<!DOCTYPE ... >` tag where intSubset is not empty.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
     docTypeStart,
 
     /++
-        The `>` indicating the end of a `<!DOCTYPE` tag.
+        A `<!DOCTYPE ... >` tag with no intSubset.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
+      +/
+    docTypeNoEmpty,
+
+    /++
+        The `>` indicating the end of a `<!DOCTYPE` tag where intSubset was not
+        empty.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
@@ -1414,24 +1422,79 @@ private:
     }
 
 
+    // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+    // DeclSep     ::= PEReference | S
+    // intSubset   ::= (markupdecl | DeclSep)*
+    // markupdecl  ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
     // Parse doctypedecl after GrammarPos.prologMisc1.
     // <!DOCTYPE was already removed from the front of the input.
     void _parseDoctypeDecl()
     {
         if(!_state.stripWS())
             throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
+
         static if(config.skipProlog == SkipProlog.yes)
         {
-            _state.skipToOneOf!('[', '>')();
-            checkNotEmpty(_state);
-            if(_state.input.front == '[')
+            _state.skipToOneOf!('"', '\'', '[', '>')();
+            switch(_state.input.front)
             {
-                _state.skipUntilAndDrop!"]"();
-                _state.skipUntilAndDrop!">"();
+                case '"':
+                {
+                    _state.skipUntilAndDrop!`"`();
+                    checkNotEmpty(_state);
+                    _state.skipToOneOf!('[', '>')();
+                    if(_state.input.front == '[')
+                        goto case '[';
+                    else
+                        goto case '>';
+                }
+                case '\'':
+                {
+                    _state.skipUntilAndDrop!`'`();
+                    checkNotEmpty(_state);
+                    _state.skipToOneOf!('[', '>')();
+                    if(_state.input.front == '[')
+                        goto case '[';
+                    else
+                        goto case '>';
+                }
+                case '[':
+                {
+                    popFrontAndIncCol(_state);
+                    while(1)
+                    {
+                        checkNotEmpty(_state);
+                        _state.skipToOneOf!('"', '\'', ']')();
+                        switch(_state.input.front)
+                        {
+                            case '"':
+                            {
+                                _state.skipUntilAndDrop!`"`();
+                                continue;
+                            }
+                            case '\'':
+                            {
+                                _state.skipUntilAndDrop!`'`();
+                                continue;
+                            }
+                            case ']':
+                            {
+                                _state.skipUntilAndDrop!`>`();
+                                _parseAtPrologMisc!2();
+                                return;
+                            }
+                            default: assert(0);
+                        }
+                    }
+                }
+                case '>':
+                {
+                    popFrontAndIncCol(_state);
+                    _parseAtPrologMisc!2();
+                    break;
+                }
+                default: assert(0);
             }
-            else
-                popFrontAndIncCol(_state);
-            _parseAtPrologMisc!2();
         }
         else
         {
@@ -1439,6 +1502,69 @@ private:
             //...
             //_state.grammarPos = GrammarPos.prologMisc2;
         }
+    }
+
+
+    // elementdecl ::= '<!ELEMENT' S Name S contentspec S? '>'
+    // contentspec ::= 'EMPTY' | 'ANY' | Mixed | children
+    // Mixed       ::= '(' S? '#PCDATA' (S? '|' S? Name)* S? ')*' | '(' S? '#PCDATA' S? ')'
+    // children    ::= (choice | seq) ('?' | '*' | '+')?
+    // cp          ::= (Name | choice | seq) ('?' | '*' | '+')?
+    // choice      ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
+    // seq         ::= '(' S? cp ( S? ',' S? cp )* S? ')'
+    void _parseElementDecl()
+    {
+    }
+
+
+    // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
+    // AttDef         ::= S Name S AttType S DefaultDecl
+    // AttType        ::= StringType | TokenizedType | EnumeratedType
+    // StringType     ::= 'CDATA'
+    // TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' | 'NMTOKEN' | 'NMTOKENS'
+    // EnumeratedType ::= NotationType | Enumeration
+    // NotationType   ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
+    // Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
+    // Nmtoken        ::= (NameChar)+
+    // DefaultDecl    ::= '#REQUIRED' | '#IMPLIED' | (('#FIXED' S)? AttValue)
+    // AttValue       ::= '"' ([^<&"] | Reference)* '"' |  "'" ([^<&'] | Reference)* "'"
+    // Reference      ::= EntityRef | CharRef
+    // EntityRef      ::= '&' Name ';'
+    // CharRef        ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    void _parseAttlistDecl()
+    {
+    }
+
+
+    // EntityDecl    ::= GEDecl | PEDecl
+    // GEDecl        ::= '<!ENTITY' S Name S EntityDef S? '>'
+    // PEDecl        ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+    // EntityDef     ::= EntityValue | (ExternalID NDataDecl?)
+    // PEDef         ::= EntityValue | ExternalID
+    // EntityValue   ::= '"' ([^%&"] | PEReference | Reference)* '"' |  "'" ([^%&'] | PEReference | Reference)* "'"
+    // PEReference   ::= '%' Name ';'
+    // Reference     ::= EntityRef | CharRef
+    // EntityRef     ::= '&' Name ';'
+    // CharRef       ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    // ExternalID    ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+    // NDataDecl     ::= S 'NDATA' S Name
+    // SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
+    // PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+    // PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+    void _parseEntityDecl()
+    {
+    }
+
+
+    // NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+    // PublicID    ::= 'PUBLIC' S PubidLiteral
+    // ExternalID    ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+    // NDataDecl     ::= S 'NDATA' S Name
+    // SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
+    // PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+    // PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+    void _parseNotationDecl()
+    {
     }
 
 
@@ -2687,38 +2813,46 @@ auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
 
 
 // Okay, this name kind of sucks, because it's too close to skipUntilAndDrop,
-// but I'd rather do this than be passing template arguments to choosed between
+// but I'd rather do this than be passing template arguments to choose between
 // behaviors - especially when the logic is so different. It skips until it
-// reaches one of the two delimiter characters. If it finds one of them, then
-// the first character in the input is the delimiter that was found, and if it
-// doesn't find either, then the input is empty.
-void skipToOneOf(char delim1, char delim2, PS)(PS state)
+// reaches one of the delimiter characters. If it finds one of them, then the
+// first character in the input is the delimiter that was found, and if it
+// doesn't find either, then it throws.
+template skipToOneOf(delims...)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
-    static assert(!isSpace(delim1) && !isSpace(delim2));
-
-    while(!state.input.empty)
+    static foreach(delim; delims)
     {
-        switch(state.input.front)
+        static assert(is(typeof(delim) == char));
+        static assert(!isSpace(delim));
+    }
+
+    void skipToOneOf(PS)(PS state)
+    {
+        static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
+        while(!state.input.empty)
         {
-            case delim1:
-            case delim2: return;
-            static if(state.config.posType != PositionType.none)
+            switch(state.input.front)
             {
-                case '\n':
+                foreach(delim; delims)
+                    case delim: return;
+                static if(state.config.posType != PositionType.none)
                 {
-                    nextLine!(state.config)(state.pos);
-                    state.input.popFront();
+                    case '\n':
+                    {
+                        nextLine!(state.config)(state.pos);
+                        state.input.popFront();
+                        break;
+                    }
+                }
+                default:
+                {
+                    popFrontAndIncCol(state);
                     break;
                 }
             }
-            default:
-            {
-                popFrontAndIncCol(state);
-                break;
-            }
         }
-
+        throw new XMLParsingException("Prematurely reached end of document", state.pos);
     }
 }
 
@@ -2748,7 +2882,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('r', 'w')();
+                state.skipToOneOf!('r', 'w', '1', '+', '*')();
                 assert(equal(state.input, "world"));
                 assert(state.pos == t[1]);
             }
@@ -2758,9 +2892,7 @@ unittest
                                  tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
             {
                 auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('a', 'b')();
-                assert(state.input.empty);
-                assert(state.pos == t[1]);
+                assertThrown!XMLParsingException(state.skipToOneOf!('a', 'b')());
             }
         }
         {
@@ -3268,16 +3400,14 @@ bool isNameChar(dchar c)
 
 unittest
 {
+    import std.ascii : isAlphaNum;
     import std.range : only;
     import std.typecons : tuple;
 
-    foreach(c; char.min .. cast(char)128)
+    foreach(c; char.min .. cast(char)129)
     {
-        if(c == ':' || c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
-           c == '-' || c == '.' || c >= '0' && c <= '9')
-        {
+        if(isAlphaNum(c) || c == ':' || c == '_' || c == '-' || c == '.')
             assert(isNameChar(c));
-        }
         else
             assert(!isNameChar(c));
     }
@@ -3306,6 +3436,42 @@ unittest
         assert(isNameChar(t[1] - 1));
         assert(isNameChar(t[1]));
         assert(!isNameChar(t[1] + 1));
+    }
+}
+
+
+// PubidChar ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+bool isPubidChar(dchar c)
+{
+    import std.ascii : isAlphaNum;
+    return isAlphaNum(c) || c == ' ' || c == '\r' || c == '\n' ||
+           c == '-' || c == '\'' || c == '(' || c == ')' || c == '+' || c == ',' ||
+           c == '.' || c == '/' || c == ':' || c == '=' || c == '?' || c == ';' ||
+           c == '!' || c == '*' || c == '#' || c == '@' || c == '$' || c == '_' || c == '%';
+}
+
+unittest
+{
+    import std.algorithm : canFind;
+    import std.ascii : isAlphaNum;
+    import std.meta : AliasSeq;
+
+    foreach(C; AliasSeq!(char, wchar, dchar))
+    {
+        foreach(c; cast(C)0 .. cast(C)129)
+        {
+            if(isAlphaNum(c) || " \r\n-'()+,./:=?;!*#@$_%".byCodeUnit().canFind(c))
+                assert(isPubidChar(c));
+            else
+                assert(!isPubidChar(c));
+        }
+        foreach(c; cast(C)129 .. cast(C)256)
+            assert(!isPubidChar(c));
+        static if(!is(C == char))
+        {
+            foreach(c; cast(C)256 .. cast(C)300)
+                assert(!isPubidChar(c));
+        }
     }
 }
 
