@@ -1307,133 +1307,37 @@ private:
 
     static if(compileInTests) unittest
     {
+        import core.exception : AssertError;
+        import std.exception : enforce;
         import std.meta : AliasSeq;
-        import std.range : only;
-        import std.typecons : tuple;
+
+        static void test(alias func, SkipProlog skipProlog = SkipProlog.no)
+                        (string xml, int row, int col, size_t line = __LINE__)
+        {
+            foreach(i, config; AliasSeq!(makeConfig(skipProlog),
+                                         makeConfig(skipProlog, PositionType.line),
+                                         makeConfig(skipProlog, PositionType.none)))
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto cursor = parseXML!config(func(xml));
+                cursor.next();
+                enforce!AssertError(cursor._state.pos == pos, "unittest failure", __FILE__, line);
+            }
+        }
 
         foreach(func; testRangeFuncs)
         {
-            {
-                auto xml = "<root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 8)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "\n\t\n <root/>   \n";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 9)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(12, 3)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(12, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-
-            {
-                auto xml = "<root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(1, 8)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "\n\t\n <root/>   \n";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(3, 9)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(3, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(12, 10)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(12, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(6, 23)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(7, 13)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(7, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto cursor = parseXML!(t[0])(func(xml));
-                    cursor.next();
-                    assert(cursor._state.pos == t[1]);
-                }
-            }
+            test!func("<root/>", 1, 8);
+            test!func("\n\t\n <root/>   \n", 3, 9);
+            test!func("<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>", 12, 3);
+            test!func("<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>", 6, 16);
+            test!func("<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>", 6, 16);
+            test!func("<root/>", 1, 8);
+            test!func("\n\t\n <root/>   \n", 3, 9);
+            test!(func, SkipProlog.yes)
+                 ("<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>", 12, 10);
+            test!(func, SkipProlog.yes)("<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>", 6, 23);
+            test!(func, SkipProlog.yes)("<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>", 7, 13);
         }
     }
 
@@ -2300,60 +2204,32 @@ bool stripStartsWith(PS)(PS state, string text)
 
 @safe pure unittest
 {
+    import core.exception : AssertError;
+    import std.exception : enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
 
-    enum origHaystack = "hello world";
-    enum needle = "hello";
-    enum remainder = " world";
-
-    foreach(func; testRangeFuncs)
+    static void test(alias func)(string origHaystack, string needle, string remainder, bool startsWith,
+                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
 
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, needle.length + 1)),
-                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto state = testParser!(t[0])(haystack.save);
-            assert(state.stripStartsWith(needle));
-            assert(equalCU(state.input, remainder));
-            assert(state.pos == t[1]);
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
+    }
 
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, origHaystack.length + 1)),
-                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            auto state = testParser!(t[0])(haystack.save);
-            assert(state.stripStartsWith(origHaystack));
-            assert(state.input.empty);
-            assert(state.pos == t[1]);
-        }
-
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 1)),
-                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(!state.stripStartsWith("foo"));
-                assert(equalCU(state.input, origHaystack));
-                assert(state.pos == t[1]);
-            }
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(!state.stripStartsWith("hello sally"));
-                assert(equalCU(state.input, origHaystack));
-                assert(state.pos == t[1]);
-            }
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(!state.stripStartsWith("hello world "));
-                assert(equalCU(state.input, origHaystack));
-                assert(state.pos == t[1]);
-            }
-        }
+    foreach(func; testRangeFuncs)
+    {
+        test!func("hello world", "hello", " world", true, 1, "hello".length + 1);
+        test!func("hello world", "hello world", "", true, 1, "hello world".length + 1);
+        test!func("hello world", "foo", "hello world", false, 1, 1);
+        test!func("hello world", "hello sally", "hello world", false, 1, 1);
+        test!func("hello world", "hello world ", "hello world", false, 1, 1);
     }
 }
 
@@ -2408,58 +2284,31 @@ bool stripWS(PS)(PS state)
 
 @safe pure unittest
 {
+    import core.exception : AssertError;
+    import std.exception : enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+
+    static void test(alias func)(string origHaystack, string remainder, bool stripped,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(state.stripWS() == stripped, "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
-        auto haystack1 = func("  \t\rhello world");
-
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
-                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            auto state = testParser!(t[0])(haystack1.save);
-            assert(state.stripWS());
-            assert(equalCU(state.input, "hello world"));
-            assert(state.pos == t[1]);
-        }
-
-        auto haystack2 = func("  \n \n \n  \nhello world");
-
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 1)),
-                             tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            auto state = testParser!(t[0])(haystack2.save);
-            assert(state.stripWS());
-            assert(equalCU(state.input, "hello world"));
-            assert(state.pos == t[1]);
-        }
-
-        auto haystack3 = func("  \n \n \n  \n  hello world");
-
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 3)),
-                             tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            auto state = testParser!(t[0])(haystack3.save);
-            assert(state.stripWS());
-            assert(equalCU(state.input, "hello world"));
-            assert(state.pos == t[1]);
-        }
-
-        auto haystack4 = func("hello world");
-
-        foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 1)),
-                             tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                             tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-        {
-            auto state = testParser!(t[0])(haystack4.save);
-            assert(!state.stripWS());
-            assert(equal(state.input, "hello world"));
-            assert(state.pos == t[1]);
-        }
+        test!func("  \t\rhello world", "hello world", true, 1, 5);
+        test!func("  \n \n \n  \nhello world", "hello world", true, 5, 1);
+        test!func("  \n \n \n  \n  hello world", "hello world", true, 5, 3);
+        test!func("hello world", "hello world", false, 1, 1);
     }
 }
 
@@ -2474,115 +2323,63 @@ auto takeUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
-    import std.exception : assertThrown;
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+
+    static void test(alias func, string needle)(string origHaystack, string result, string remainder,
+                                                int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takeUntilAndDrop!needle(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
         {
-            auto haystack = func("hello world");
+            auto haystack = "hello world";
             enum needle = "world";
 
             static foreach(i; 1 .. needle.length)
-            {
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 7 + i)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(state.takeUntilAndDrop!(needle[0 .. i])(), "hello "));
-                    assert(equal(state.input, needle[i .. $]));
-                    assert(state.pos == t[1]);
-                }
-            }
+                test!(func, needle[0 .. i])(haystack, "hello ", needle[i .. $], 1, 7 + i);
         }
-        {
-            auto haystack = func("lello world");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(state.takeUntilAndDrop!"l"().empty);
-                assert(equal(state.input, "ello world"));
-                assert(state.pos == t[1]);
-            }
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(equal(state.takeUntilAndDrop!"ll"(), "le"));
-                assert(equal(state.input, "o world"));
-                assert(state.pos == t[1]);
-            }
-        }
-        {
-            auto haystack = func("llello world");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 4)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assert(equal(state.takeUntilAndDrop!"le"(), "l"));
-                assert(equal(state.input, "llo world"));
-                assert(state.pos == t[1]);
-            }
-        }
+        test!(func, "l")("lello world", "", "ello world", 1, 2);
+        test!(func, "ll")("lello world", "le", "o world", 1, 5);
+        test!(func, "le")("llello world", "l", "llo world", 1, 4);
         {
             import std.utf : codeLength;
-            auto haystack = func("プログラミング in D is great indeed");
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング in D is ");
+            auto haystack = "プログラミング in D is great indeed";
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
             enum needle = "great";
             enum remainder = "great indeed";
 
             static foreach(i; 1 .. needle.length)
-            {
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + i + 1)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(state.takeUntilAndDrop!(needle[0 .. i])(), "プログラミング in D is "));
-                    assert(equal(state.input, remainder[i .. $]));
-                    assert(state.pos == t[1]);
-                }
-            }
+                test!(func, needle[0 .. i])(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
         }
-        foreach(origHaystack; AliasSeq!("", "a", "hello"))
-        {
-            auto haystack = func(origHaystack);
-
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntilAndDrop!"x"());
-            }
-        }
-        foreach(origHaystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
-        {
-            auto haystack = func(origHaystack);
-
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntilAndDrop!"le"());
-            }
-        }
-        foreach(origHaystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
-        {
-            auto haystack = func(origHaystack);
-
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.takeUntilAndDrop!"web"());
-            }
-        }
+        foreach(haystack; AliasSeq!("", "a", "hello"))
+            testFail!(func, "x")(haystack);
+        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+            testFail!(func, "le")(haystack);
+        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+            testFail!(func, "web")(haystack);
     }
 }
 
@@ -2595,115 +2392,64 @@ void skipUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
-    import std.exception : assertThrown;
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+
+    static void test(alias func, string needle)(string origHaystack, string remainder,
+                                                int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            state.skipUntilAndDrop!needle();
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
         {
-            auto haystack = func("hello world");
             enum needle = "world";
-
             static foreach(i; 1 .. needle.length)
-            {
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 7 + i)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    state.skipUntilAndDrop!(needle[0 .. i])();
-                    assert(equal(state.input, needle[i .. $]));
-                    assert(state.pos == t[1]);
-                }
-            }
+                test!(func, needle[0 .. i])("hello world", needle[i .. $], 1, 7 + i);
         }
-        {
-            auto haystack = func("lello world");
 
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipUntilAndDrop!"l"();
-                assert(equal(state.input, "ello world"));
-                assert(state.pos == t[1]);
-            }
+        test!(func, "l")("lello world", "ello world", 1, 2);
+        test!(func, "ll")("lello world", "o world", 1, 5);
+        test!(func, "le")("llello world", "llo world", 1, 4);
 
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipUntilAndDrop!"ll"();
-                assert(equal(state.input, "o world"));
-                assert(state.pos == t[1]);
-            }
-        }
-        {
-            auto haystack = func("llello world");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 4)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipUntilAndDrop!"le"();
-                assert(equal(state.input, "llo world"));
-                assert(state.pos == t[1]);
-            }
-        }
         {
             import std.utf : codeLength;
-            auto haystack = func("プログラミング in D is great indeed");
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング in D is ");
+            auto haystack = "プログラミング in D is great indeed";
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
             enum needle = "great";
             enum remainder = "great indeed";
 
             static foreach(i; 1 .. needle.length)
-            {
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + i + 1)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    state.skipUntilAndDrop!(needle[0 .. i])();
-                    assert(equal(state.input, remainder[i .. $]));
-                    assert(state.pos == t[1]);
-                }
-            }
+                test!(func, needle[0 .. i])(haystack, remainder[i .. $], 1, len + i + 1);
         }
-        foreach(origHaystack; AliasSeq!("", "a", "hello"))
-        {
-            auto haystack = func(origHaystack);
 
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntilAndDrop!"x"());
-            }
-        }
-        foreach(origHaystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
-        {
-            auto haystack = func(origHaystack);
-
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntilAndDrop!"le"());
-            }
-        }
-        foreach(origHaystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
-        {
-            auto haystack = func(origHaystack);
-
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                auto state = testParser!config(haystack.save);
-                assertThrown!XMLParsingException(state.skipUntilAndDrop!"web"());
-            }
-        }
+        foreach(haystack; AliasSeq!("", "a", "hello"))
+            testFail!(func, "x")(haystack);
+        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+            testFail!(func, "le")(haystack);
+        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+            testFail!(func, "web")(haystack);
     }
 }
 
@@ -2855,80 +2601,47 @@ template skipToOneOf(delims...)
 
 unittest
 {
-    import std.exception : assertThrown;
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+
+    static void test(alias func, delims...)(string origHaystack, string remainder,
+                                            int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            state.skipToOneOf!delims();
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func, delims...)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
-        {
-            auto haystack = func("hello world");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 5)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('o', 'w')();
-                assert(equal(state.input, "o world"));
-                assert(state.pos == t[1]);
-            }
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 7)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('r', 'w', '1', '+', '*')();
-                assert(equal(state.input, "world"));
-                assert(state.pos == t[1]);
-            }
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 12)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                assertThrown!XMLParsingException(state.skipToOneOf!('a', 'b')());
-            }
-        }
-        {
-            auto haystack = func("abc\n\n\n  \n\n   wxyzzy \nf\ng");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 6)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('z', 'y')();
-                assert(equal(state.input, "yzzy \nf\ng"));
-                assert(state.pos == t[1]);
-            }
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(8, 1)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(8, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('o', 'g')();
-                assert(equal(state.input, "g"));
-                assert(state.pos == t[1]);
-            }
-        }
+        test!(func, 'o', 'w')("hello world", "o world", 1, 5);
+        test!(func, 'r', 'w', '1', '+', '*')("hello world", "world", 1, 7);
+        testFail!(func, 'a', 'b')("hello world");
+        test!(func, 'z', 'y')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "yzzy \nf\ng", 6, 6);
+        test!(func, 'o', 'g')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "g", 8, 1);
         {
             import std.utf : codeLength;
-            auto haystack = func("プログラミング in D is great indeed");
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング in D is ");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                state.skipToOneOf!('g', 'x')();
-                assert(equal(state.input, "great indeed"));
-                assert(state.pos == t[1]);
-            }
+            auto haystack = "プログラミング in D is great indeed";
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
+            test!(func, 'g', 'x')(haystack, "great indeed", 1, len + 1);
         }
     }
 }
@@ -2959,73 +2672,53 @@ auto takeEnquotedText(PS)(PS state)
 
 unittest
 {
-    import std.exception : assertThrown;
-    import std.range : only;
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+    import std.range : only;
+
+    static void test(alias func)(string origHaystack, string result, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(takeEnquotedText(state), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeEnquotedText(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
         foreach(quote; only("\"", "'"))
         {
-            {
-                auto haystack = func(quote ~ quote);
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 3)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(takeEnquotedText(state).empty);
-                    assert(state.input.empty);
-                    assert(state.pos == t[1]);
-                }
-            }
-            {
-                auto haystack = func(quote ~ "hello world" ~ quote);
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 14)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeEnquotedText(state), "hello world"));
-                    assert(state.input.empty);
-                    assert(state.pos == t[1]);
-                }
-            }
-            {
-                auto haystack = func(quote ~ "hello world" ~ quote ~ " foo");
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 14)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeEnquotedText(state), "hello world"));
-                    assert(equal(state.input, " foo"));
-                    assert(state.pos == t[1]);
-                }
-            }
+            test!func(quote ~ quote, "", "", 1, 3);
+            test!func(quote ~ "hello world" ~ quote, "hello world", "", 1, 14);
+            test!func(quote ~ "hello world" ~ quote ~ " foo", "hello world", " foo", 1, 14);
             {
                 import std.utf : codeLength;
-                auto haystack = func(quote ~ "プログラミング " ~ quote ~ "in D");
-                enum len = cast(int)codeLength!(ElementEncodingType!(typeof(haystack)))("プログラミング ");
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 3)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeEnquotedText(state), "プログラミング "));
-                    assert(equal(state.input, "in D"));
-                    assert(state.pos == t[1]);
-                }
+                auto haystack = quote ~ "プログラミング " ~ quote ~ "in D";
+                enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング ");
+                test!func(haystack, "プログラミング ", "in D", 1, len + 3);
             }
         }
 
         foreach(str; only(`hello`, `"hello'`, `"hello`, `'hello"`, `'hello`, ``, `"'`, `"`, `'"`, `'`))
-            assertThrown!XMLParsingException(testParser!(Config.init)(func(str)).takeEnquotedText());
+            testFail!func(str);
     }
 }
 
@@ -3043,63 +2736,42 @@ void stripEq(PS)(PS state)
 
 unittest
 {
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
+
+    static void test(alias func)(string origHaystack, string remainder, int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            stripEq(state);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.stripEq(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
-        {
-            auto haystack = func("=");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                stripEq(state);
-                assert(state.input.empty);
-                assert(state.pos == t[1]);
-            }
-        }
-        {
-            auto haystack = func("=hello");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 2)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                stripEq(state);
-                assert(equal(state.input, "hello"));
-                assert(state.pos == t[1]);
-            }
-        }
-        {
-            auto haystack = func(" \n\n =hello");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 3)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                stripEq(state);
-                assert(equal(state.input, "hello"));
-                assert(state.pos == t[1]);
-            }
-        }
-        {
-            auto haystack = func("=\n\n\nhello");
-
-            foreach(t; AliasSeq!(tuple(Config.init, SourcePos(4, 1)),
-                                 tuple(makeConfig(PositionType.line), SourcePos(4, -1)),
-                                 tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-            {
-                auto state = testParser!(t[0])(haystack.save);
-                stripEq(state);
-                assert(equal(state.input, "hello"));
-                assert(state.pos == t[1]);
-            }
-        }
+        test!func("=", "", 1, 2);
+        test!func("=hello", "hello", 1, 2);
+        test!func(" \n\n =hello", "hello", 3, 3);
+        test!func("=\n\n\nhello", "hello", 4, 1);
+        testFail!func("hello");
+        testFail!func("hello=");
     }
 }
 
@@ -3111,7 +2783,6 @@ unittest
 // is stripped. The delimiter is also stripped.
 auto takeName(char delim = char.init, PS)(PS state)
 {
-
     import std.format : format;
     enum hasDelim = delim != char.init;
 
@@ -3193,78 +2864,63 @@ auto takeName(char delim = char.init, PS)(PS state)
 
 unittest
 {
-    import std.exception : assertThrown;
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
-    import std.typecons : tuple;
-    import std.utf : codeLength;
+
+    static void test(alias func, delim...)(string origHaystack, string result, string remainder,
+                                           int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takeName!delim(), result));
+            enforce!AssertError(equal(state.input, remainder));
+            enforce!AssertError(state.pos == pos);
+        }
+    }
+
+    static void testFail(alias func, delim...)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeName!delim(), "unittest failure", __FILE__, line);
+        }
+    }
 
     foreach(func; testRangeFuncs)
     {
         foreach(str; AliasSeq!("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"))
         {
+            import std.utf : codeLength;
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
             foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
-            {
-                auto haystack = func(str ~ remainder);
+                test!func(str ~ remainder, str, remainder, 1, len + 1);
 
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeName(state), str));
-                    assert(equal(state.input, remainder));
-                    assert(state.pos == t[1]);
-                }
-            }
-
+            import std.typecons : tuple;
             foreach(ends; AliasSeq!(tuple("=", ""), tuple(" =", ""), tuple("\t\r=  ", "  "),
                                     tuple("=foo", "foo"), tuple(" =foo", "foo"), tuple("\t\r=  bar", "  bar")))
             {
-                auto haystack = func(str ~ ends[0]);
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, len + 1 + ends[0].length - ends[1].length)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeName!'='(state), str));
-                    assert(equal(state.input, ends[1]));
-                    assert(state.pos == t[1]);
-                }
+                test!(func, '=')(str ~ ends[0], str, ends[1], 1, len + 1 + ends[0].length - ends[1].length);
             }
 
-            {
-                auto ends = tuple("\n\n  \n \n \r\t  =blah", "blah");
-                auto haystack = func(str ~ ends[0]);
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(5, 7)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(5, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    auto state = testParser!(t[0])(haystack.save);
-                    assert(equal(takeName!'='(state), str));
-                    assert(equal(state.input, ends[1]));
-                    assert(state.pos == t[1]);
-                }
-            }
+            test!(func, '=')(str ~ "\n\n  \n \n \r\t  =blah", str, "blah", 5, 7);
         }
 
         foreach(haystack; AliasSeq!("4", "42", "-", ".", " ", "\t", "\n", "\r", " foo", "\tfoo", "\nfoo", "\rfoo"))
         {
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
-                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName());
-                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName!'='());
-            }
+            testFail!func(haystack);
+            testFail!(func, '=')(haystack);
         }
 
         foreach(haystack; AliasSeq!("fo o=bar", "\nfoo=bar", "foo", "f", "=bar"))
-        {
-            foreach(config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-                assertThrown!XMLParsingException(testParser!config(haystack.save).takeName!'='());
-        }
+            testFail!(func, '=')(haystack);
     }
 }
 
