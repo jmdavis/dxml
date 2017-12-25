@@ -192,43 +192,36 @@ struct Config
 
         {
             auto cursor = parseXML("<root></root>");
-            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.next() == EntityType.elementStart);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.elementEnd);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.documentEnd);
         }
         {
             // No difference if the tags are already split.
             auto cursor = parseXML!configSplitYes("<root></root>");
-            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.next() == EntityType.elementStart);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.elementEnd);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.documentEnd);
         }
         {
             // This treats <root></root> and <root/> as distinct.
             auto cursor = parseXML("<root/>");
-            assert(cursor.type == EntityType.elementEmpty);
+            assert(cursor.next() == EntityType.elementEmpty);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.documentEnd);
         }
         {
             // This is parsed as if it were <root></root> insead of <root/>.
             auto cursor = parseXML!configSplitYes("<root/>");
-            assert(cursor.type == EntityType.elementStart);
+            assert(cursor.next() == EntityType.elementStart);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.elementEnd);
             assert(cursor.name == "root");
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.documentEnd);
         }
     }
 
@@ -432,6 +425,15 @@ enum EntityType
     docTypeEnd,
 
     /++
+        The end of the document has been reached. There are no more entities to
+        parse. Calling any functions of $(LREF XMLCursor) after this has been
+        reached is an error, and no node of $(REF EntityTree, dxml, parser, dom)
+        will have $(LREF EntityType._documentEnd) as its
+        $(type, EntityTree.type, dxml, parser, dom).
+      +/
+    documentEnd,
+
+    /++
         The `<!ELEMENT ... >` tag.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#elemdecls)
@@ -567,7 +569,7 @@ enum EntityType
     documentation makes that clear. The only other case where it may allocate
     is when throwing an $(LREF XMLException).
 
-    See_Also: $(MOD_REF dxml, parser, dom)
+    See_Also: $(MREF dxml, parser, dom)
   +/
 struct EntityCursor(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -618,33 +620,35 @@ public:
 
 
     /++
-        The type of the current entity.
-
-        The value of this member determines which member functions and
-        properties are allowed to be called, since some are only appropriate
-        for specific entity types (e.g. $(LREF2 attributes, EntityCursor) would
-        not be appropriate for $(LREF EntityType.elementEnd)).
-      +/
-    @property EntityType type()
-    {
-        return _state.type;
-    }
-
-
-    /++
         Move to the next entity.
 
         The next entity is the next one that is linearly in the XML document.
         So, if the current entity has child entities, the next entity will be
         the child entity, whereas if it has no child entities, it will be the
         next entity at the same level.
+
+        Returns:
+            The $(LREF EntityType) of the entity that just became the
+            current entity.
+
+            The return value determines which member functions and properties
+            are allowed to be called, since some are only appropriate for
+            specific entity types (e.g. $(LREF2 attributes, EntityCursor) would
+            not be appropriate for $(LREF EntityType.elementEnd)).
+
+            If the return type is $(LREF EntityType.documentEnd), then the
+            parser has reached the end of the document, and it is an error to
+            call any functions of $(LREF EntityCursor).
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
       +/
-    void next()
+    EntityType next()
     {
         while(1)
         {
             final switch(_state.grammarPos) with(GrammarPos)
             {
+                case documentStart: _parseDocumentStart(); break;
                 case prologMisc1:
                 {
                     _parseAtPrologMisc!1();
@@ -687,20 +691,11 @@ public:
                 case contentCharData2: _parseAtContentCharData(); break;
                 case endTag: _parseElementEnd(); break;
                 case endMisc: _parseAtEndMisc(); break;
-                case documentEnd: assert(0, "It's invalid to call next when the EntityCursor is empty");
+                case documentEnd:
+                    assert(0, "It's invalid to call next when the EntityCursor has reached EntityType.documentEnd");
             }
-            return;
+            return _state.type;
         }
-    }
-
-
-    /++
-        $(D true) if there is no more XML to process. It as an error to call
-        $(D next) once empty is $(D true).
-      +/
-    bool empty()
-    {
-        return _state.grammarPos == GrammarPos.documentEnd;
     }
 
 
@@ -725,7 +720,10 @@ public:
     @property SliceOfR name()
     {
         with(EntityType)
-            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
+        {
+            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty,
+                        processingInstruction).canFind(_state.type));
+        }
 
         return stripBCU!R(_state.name);
     }
@@ -761,7 +759,10 @@ public:
     @property auto path()
     {
         with(EntityType)
-            assert(only(docTypeStart, elementStart, elementEmpty, elementEnd, processingInstruction).canFind(type));
+        {
+            assert(only(docTypeStart, elementStart, elementEmpty, elementEnd,
+                        processingInstruction).canFind(_state.type));
+        }
 
         assert(0);
     }
@@ -788,7 +789,10 @@ public:
     @property auto parentPath()
     {
         with(EntityType)
-            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, processingInstruction).canFind(type));
+        {
+            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty,
+                        processingInstruction).canFind(_state.type));
+        }
 
         assert(0);
     }
@@ -804,11 +808,13 @@ public:
             $(TR $(TD $(LREF2 elementStart, EntityType)))
             $(TR $(TD $(LREF2 elementEmpty, EntityType)))
         )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
       +/
     @property auto attributes()
     {
         with(EntityType)
-            assert(only(elementStart, elementEmpty).canFind(type));
+            assert(only(elementStart, elementEmpty).canFind(_state.type));
 
         // STag         ::= '<' Name (S Attribute)* S? '>'
         // Attribute    ::= Name Eq AttValue
@@ -821,7 +827,6 @@ public:
         {
             @property Attribute front()
             {
-                assert(!empty);
                 return _front;
             }
 
@@ -889,7 +894,7 @@ public:
     @property SliceOfR text()
     {
         with(EntityType)
-            assert(only(cdata, comment, processingInstruction, text).canFind(type));
+            assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
 
         return stripBCU!R(_state.currText.input);
     }
@@ -912,137 +917,106 @@ public:
             auto cursor = parseXML(xml);
 
             // "<?xml version='1.0'?>\n" ~
-            assert(cursor.type == EntityType.xmlDecl);
-            cursor.next();
+            assert(cursor.next() == EntityType.xmlDecl);
 
             // "<?instructionName?>\n" ~
-            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.processingInstruction);
             assert(cursor.name == "instructionName");
             assert(cursor.text.empty);
-            cursor.next();
 
             // "<?foo here is something to say?>\n" ~
-            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.processingInstruction);
             assert(cursor.name == "foo");
             assert(cursor.text == "here is something to say");
-            cursor.next();
 
             // "<root>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
+            assert(cursor.next() == EntityType.elementStart);
 
             // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(cursor.type == EntityType.cdata);
+            assert(cursor.next() == EntityType.cdata);
             assert(cursor.text == " Yay! random text >> << ");
-            cursor.next();
 
             // "    <!-- some random comment -->\n" ~
-            assert(cursor.type == EntityType.comment);
+            assert(cursor.next() == EntityType.comment);
             assert(cursor.text == " some random comment ");
-            cursor.next();
 
             // "    <p>something here</p>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementStart);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "something here");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
+            assert(cursor.next() == EntityType.elementEnd);
 
             // "    <p>\n" ~
             // "       something else\n" ~
             // "       here</p>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementStart);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n       something else\n       here");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
+            assert(cursor.next() == EntityType.elementEnd);
 
             // "</root>"
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.documentEnd);
         }
         {
             auto cursor = parseXML!(makeConfig(SkipContentWS.no))(xml);
 
             // "<?xml version='1.0'?>\n" ~
-            assert(cursor.type == EntityType.xmlDecl);
-            cursor.next();
+            assert(cursor.next() == EntityType.xmlDecl);
 
             // "<?instructionName?>\n" ~
-            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.processingInstruction);
             assert(cursor.name == "instructionName");
             assert(cursor.text.empty);
-            cursor.next();
 
             // "<?foo here is something to say?>\n" ~
-            assert(cursor.type == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.processingInstruction);
             assert(cursor.name == "foo");
             assert(cursor.text == "here is something to say");
-            cursor.next();
 
             // "<root>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
+            assert(cursor.next() == EntityType.elementStart);
 
             // With SkipContentWS.no, no EntityType.text entities are skipped,
             // even if they only contain whitespace, resulting in a number of
             // entities of type EntityType.text which just contain whitespace
             // if the XML has been formatted to be human readable.
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n    ");
-            cursor.next();
 
             // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(cursor.type == EntityType.cdata);
+            assert(cursor.next() == EntityType.cdata);
             assert(cursor.text == " Yay! random text >> << ");
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n    ");
-            cursor.next();
 
             // "    <!-- some random comment -->\n" ~
-            assert(cursor.type == EntityType.comment);
+            assert(cursor.next() == EntityType.comment);
             assert(cursor.text == " some random comment ");
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n    ");
-            cursor.next();
 
             // "    <p>something here</p>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementStart);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "something here");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n    ");
-            cursor.next();
 
             // "    <p>\n" ~
             // "       something else\n" ~
             // "       here</p>\n" ~
-            assert(cursor.type == EntityType.elementStart);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementStart);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n       something else\n       here");
-            cursor.next();
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
-            assert(cursor.type == EntityType.text);
+            assert(cursor.next() == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.text);
             assert(cursor.text == "\n");
-            cursor.next();
 
             // "</root>"
-            assert(cursor.type == EntityType.elementEnd);
-            cursor.next();
-            assert(cursor.empty);
+            assert(cursor.next() == EntityType.elementEnd);
+            assert(cursor.next() == EntityType.documentEnd);
         }
     }
 
@@ -1056,10 +1030,12 @@ public:
             $(TR $(TH Supported $(LREF EntityType)s:))
             $(TR $(TD $(LREF2 elementStart, EntityType)))
         )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
       +/
     @property SliceOfR contentAsText()
     {
-        assert(type == EntityType.elementStart);
+        assert(_state.type == EntityType.elementStart);
 
         assert(0);
     }
@@ -1073,10 +1049,12 @@ public:
             $(TR $(TH Supported $(LREF EntityType)s:))
             $(TR $(TD $(LREF2 elementStart, EntityType)))
         )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
       +/
     void skipContents()
     {
-        assert(type == EntityType.elementStart);
+        assert(_state.type == EntityType.elementStart);
 
         assert(0);
     }
@@ -1089,10 +1067,12 @@ public:
             $(TR $(TH Supported $(LREF EntityType)s:)),
             $(TR $(TD $(LREF2 _xmlDecl, EntityType)))
         )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
       +/
     @property XMLDecl!R xmlDecl()
     {
-        assert(type == EntityType.xmlDecl);
+        assert(_state.type == EntityType.xmlDecl);
 
         import std.ascii : isDigit;
 
@@ -1203,6 +1183,7 @@ public:
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
                     auto cursor = parseXML(func(xml));
+                    cursor.next();
                     auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(xmlDecl.encoding.isNull);
@@ -1218,6 +1199,7 @@ public:
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
                     auto cursor = parseXML(func(xml));
+                    cursor.next();
                     auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(equalCU(xmlDecl.encoding.get, "UTF-8"));
@@ -1233,6 +1215,7 @@ public:
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
                     auto cursor = parseXML(func(xml));
+                    cursor.next();
                     auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(equalCU(xmlDecl.encoding.get, "UTF-8"));
@@ -1248,6 +1231,7 @@ public:
                     if(i % 2 == 1)
                         xml = xml.replace("1.0", "1.1");
                     auto cursor = parseXML(func(xml));
+                    cursor.next();
                     auto xmlDecl = cursor.xmlDecl;
                     assert(equalCU(xmlDecl.xmlVersion, i % 2 == 0 ? "1.0" : "1.1"));
                     assert(xmlDecl.encoding.isNull);
@@ -1255,10 +1239,14 @@ public:
                 }
             }
 
-            assertThrown(parseXML(func("<?xml version='1.0'><root/>")));
-            assertThrown(parseXML(func("<?xml version='1.0'><?root/>")));
-            assertThrown(parseXML(func("<?xml version='1.0'? ><root/>")));
-            assertThrown(parseXML(func("< ?xml version='1.0'?><root/>")));
+            foreach(xml; only("<?xml version='1.0'><root/>",
+                              "<?xml version='1.0'><?root/>",
+                              "<?xml version='1.0'? ><root/>",
+                              "< ?xml version='1.0'?><root/>"))
+            {
+                auto cursor = parseXML(func(xml));
+                assertThrown!XMLParsingException(cursor.next());
+            }
 
             foreach(xml; only("<?xml version='1.a'?><root/>",
                               "<?xml version='0.0'?><root/>",
@@ -1286,6 +1274,7 @@ public:
                               "<?xml version='1.0' silly='yes'?><root/>"))
             {
                 auto cursor = parseXML(func(xml));
+                cursor.next();
                 assertThrown!XMLParsingException(cursor.xmlDecl);
             }
         }
@@ -1293,6 +1282,161 @@ public:
 
 
 private:
+
+    void _parseDocumentStart()
+    {
+        if(_state.stripStartsWith("<?xml"))
+        {
+            static if(config.skipProlog == SkipProlog.yes)
+            {
+                _state.skipUntilAndDrop!"?>"();
+                _state.grammarPos = GrammarPos.prologMisc1;
+                next();
+            }
+            else
+            {
+                _state.currText.pos = _state.pos;
+                _state.currText.input = _state.takeUntilAndDrop!"?>"();
+                _state.type = EntityType.xmlDecl;
+                _state.grammarPos = GrammarPos.prologMisc1;
+            }
+        }
+        else
+            _parseAtPrologMisc!1();
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.meta : AliasSeq;
+        import std.range : only;
+        import std.typecons : tuple;
+
+        foreach(func; testRangeFuncs)
+        {
+            {
+                auto xml = "<root/>";
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 8)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "\n\t\n <root/>   \n";
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 9)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(12, 3)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(12, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
+
+                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
+                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
+                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+
+            {
+                auto xml = "<root/>";
+
+                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(1, 8)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(1, -1)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "\n\t\n <root/>   \n";
+
+                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(3, 9)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(3, -1)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
+
+                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(12, 10)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(12, -1)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
+
+                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(6, 23)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(6, -1)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+            {
+                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
+
+                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(7, 13)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(7, -1)),
+                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
+                {
+                    auto cursor = parseXML!(t[0])(func(xml));
+                    cursor.next();
+                    assert(cursor._state.pos == t[1]);
+                }
+            }
+        }
+    }
+
 
     // Parse at GrammarPos.prologMisc1 or GrammarPos.prologMisc2.
     void _parseAtPrologMisc(int miscNum)()
@@ -1735,6 +1879,7 @@ private:
         if(_state.input.empty)
         {
             _state.grammarPos = GrammarPos.documentEnd;
+            _state.type = EntityType.documentEnd;
             return;
         }
 
@@ -1770,138 +1915,8 @@ private:
     this(R xmlText)
     {
         _state = new ParserState!(config, R)(xmlText);
-
-        if(_state.stripStartsWith("<?xml"))
-        {
-            static if(config.skipProlog == SkipProlog.yes)
-            {
-                _state.skipUntilAndDrop!"?>"();
-                _state.grammarPos = GrammarPos.prologMisc1;
-                next();
-            }
-            else
-            {
-                _state.currText.pos = _state.pos;
-                _state.currText.input = _state.takeUntilAndDrop!"?>"();
-                _state.type = EntityType.xmlDecl;
-                _state.grammarPos = GrammarPos.prologMisc1;
-            }
-        }
-        else
-            _parseAtPrologMisc!1();
     }
 
-    static if(compileInTests) unittest
-    {
-        import std.meta : AliasSeq;
-        import std.range : only;
-        import std.typecons : tuple;
-
-        foreach(func; testRangeFuncs)
-        {
-            {
-                auto xml = "<root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(1, 8)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "\n\t\n <root/>   \n";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(3, 9)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(3, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(12, 3)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(12, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
-
-                foreach(t; AliasSeq!(tuple(Config.init, SourcePos(6, 16)),
-                                     tuple(makeConfig(PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-
-            {
-                auto xml = "<root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(1, 8)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(1, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "\n\t\n <root/>   \n";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(3, 9)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(3, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\nversion='1.8'\n\n\n\nencoding='UTF-8'\n\n\nstandalone='yes'\n?><root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(12, 10)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(12, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?><root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(6, 23)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(6, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-            {
-                auto xml = "<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>";
-
-                foreach(t; AliasSeq!(tuple(makeConfig(SkipProlog.yes), SourcePos(7, 13)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.line), SourcePos(7, -1)),
-                                     tuple(makeConfig(SkipProlog.yes, PositionType.none), SourcePos(-1, -1))))
-                {
-                    assert(parseXML!(t[0])(func(xml))._state.pos == t[1]);
-                }
-            }
-        }
-    }
 
     ParserState!(config, R)* _state;
 }
@@ -1928,16 +1943,14 @@ unittest
 
     {
         auto cursor = parseXML(xml);
-        assert(!cursor.empty);
-        assert(cursor.type == EntityType.xmlDecl);
+        assert(cursor.next() == EntityType.xmlDecl);
 
         auto xmlDecl = cursor.xmlDecl;
         assert(xmlDecl.xmlVersion == "1.0");
         assert(xmlDecl.encoding.isNull);
         assert(xmlDecl.standalone.isNull);
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.next() == EntityType.elementStart);
         assert(cursor.name == "foo");
 
         {
@@ -1947,16 +1960,13 @@ unittest
             assert(attrs.front.value == "42");
         }
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementEmpty);
+        assert(cursor.next() == EntityType.elementEmpty);
         assert(cursor.name == "bar");
 
-        cursor.next();
-        assert(cursor.type == EntityType.comment);
+        assert(cursor.next() == EntityType.comment);
         assert(cursor.text == " no comment ");
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.next() == EntityType.elementStart);
         assert(cursor.name == "baz");
 
         {
@@ -1966,24 +1976,17 @@ unittest
             assert(attrs.front.value == "world");
         }
 
-        cursor.next();
-        assert(cursor.type == EntityType.text);
+        assert(cursor.next() == EntityType.text);
         assert(cursor.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementEnd); // </baz>
-
-        cursor.next();
-        assert(cursor.type == EntityType.elementEnd); // </foo>
-
-        cursor.next();
-        assert(cursor.empty);
+        assert(cursor.next() == EntityType.elementEnd); // </baz>
+        assert(cursor.next() == EntityType.elementEnd); // </foo>
+        assert(cursor.next() == EntityType.documentEnd);
     }
     {
         auto cursor = parseXML!simpleXML(xml);
-        assert(!cursor.empty);
-        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.next() == EntityType.elementStart);
         assert(cursor.name == "foo");
 
         {
@@ -1993,17 +1996,14 @@ unittest
             assert(attrs.front.value == "42");
         }
 
-        cursor.next();
         // simpleXML is set to split empty tags so that <bar/> is treated
         // as the same as <bar></bar> so that code does not have to
         // explicitly handle empty tags.
-        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.next() == EntityType.elementStart);
         assert(cursor.name == "bar");
-        cursor.next();
-        assert(cursor.type == EntityType.elementEnd);
+        assert(cursor.next() == EntityType.elementEnd);
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementStart);
+        assert(cursor.next() == EntityType.elementStart);
         assert(cursor.name == "baz");
 
         {
@@ -2013,19 +2013,13 @@ unittest
             assert(attrs.front.value == "world");
         }
 
-        cursor.next();
-        assert(cursor.type == EntityType.text);
+        assert(cursor.next() == EntityType.text);
         assert(cursor.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        cursor.next();
-        assert(cursor.type == EntityType.elementEnd); // </baz>
-
-        cursor.next();
-        assert(cursor.type == EntityType.elementEnd); // </foo>
-
-        cursor.next();
-        assert(cursor.empty);
+        assert(cursor.next() == EntityType.elementEnd); // </baz>
+        assert(cursor.next() == EntityType.elementEnd); // </foo>
+        assert(cursor.next() == EntityType.documentEnd);
     }
 }
 
@@ -2109,7 +2103,7 @@ struct ParserState(Config cfg, R)
 
     EntityType type;
 
-    GrammarPos grammarPos;
+    auto grammarPos = GrammarPos.documentStart;
 
     static if(config.posType == PositionType.lineAndCol)
         auto pos = SourcePos(1, 1);
@@ -2161,6 +2155,9 @@ version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure not
 // Used to indicate where in the grammar we're currently parsing.
 enum GrammarPos
 {
+    // Nothing has been parsed yet.
+    documentStart,
+
     // document ::= prolog element Misc*
     // prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)?
     // This is that first Misc*. The next entity to parse is either a Misc, the
