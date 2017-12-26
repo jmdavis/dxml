@@ -414,7 +414,7 @@ enum EntityType
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
-    docTypeNoEmpty,
+    docTypeEmpty,
 
     /++
         The `>` indicating the end of a `<!DOCTYPE` tag where intSubset was not
@@ -426,7 +426,7 @@ enum EntityType
 
     /++
         The end of the document has been reached. There are no more entities to
-        parse. Calling any functions of $(LREF XMLCursor) after this has been
+        parse. Calling any functions of $(LREF EntityCursor) after this has been
         reached is an error, and no node of $(REF EntityTree, dxml, parser, dom)
         will have $(LREF EntityType._documentEnd) as its
         $(type, EntityTree.type, dxml, parser, dom).
@@ -1281,6 +1281,24 @@ public:
     }
 
 
+    /+
+    /++
+        Returns the $(LREF ExternalID) portion of the current entity.
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 docTypeStart, EntityType))),
+            $(TR $(TD $(LREF2 docTypeEmpty, EntityType)))
+        )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
+      +/
+    @property Nullable!(ExternalID!R) externalID()
+    {
+    }
+    +/
+
+
 private:
 
     void _parseDocumentStart()
@@ -1478,6 +1496,7 @@ private:
     // <!DOCTYPE was already removed from the front of the input.
     void _parseDoctypeDecl()
     {
+        /+
         if(!_state.stripWS())
             throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
 
@@ -1546,10 +1565,41 @@ private:
         }
         else
         {
+            _state.name = _state.takeName();
+            immutable wasSpace = _state.stripWS();
+            checkNotEmpty(_state);
+
+            switch(_state.input.front)
+            {
+                case 'S':
+                {
+                    auto origPos = _state.pos;
+                    auto origInput = _state.takeID();
+                }
+                case 'P'':
+                {
+                    auto origPos = _state.pos;
+                    auto origInput = _state.takeID();
+                }
+                case '[':
+                {
+                }
+                case '>':
+                {
+                    popFrontAndIncCol(_state);
+                    _state.type = EntityType.docTypeEmpty;
+                    _state.currText.input = _state.input.takeNone();
+                    _state.grammarPos = GrammarPos.prologMisc2;
+                    break;
+                }
+                default: assert(0);
+            }
+
             assert(0);
             //...
             //_state.grammarPos = GrammarPos.prologMisc2;
         }
+        +/
     }
 
 
@@ -1946,6 +1996,8 @@ version(unittest)
 
     Note that while XML 1.1 requires this declaration, it's optional in XML
     1.0.
+
+    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-XMLDecl)
   +/
 struct XMLDecl(R)
 {
@@ -1991,6 +2043,44 @@ struct XMLDecl(R)
       +/
     Nullable!bool standalone;
 }
+
+
+/+
+/++
+    Information for an external ID as parsed from a `SYSTEM ...` or `PUBLIC ...`
+    declaration inside a `<!DOCTYPE ...>` declaration.
+
+    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-ExternalID)
+  +/
+struct ExternalID(R)
+{
+    import std.typecons : Nullable;
+
+    /++
+        The type used when any slice of the original text is used. If $(D R)
+        is a string or supports slicing, then SliceOfR is the same as $(D R);
+        otherwise, it's the result of calling
+        $(PHOBOS_REF takeExcatly, std, range) on the text.
+
+        See_Also: $(LREF EntityCursor._SliceOfR)
+      +/
+    static if(isDynamicArray!R || hasSlicing!R)
+        alias SliceOfR = R;
+    else
+        alias SliceOfR = typeof(takeExactly(R.init, 42));
+
+    /++
+        The PubidLiteral portion of a `PUBLIC ...` delaration. If the the
+        external ID was a `SYSTEM ...` declaration, then this is null.
+      +/
+    Nullable!SliceOfR publicLiteral;
+
+    /++
+        The SystemLiteral portion of a `SYSTEM ...` or `PUBLIC ...` delaration.
+      +/
+    SliceOfR systemLiteral;
+}
++/
 
 
 //------------------------------------------------------------------------------
@@ -2246,6 +2336,7 @@ bool stripWS(PS)(PS state)
 
     bool strippedSpace = false;
 
+    // FIXME The col isn't handled properly if hasLength!R is false.
     static if(hasLengthAndCol)
         size_t lineStart = state.input.length;
 
@@ -2470,6 +2561,7 @@ auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
     static if(trackTakeLen)
         size_t takeLen = 0;
 
+    // FIXME Verify that this works correctly when hasLength!R is false.
     static if(state.config.posType == PositionType.lineAndCol)
         size_t lineStart = 0;
 
@@ -2783,6 +2875,8 @@ unittest
 // is stripped. The delimiter is also stripped.
 auto takeName(char delim = char.init, PS)(PS state)
 {
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
     import std.format : format;
     enum hasDelim = delim != char.init;
 
@@ -2877,9 +2971,9 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeName!delim(), result));
-            enforce!AssertError(equal(state.input, remainder));
-            enforce!AssertError(state.pos == pos);
+            enforce!AssertError(equal(state.takeName!delim(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
     }
 
@@ -2925,6 +3019,207 @@ unittest
 }
 
 
+
+// ExternalID    ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+// SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
+// PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+// PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+// NotationDecl  ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+// PublicID      ::= 'PUBLIC' S PubidLiteral
+// This extracts the exteral ID or Public ID with partial verfication. The
+// characters in the ID literals will be verified if/when the id property on
+// EntityCursor is accessed. Since the whitespace on the right must be stripped
+// to determine whether there's a second id literal, the whitespace is always
+// stripped in order to be consistent.
+auto takeID(PS)(PS state)
+{
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
+    alias config = PS.config;
+    auto orig = state.input.save;
+    size_t takeLen = "PUBLIC".length;
+    static if(state.config.posType != PositionType.none)
+        size_t lineStart = takeLen; // Adjusts for call to stripStartsWith.
+    int maxIDs;
+    if(state.stripStartsWith("PUBLIC"))
+        maxIDs = 2;
+    else if(state.stripStartsWith("SYSTEM"))
+        maxIDs = 1;
+    else
+        throw new XMLParsingException("Expected SYSTEM or PUBLIC", state.pos);
+
+    outer: foreach(i; 0 .. maxIDs)
+    {
+        Unqual!(typeof(state.input.front)) quote;
+        for(; true; state.input.popFront(), checkNotEmpty(state))
+        {
+            switch(state.input.front)
+            {
+                static if(state.config.posType != PositionType.none)
+                {
+                    case '\n':
+                    {
+                        lineStart = ++takeLen;
+                        nextLine!config(state.pos);
+                        continue;
+                    }
+                }
+                // TODO If the goto isn't here, then the cases following are
+                // grouped under the else, which seems wrong.
+                else
+                    case '\n': goto case ' ';
+                case ' ':
+                case '\t':
+                case '\r': ++takeLen; continue;
+                case '"':
+                case '\'':
+                {
+                    ++takeLen;
+                    quote = state.input.front;
+                    state.input.popFront();
+                    checkNotEmpty(state);
+                    break;
+                }
+                default:
+                {
+                    if(i == 0)
+                        throw new XMLParsingException("Missing quote", state.pos);
+                    if(maxIDs == 1)
+                        throw new XMLParsingException("SYSTEM only takes one ID literal", state.pos);
+                    break outer;
+                }
+            }
+            break;
+        }
+
+        for(; true; state.input.popFront(), checkNotEmpty(state))
+        {
+            immutable c = state.input.front;
+            if(c == quote)
+            {
+                ++takeLen;
+                state.input.popFront();
+                checkNotEmpty(state);
+                for(; true; state.input.popFront(), checkNotEmpty(state))
+                {
+                    immutable d = state.input.front;
+                    static if(state.config.posType != PositionType.none)
+                    {
+                        if(isHSpace(d))
+                            ++takeLen;
+                        else if(d == '\n')
+                        {
+                            lineStart = ++takeLen;
+                            nextLine!config(state.pos);
+                        }
+                        else
+                            break;
+                    }
+                    else
+                    {
+                        if(isSpace(d))
+                            ++takeLen;
+                        else
+                            break;
+                    }
+                }
+                break;
+            }
+            ++takeLen;
+            static if(state.config.posType != PositionType.none)
+            {
+                if(c == '\n')
+                {
+                    lineStart = takeLen;
+                    nextLine!config(state.pos);
+                }
+            }
+        }
+    }
+
+    static if(state.config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen - lineStart;
+
+    return takeExactly(orig, takeLen);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
+    import std.meta : AliasSeq;
+
+    static void test(alias func)(string origHaystack, string result, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takeID(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeID(), "unittest failure", __FILE__, line);
+        }
+    }
+
+    foreach(func; testRangeFuncs)
+    {
+        test!func(`SYSTEM "Name">`, `SYSTEM "Name"`, ">", 1, 14);
+        test!func(`SYSTEM 'Name'>`, `SYSTEM 'Name'`, ">", 1, 14);
+        test!func("SYSTEM\n\n\n'Name'    >", "SYSTEM\n\n\n'Name'    ", ">", 4, 11);
+        test!func("SYSTEM  'Foo\nBar'>", "SYSTEM  'Foo\nBar'", ">", 2, 5);
+        test!func(`SYSTEM "">`, `SYSTEM ""`, ">", 1, 10);
+
+        test!func(`PUBLIC "Name">`, `PUBLIC "Name"`, ">", 1, 14);
+        test!func(`PUBLIC 'Name'>`, `PUBLIC 'Name'`, ">", 1, 14);
+        test!func("PUBLIC\n\n\n'Name'    >", "PUBLIC\n\n\n'Name'    ", ">", 4, 11);
+        test!func("PUBLIC  'Foo\nBar'>", "PUBLIC  'Foo\nBar'", ">", 2, 5);
+        test!func(`PUBLIC "">`, `PUBLIC ""`, ">", 1, 10);
+
+        test!func(`PUBLIC "Name" 'Foo'>`, `PUBLIC "Name" 'Foo'`, ">", 1, 20);
+        test!func(`PUBLIC 'Name' "Foo">`, `PUBLIC 'Name' "Foo"`, ">", 1, 20);
+        test!func("PUBLIC\n\n\n'Name'    'Foo' >", "PUBLIC\n\n\n'Name'    'Foo' ", ">", 4, 17);
+        test!func("PUBLIC  'Foo\nBar' 'Foo'>", "PUBLIC  'Foo\nBar' 'Foo'", ">", 2, 11);
+        test!func("PUBLIC 'A' \n\n 'B'>", "PUBLIC 'A' \n\n 'B'", ">", 3, 5);
+        test!func("PUBLIC 'A' 'B\n\n\n'>", "PUBLIC 'A' 'B\n\n\n'", ">", 4, 2);
+        test!func(`PUBLIC '' ''>`, `PUBLIC '' ''`, ">", 1, 13);
+
+        testFail!func(`SYSTEM>`);
+        testFail!func(`SYSTEM >`);
+        testFail!func(`SYSTEM ">`);
+        testFail!func(`SYSTEM '>`);
+        testFail!func(`SYSTEM ""`);
+        testFail!func(`SYSTEM "'>`);
+        testFail!func(`SYSTEM '">`);
+
+        testFail!func(`PUBLIC>`);
+        testFail!func(`PUBLIC >`);
+        testFail!func(`PUBLIC ">`);
+        testFail!func(`PUBLIC '>`);
+        testFail!func(`PUBLIC ""`);
+        testFail!func(`PUBLIC "'>`);
+        testFail!func(`PUBLIC '">`);
+        testFail!func(`PUBLIC "" ">`);
+        testFail!func(`PUBLIC "" '>`);
+        testFail!func(`PUBLIC '' ">`);
+        testFail!func(`PUBLIC '' '>`);
+        testFail!func(`PUBLIC "" ""`);
+    }
+}
+
+
 // S := (#x20 | #x9 | #xD | #XA)+
 bool isSpace(C)(C c)
     if(isSomeChar!C)
@@ -2961,6 +3256,45 @@ unittest
             assert(isSpace(c));
         else
             assert(!isSpace(c));
+    }
+}
+
+
+// Same as isSpace execpt that it's false for '\n'
+bool isHSpace(C)(C c)
+    if(isSomeChar!C)
+{
+    switch(c)
+    {
+        case ' ':
+        case '\t':
+        case '\r': return true;
+        default : return false;
+    }
+}
+
+unittest
+{
+    foreach(char c; char.min .. char.max)
+    {
+        if(c == ' ' || c == '\t' || c == '\r')
+            assert(isHSpace(c));
+        else
+            assert(!isHSpace(c));
+    }
+    foreach(wchar c; wchar.min .. wchar.max / 100)
+    {
+        if(c == ' ' || c == '\t' || c == '\r')
+            assert(isHSpace(c));
+        else
+            assert(!isHSpace(c));
+    }
+    foreach(dchar c; dchar.min .. dchar.max / 1000)
+    {
+        if(c == ' ' || c == '\t' || c == '\r')
+            assert(isHSpace(c));
+        else
+            assert(!isHSpace(c));
     }
 }
 
