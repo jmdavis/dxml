@@ -1496,7 +1496,6 @@ private:
     // <!DOCTYPE was already removed from the front of the input.
     void _parseDoctypeDecl()
     {
-        /+
         if(!_state.stripWS())
             throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
 
@@ -1565,6 +1564,8 @@ private:
         }
         else
         {
+            import std.range : takeNone;
+
             _state.name = _state.takeName();
             immutable wasSpace = _state.stripWS();
             checkNotEmpty(_state);
@@ -1572,17 +1573,33 @@ private:
             switch(_state.input.front)
             {
                 case 'S':
+                case 'P':
                 {
-                    auto origPos = _state.pos;
-                    auto origInput = _state.takeID();
-                }
-                case 'P'':
-                {
-                    auto origPos = _state.pos;
-                    auto origInput = _state.takeID();
+                    _state.currText.pos = _state.pos;
+                    _state.currText.input = _state.takeID();
+                    immutable c = _state.input.front;
+                    if(c == '[')
+                    {
+                        _state.type = EntityType.docTypeStart;
+                        _state.grammarPos = GrammarPos.intSubset;
+                    }
+                    else if(c == '>')
+                    {
+                        _state.type = EntityType.docTypeEmpty;
+                        _state.grammarPos = GrammarPos.prologMisc2;
+                    }
+                    else
+                        throw new XMLParsingException("Invalid XML", _state.pos);
+                    popFrontAndIncCol(_state);
+                    break;
                 }
                 case '[':
                 {
+                    popFrontAndIncCol(_state);
+                    _state.type = EntityType.docTypeStart;
+                    _state.currText.input = _state.input.takeNone();
+                    _state.grammarPos = GrammarPos.intSubset;
+                    break;
                 }
                 case '>':
                 {
@@ -1594,12 +1611,7 @@ private:
                 }
                 default: assert(0);
             }
-
-            assert(0);
-            //...
-            //_state.grammarPos = GrammarPos.prologMisc2;
         }
-        +/
     }
 
 
