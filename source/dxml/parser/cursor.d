@@ -870,10 +870,10 @@ public:
 
             bool empty;
             Attribute _front;
-            typeof(_state.currText) _text;
+            typeof(_state.savedText) _text;
         }
 
-        return Range(_state.currText);
+        return Range(_state.savedText);
     }
 
 
@@ -896,7 +896,7 @@ public:
         with(EntityType)
             assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
 
-        return stripBCU!R(_state.currText.input);
+        return stripBCU!R(_state.savedText.input);
     }
 
     ///
@@ -1078,7 +1078,7 @@ public:
 
         void throwXPE(string msg, size_t line = __LINE__)
         {
-            throw new XMLParsingException(msg, _state.currText.pos, __FILE__, line);
+            throw new XMLParsingException(msg, _state.savedText.pos, __FILE__, line);
         }
 
         // We shouldn't need to use .init like this, but when compiling the
@@ -1095,18 +1095,18 @@ public:
         // EncName      ::= [A-Za-z] ([A-Za-z0-9._] | '-')*
         // SDDecl       ::= S 'standalone' Eq (("'" ('yes' | 'no') "'") | ('"' ('yes' | 'no') '"'))
 
-        // The '<?xml' and '?>' were already stripped off before _state.currText
+        // The '<?xml' and '?>' were already stripped off before _state.savedText
         // was set.
 
-        if(!stripWS(&_state.currText))
+        if(!stripWS(&_state.savedText))
             throwXPE("There must be whitespace after <?xml");
 
-        if(!stripStartsWith(&_state.currText, "version"))
+        if(!stripStartsWith(&_state.savedText, "version"))
             throwXPE("version missing after <?xml");
-        stripEq(&_state.currText);
+        stripEq(&_state.savedText);
 
         {
-            auto temp = takeEnquotedText(&_state.currText);
+            auto temp = takeEnquotedText(&_state.savedText);
             retval.xmlVersion = stripBCU!R(temp.save);
             if(temp.length != 3)
                 throwXPE("Invalid or unsupported XML version number");
@@ -1120,46 +1120,46 @@ public:
                 throwXPE("Invalid or unsupported XML version number");
         }
 
-        auto wasSpace = stripWS(&_state.currText);
-        if(_state.currText.input.empty)
+        auto wasSpace = stripWS(&_state.savedText);
+        if(_state.savedText.input.empty)
             return retval;
 
-        if(_state.currText.input.front == 'e')
+        if(_state.savedText.input.front == 'e')
         {
             if(!wasSpace)
                 throwXPE("There must be whitespace before the encoding declaration");
-            popFrontAndIncCol(&_state.currText);
-            if(!stripStartsWith(&_state.currText, "ncoding"))
+            popFrontAndIncCol(&_state.savedText);
+            if(!stripStartsWith(&_state.savedText, "ncoding"))
                 throwXPE("Invalid <?xml ... ?> declaration in prolog");
-            stripEq(&_state.currText);
-            retval.encoding = nullable(stripBCU!R(takeEnquotedText(&_state.currText)));
+            stripEq(&_state.savedText);
+            retval.encoding = nullable(stripBCU!R(takeEnquotedText(&_state.savedText)));
 
-            wasSpace = stripWS(&_state.currText);
-            if(_state.currText.input.empty)
+            wasSpace = stripWS(&_state.savedText);
+            if(_state.savedText.input.empty)
                 return retval;
         }
 
-        if(_state.currText.input.front == 's')
+        if(_state.savedText.input.front == 's')
         {
             if(!wasSpace)
                 throwXPE("There must be whitespace before the standalone declaration");
-            popFrontAndIncCol(&_state.currText);
-            if(!stripStartsWith(&_state.currText, "tandalone"))
+            popFrontAndIncCol(&_state.savedText);
+            if(!stripStartsWith(&_state.savedText, "tandalone"))
                 throwXPE("Invalid <?xml ... ?> declaration in prolog");
-            stripEq(&_state.currText);
+            stripEq(&_state.savedText);
 
-            auto pos = _state.currText.pos;
-            auto standalone = takeEnquotedText(&_state.currText);
+            auto pos = _state.savedText.pos;
+            auto standalone = takeEnquotedText(&_state.savedText);
             if(standalone.save.equalCU("yes"))
                 retval.standalone = nullable(true);
             else if(standalone.equalCU("no"))
                 retval.standalone = nullable(false);
             else
                 throw new XMLParsingException("If standalone is present, its value must be yes or no", pos);
-            stripWS(&_state.currText);
+            stripWS(&_state.savedText);
         }
 
-        if(!_state.currText.input.empty)
+        if(!_state.savedText.input.empty)
             throwXPE("Invalid <?xml ... ?> declaration in prolog");
 
         return retval;
@@ -1306,7 +1306,7 @@ public:
             assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
 
         /+
-        auto state = _state.currText;
+        auto state = _state.savedText;
 
         ID!R retval;
 
@@ -1366,7 +1366,7 @@ public:
     {
         assert(_state.type == EntityType.entity);
 
-        auto state = _state.currText;
+        auto state = _state.savedText;
         EntityDef!R retval;
 
         if(state.input.front == '%')
@@ -1392,8 +1392,8 @@ private:
             }
             else
             {
-                _state.currText.pos = _state.pos;
-                _state.currText.input = _state.takeUntilAndDrop!"?>"();
+                _state.savedText.pos = _state.pos;
+                _state.savedText.input = _state.takeUntilAndDrop!"?>"();
                 _state.type = EntityType.xmlDecl;
                 _state.grammarPos = GrammarPos.prologMisc1;
             }
@@ -1502,8 +1502,8 @@ private:
         else
         {
             _state.type = EntityType.comment;
-            _state.currText.pos = _state.pos;
-            _state.currText.input = _state.takeUntilAndDrop!"--"();
+            _state.savedText.pos = _state.pos;
+            _state.savedText.input = _state.takeUntilAndDrop!"--"();
         }
         if(_state.input.empty || _state.input.front != '>')
             throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _state.pos);
@@ -1524,10 +1524,10 @@ private:
         {
             auto pos = _state.pos;
             _state.type = EntityType.processingInstruction;
-            _state.currText.pos = _state.pos;
-            _state.currText.input = _state.takeUntilAndDrop!"?>"();
-            _state.name = takeName(&_state.currText);
-            stripWS(&_state.currText);
+            _state.savedText.pos = _state.pos;
+            _state.savedText.input = _state.takeUntilAndDrop!"?>"();
+            _state.name = takeName(&_state.savedText);
+            stripWS(&_state.savedText);
             if(walkLength(_state.name.save) == 3)
             {
                 // FIXME icmp doesn't compile right now due to an issue with
@@ -1561,8 +1561,8 @@ private:
     void _parseCDATA()
     {
         _state.type = EntityType.cdata;
-        _state.currText.pos = _state.pos;
-        _state.currText.input = _state.takeUntilAndDrop!"]]>";
+        _state.savedText.pos = _state.pos;
+        _state.savedText.input = _state.takeUntilAndDrop!"]]>";
         _state.grammarPos = GrammarPos.contentCharData2;
     }
 
@@ -1654,8 +1654,8 @@ private:
                 case 'S':
                 case 'P':
                 {
-                    _state.currText.pos = _state.pos;
-                    _state.currText.input = _state.takeID();
+                    _state.savedText.pos = _state.pos;
+                    _state.savedText.input = _state.takeID();
                     immutable c = _state.input.front;
                     if(c == '[')
                     {
@@ -1676,7 +1676,7 @@ private:
                 {
                     popFrontAndIncCol(_state);
                     _state.type = EntityType.docTypeStart;
-                    _state.currText.input = _state.input.takeNone();
+                    _state.savedText.input = _state.input.takeNone();
                     _state.grammarPos = GrammarPos.intSubset;
                     break;
                 }
@@ -1684,7 +1684,7 @@ private:
                 {
                     popFrontAndIncCol(_state);
                     _state.type = EntityType.docTypeEmpty;
-                    _state.currText.input = _state.input.takeNone();
+                    _state.savedText.input = _state.input.takeNone();
                     _state.grammarPos = GrammarPos.prologMisc2;
                     break;
                 }
@@ -1762,13 +1762,13 @@ private:
     // < was already removed from the front of the input.
     void _parseElementStart()
     {
-        _state.currText.pos = _state.pos;
-        _state.currText.input = _state.takeUntilAndDrop!">"();
-        auto temp = _state.currText.input.save;
+        _state.savedText.pos = _state.pos;
+        _state.savedText.input = _state.takeUntilAndDrop!">"();
+        auto temp = _state.savedText.input.save;
         temp.popFrontN(temp.length - 1);
         if(temp.front == '/')
         {
-            _state.currText.input = _state.currText.input.takeExactly(_state.currText.input.length - 1);
+            _state.savedText.input = _state.savedText.input.takeExactly(_state.savedText.input.length - 1);
 
             static if(config.splitEmpty == SplitEmpty.no)
             {
@@ -1787,11 +1787,11 @@ private:
             _state.grammarPos = GrammarPos.contentCharData1;
         }
 
-        if(_state.currText.input.empty)
-            throw new XMLParsingException("Tag missing name", _state.currText.pos);
-        _state.name = takeName(&_state.currText);
-        stripWS(&_state.currText);
-        // The attributes should be all that's left in currText.
+        if(_state.savedText.input.empty)
+            throw new XMLParsingException("Tag missing name", _state.savedText.pos);
+        _state.name = takeName(&_state.savedText);
+        stripWS(&_state.savedText);
+        // The attributes should be all that's left in savedText.
     }
 
 
@@ -1802,13 +1802,13 @@ private:
     {
         import std.format : format;
         _state.type = EntityType.elementEnd;
-        _state.currText.pos = _state.pos;
+        _state.savedText.pos = _state.pos;
         _state.name = _state.takeUntilAndDrop!">"();
         assert(!_state.tagStack.empty);
         if(!equal(_state.name.save, _state.tagStack.back.save))
         {
             enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
-            throw new XMLParsingException(format!fmt(_state.name, _state.tagStack.back), _state.currText.pos);
+            throw new XMLParsingException(format!fmt(_state.name, _state.tagStack.back), _state.savedText.pos);
         }
         _state.tagStack.pop();
         _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
@@ -1837,8 +1837,8 @@ private:
         if(_state.input.front != '<')
         {
             _state.type = EntityType.text;
-            _state.currText.pos = _state.pos;
-            _state.currText.input = _state.takeUntilAndDrop!"<"();
+            _state.savedText.pos = _state.pos;
+            _state.savedText.input = _state.takeUntilAndDrop!"<"();
             checkNotEmpty(_state);
             if(_state.input.front == '/')
             {
@@ -2172,7 +2172,6 @@ struct ID(R)
 }
 
 
-/+
 /++
     Information for an `<!ENTIITY ...>` declaration.
 
@@ -2203,6 +2202,7 @@ struct EntityDef(R)
       +/
     bool parsedEntity;
 
+    /+
     unittest
     {
         import std.algorithm : equal;
@@ -2232,6 +2232,7 @@ struct EntityDef(R)
         assert(two.parsedEntity);
         assert(!two.value.isNull && equal(two.value, "bar"));
     }
+    +/
 
     /++
       +/
@@ -2245,7 +2246,6 @@ struct EntityDef(R)
       +/
     Nullable!SliceOfR ndataName;
 }
-+/
 
 
 //------------------------------------------------------------------------------
@@ -2276,7 +2276,7 @@ struct ParserState(Config cfg, R)
     // This mirrors the ParserState's fields so that the same parsing functions
     // can be used to parse main text contained directly in the ParserState
     // and the currently saved text (e.g. for the attributes of a start tag).
-    struct CurrText
+    struct SavedText
     {
         alias config = cfg;
         alias Text = R;
@@ -2284,7 +2284,7 @@ struct ParserState(Config cfg, R)
         SourcePos pos;
     }
 
-    CurrText currText;
+    SavedText savedText;
 
     Taken name;
     TagStack!Taken tagStack;
@@ -2292,7 +2292,7 @@ struct ParserState(Config cfg, R)
     this(R xmlText)
     {
         input = byCodeUnit(xmlText);
-        currText = typeof(currText).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
+        savedText = typeof(savedText).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
         name = typeof(name).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
     }
 }
@@ -2393,7 +2393,7 @@ enum GrammarPos
 // It is assumed that there are no newlines.
 bool stripStartsWith(PS)(PS state, string text)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     alias R = typeof(PS.input);
 
@@ -2494,7 +2494,7 @@ bool stripStartsWith(PS)(PS state, string text)
 // Returns whether any whitespace was stripped.
 bool stripWS(PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     alias R = typeof(PS.input);
     enum hasLengthAndCol = hasLength!R && PS.config.posType == PositionType.lineAndCol;
@@ -2714,7 +2714,7 @@ auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
     import std.algorithm : find;
     import std.ascii : isWhite;
 
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     static assert(text.find!isWhite().empty);
 
     enum trackTakeLen = retSlice || state.config.posType == PositionType.lineAndCol;
@@ -2828,7 +2828,7 @@ template skipToOneOf(delims...)
 
     void skipToOneOf(PS)(PS state)
     {
-        static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+        static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
         while(!state.input.empty)
         {
@@ -2910,7 +2910,7 @@ unittest
 auto takeEnquotedText(PS)(PS state)
 {
     import std.meta : AliasSeq;
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     checkNotEmpty(state);
     immutable quote = state.input.front;
     foreach(quoteChar; AliasSeq!(`"`, `'`))
@@ -2984,7 +2984,7 @@ unittest
 // Eq ::= S? '=' S?
 void stripEq(PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     stripWS(state);
     if(!stripStartsWith(state, "="))
         throw new XMLParsingException("= missing", state.pos);
@@ -3040,7 +3040,7 @@ unittest
 // is stripped. The delimiter is also stripped.
 auto takeName(char delim = char.init, PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     import std.format : format;
     enum hasDelim = delim != char.init;
@@ -3198,7 +3198,7 @@ unittest
 // stripped in order to be consistent.
 auto takeID(PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     alias config = PS.config;
     auto orig = state.input.save;
@@ -3400,7 +3400,7 @@ auto takePubidLiteral(PS)(PS state)
 
 auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     // We skip various checks for empty in this function on the assumption that
     // what's being passed in comes from takeID.
@@ -3863,7 +3863,7 @@ unittest
 
 pragma(inline, true) void popFrontAndIncCol(PS)(PS state)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     state.input.popFront();
     nextCol!(PS.config)(state.pos);
 }
@@ -3884,7 +3884,7 @@ pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
 
 pragma(inline, true) void checkNotEmpty(PS)(PS state, size_t line = __LINE__)
 {
-    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     if(state.input.empty)
         throw new XMLParsingException("Prematurely reached end of document", state.pos, __FILE__, line);
 }
