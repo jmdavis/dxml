@@ -1281,20 +1281,99 @@ public:
     }
 
 
-    /+
     /++
-        Returns the $(LREF ExternalID) portion of the current entity.
+        Returns the external $(LREF ID) or public $(LREF ID) portion of the
+        current entity.
+
+        In the case of `<!DOCTYPE ...>` (where the external ID is optional),
+        both $(LREF ID.publicLiteral) and $(LREF ID.systemLiteral) will be null
+        if there was no external ID present.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
             $(TR $(TD $(LREF2 docTypeStart, EntityType))),
-            $(TR $(TD $(LREF2 docTypeEmpty, EntityType)))
+            $(TR $(TD $(LREF2 docTypeEmpty, EntityType))),
+            $(TR $(TD $(LREF2 notation, EntityType)))
         )
 
         Throws: $(LREF XMLParsingException) on invalid XML.
+
+        See_Also: $(LREF ID);
       +/
-    @property Nullable!(ExternalID!R) externalID()
+    @property ID!R id()
     {
+        with(EntityType)
+            assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
+
+        /+
+        auto state = _state.currText;
+
+        ID!R retval;
+
+        if(state.input.empty)
+            return retval;
+
+        if(state.input.front == 'P')
+        {
+            state.input.popFrontN("PUBLIC".length);
+            static if(config.posType == PositionType.lineAndCol)
+                state.pos.col += "PUBLIC".length;
+            stripWS(&state);
+            retval.publicLiteral = takePubidLiteral(&state);
+            if(!state.input.empty)
+                retval.systemLiteral = takeSystemLiteral(&state);
+            else if(_state.type != EntityType.notationDecl)
+                throw new XMLParsingException("Missing system literal", state.pos);
+        }
+        else
+        {
+            assert(state.input.front == 'S');
+            state.input.popFrontN("SYSTEM".length);
+            static if(config.posType == PositionType.lineAndCol)
+                state.pos.col += "SYSTEM".length;
+            stripWS(&state);
+            retval.systemLiteral = takeSystemLiteral(&state);
+        }
+
+        version(assert)
+        {
+            stripWS(&state);
+            assert(state.input.empty);
+        }
+
+        return retval;
+        +/
+
+        assert(0);
+    }
+
+
+    /+
+    /++
+        Returns the EntityDef or PEDecl portion of an `<!ENTITY ...>`
+        declaration (both represented by $(LREF EntityDef)).
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 entity, EntityType))),
+        )
+
+        Throws: $(LREF XMLParsingException) on invalid XML.
+
+        See_Also: $(LREF EntityDef)
+      +/
+    @property EntityDef!R entityDef()
+    {
+        assert(_state.type == EntityType.entity);
+
+        auto state = _state.currText;
+        EntityDef!R retval;
+
+        if(state.input.front == '%')
+        {
+            retval.parsedEntity = true;
+            popFrontAndIncCol!config(state);
+        }
     }
     +/
 
@@ -2057,17 +2136,15 @@ struct XMLDecl(R)
 }
 
 
-/+
 /++
-    Information for an external ID as parsed from a `SYSTEM ...` or `PUBLIC ...`
-    declaration inside a `<!DOCTYPE ...>` declaration.
+    Information for an external or public ID as parsed from a `SYSTEM ...` or
+    `PUBLIC ...` declaration inside a `<!DOCTYPE ...>` declaration.
 
-    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-ExternalID)
+    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-ExternalID)$(BR)
+              $(LINK http://www.w3.org/TR/xml/#NT-PublicID)
   +/
-struct ExternalID(R)
+struct ID(R)
 {
-    import std.typecons : Nullable;
-
     /++
         The type used when any slice of the original text is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
@@ -2082,15 +2159,91 @@ struct ExternalID(R)
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
     /++
-        The PubidLiteral portion of a `PUBLIC ...` delaration. If the the
-        external ID was a `SYSTEM ...` declaration, then this is null.
+        The PubidLiteral portion of a `PUBLIC ...` delaration. If the
+        $(LREF _ID) was a `SYSTEM ...` declaration, then this is null.
       +/
     Nullable!SliceOfR publicLiteral;
 
     /++
         The SystemLiteral portion of a `SYSTEM ...` or `PUBLIC ...` delaration.
+        If the $(LREF _ID) is a PublicID, then this is null.
       +/
-    SliceOfR systemLiteral;
+    Nullable!SliceOfR systemLiteral;
+}
+
+
+/+
+/++
+    Information for an `<!ENTIITY ...>` declaration.
+
+    It either contains an entity value, an external ID, or an external ID and an
+    `NDATA` declaration.
+
+    See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityDecl)$(BR)
+              $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityValue)
+  +/
+struct EntityDef(R)
+{
+    /++
+        The type used when any slice of the original text is used. If $(D R)
+        is a string or supports slicing, then SliceOfR is the same as $(D R);
+        otherwise, it's the result of calling
+        $(PHOBOS_REF takeExcatly, std, range) on the text.
+
+        See_Also: $(LREF EntityCursor._SliceOfR)
+      +/
+    static if(isDynamicArray!R || hasSlicing!R)
+        alias SliceOfR = R;
+    else
+        alias SliceOfR = typeof(takeExactly(R.init, 42));
+
+    /++
+        True when the `<!ENTITY ...>` declaration contains the '%' sign after
+        `ENTITY`.
+      +/
+    bool parsedEntity;
+
+    unittest
+    {
+        import std.algorithm : equal;
+
+        enum xml = "<!DOCTYPE surgeon\n" ~
+                   "    [\n" ~
+                   "        <!ENTITY one 'foo'>\n" ~
+                   "        <!ENTITY two % 'bar'>\n" ~
+                   "    ]>\n" ~
+                   "</root>";
+
+        auto cursor = parseXML(xml);
+        assert(cursor.next == EntityType.docTypeStart);
+        assert(cursor.name == "surgeon");
+
+        assert(cursor.next == EntityType.entityDecl);
+        assert(cursor.name == "one");
+
+        auto one = cursor.entityDef;
+        assert(!one.parsedEntity);
+        assert(!one.value.isNull && equal(one.value, "foo"));
+
+        assert(cursor.next == EntityType.entityDecl);
+        assert(cursor.name == "two");
+
+        auto two = cursor.entityDef;
+        assert(two.parsedEntity);
+        assert(!two.value.isNull && equal(two.value, "bar"));
+    }
+
+    /++
+      +/
+    Nullable!SliceOfR value;
+
+    /++
+      +/
+    Nullable!(ID!R) externalID;
+
+    /++
+      +/
+    Nullable!SliceOfR ndataName;
 }
 +/
 
@@ -3050,7 +3203,7 @@ auto takeID(PS)(PS state)
     alias config = PS.config;
     auto orig = state.input.save;
     size_t takeLen = "PUBLIC".length;
-    static if(state.config.posType != PositionType.none)
+    static if(config.posType != PositionType.none)
         size_t lineStart = takeLen; // Adjusts for call to stripStartsWith.
     int maxIDs;
     if(state.stripStartsWith("PUBLIC"))
@@ -3067,7 +3220,7 @@ auto takeID(PS)(PS state)
         {
             switch(state.input.front)
             {
-                static if(state.config.posType != PositionType.none)
+                static if(config.posType != PositionType.none)
                 {
                     case '\n':
                     {
@@ -3115,7 +3268,7 @@ auto takeID(PS)(PS state)
                 for(; true; state.input.popFront(), checkNotEmpty(state))
                 {
                     immutable d = state.input.front;
-                    static if(state.config.posType != PositionType.none)
+                    static if(config.posType != PositionType.none)
                     {
                         if(isHSpace(d))
                             ++takeLen;
@@ -3138,7 +3291,7 @@ auto takeID(PS)(PS state)
                 break;
             }
             ++takeLen;
-            static if(state.config.posType != PositionType.none)
+            static if(config.posType != PositionType.none)
             {
                 if(c == '\n')
                 {
@@ -3149,7 +3302,7 @@ auto takeID(PS)(PS state)
         }
     }
 
-    static if(state.config.posType == PositionType.lineAndCol)
+    static if(config.posType == PositionType.lineAndCol)
         state.pos.col += takeLen - lineStart;
 
     return takeExactly(orig, takeLen);
@@ -3228,6 +3381,193 @@ unittest
         testFail!func(`PUBLIC '' ">`);
         testFail!func(`PUBLIC '' '>`);
         testFail!func(`PUBLIC "" ""`);
+    }
+}
+
+
+// ExternalID    ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+// SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
+// PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+// PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+// NotationDecl  ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+// PublicID      ::= 'PUBLIC' S PubidLiteral
+// This extracts the PubidLiteral from a previously extracted public or external
+// ID. The PUBLIC and any whitespace after it has already been removed.
+auto takePubidLiteral(PS)(PS state)
+{
+    return takeLiteral!(true, "PubidLiteral")(state);
+}
+
+auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
+{
+    static assert(isPointer!PS, "_state.currText was probably passed rather than &_state.currText");
+
+    // We skip various checks for empty in this function on the assumption that
+    // what's being passed in comes from takeID.
+
+    alias config = PS.config;
+    immutable quote = state.input.front;
+    assert(quote == '"' || quote == '\'');
+    state.input.popFront();
+    nextCol!config(state.pos);
+    auto temp = state.input.save;
+    size_t takeLen;
+
+    static if(config.posType != PositionType.none)
+        size_t lineStart = 0;
+
+    for(auto c = cast()state.input.front; c != quote; state.input.popFront(), c = state.input.front)
+    {
+        static if(checkPubidChar)
+        {
+            if(!isPubidChar(c))
+            {
+                auto pos = state.pos;
+                static if(config.posType == PositionType.lineAndCol)
+                    pos.col += takeLen - lineStart;
+                throw new XMLParsingException("Invalid character in " ~ literalName, pos);
+            }
+        }
+        static if(config.posType != PositionType.none)
+        {
+            if(c == '\n')
+            {
+                lineStart = ++takeLen;
+                nextLine!config(state.pos);
+            }
+            else
+                ++takeLen;
+        }
+        else
+            ++takeLen;
+    }
+
+    static if(config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen - lineStart;
+    state.input.popFront();
+    nextCol!config(state.pos);
+    stripWS(state);
+
+    return takeExactly(temp, takeLen);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
+    import std.meta : AliasSeq;
+
+    static void test(alias func)(string origHaystack, string result, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takePubidLiteral(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takePubidLiteral(), "unittest failure", __FILE__, line);
+        }
+    }
+
+    foreach(func; testRangeFuncs)
+    {
+        test!func(`""`, ``, "", 1, 3);
+        test!func(`"Name"`, `Name`, "", 1, 7);
+        test!func(`'Name'`, `Name`, "", 1, 7);
+        test!func(`'Name'    `, `Name`, "", 1, 11);
+        test!func("'Name'\n\n  ", `Name`, "", 3, 3);
+        test!func("'Name'  'Bar'  ", `Name`, "'Bar'  ", 1, 9);
+        test!func("'\n\n\n'  'Bar'  ", "\n\n\n", "'Bar'  ", 4, 4);
+        test!func(`"'''''''"`, "'''''''", "", 1, 10);
+
+        foreach(char c; 0 .. 128)
+        {
+            import std.algorithm : canFind;
+            import std.ascii : isAlphaNum;
+            if(isAlphaNum(c) || "\r -'()+,./:=?;!*#@$_%".canFind(c))
+                test!func(`"` ~ c ~ `"`, [c], "", 1, 4);
+            else if(c == '\n')
+                test!func("'\n'", "\n", "", 2, 2);
+            else if(c == '"')
+                testFail!func(`'"'`);
+            else
+                testFail!func(`"` ~ c ~ `"`);
+        }
+
+        testFail!func(`">><<<>>><<>"`);
+        testFail!func("'>><>\n\n\"><>'");
+        testFail!func(`'"'`);
+    }
+}
+
+
+// ExternalID    ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+// SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
+// PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+// PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+// NotationDecl  ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+// PublicID      ::= 'PUBLIC' S PubidLiteral
+// This extracts the SystemLiteral from a previously extracted external ID. The
+// SYSTEM and any whitespace after it has already been removed.
+auto takeSystemLiteral(PS)(PS state)
+{
+    return takeLiteral!(false, "SystemLiteral")(state);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
+    import std.meta : AliasSeq;
+
+    static void test(alias func)(string origHaystack, string result, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takeSystemLiteral(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    foreach(func; testRangeFuncs)
+    {
+        test!func(`""`, ``, "", 1, 3);
+        test!func(`"Name"`, `Name`, "", 1, 7);
+        test!func(`'Name'`, `Name`, "", 1, 7);
+        test!func(`'Name'    `, `Name`, "", 1, 11);
+        test!func("'Name'\n\n  ", `Name`, "", 3, 3);
+        test!func("'Name'  'Bar'  ", `Name`, "'Bar'  ", 1, 9);
+        test!func(`">><<<>>><<''''''>"`, `>><<<>>><<''''''>`, "", 1, 20);
+        test!func("'>><>\n\n\"><>'", ">><>\n\n\"><>", "", 3, 6);
+
+        foreach(char c; 0 .. 128)
+        {
+            if(c == '"')
+                test!func(`'"'`, `"`,  "", 1, 4);
+            else if(c  == '\n')
+                test!func("'\n'", "\n", "", 2, 2);
+            else
+                test!func(`"` ~ c ~ `"`, [c], "", 1, 4);
+        }
     }
 }
 
