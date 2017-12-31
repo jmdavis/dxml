@@ -1654,8 +1654,7 @@ private:
                 case 'S':
                 case 'P':
                 {
-                    _state.savedText.pos = _state.pos;
-                    _state.savedText.input = _state.takeID();
+                    _state.id = _state.takeID();
                     immutable c = _state.input.front;
                     if(c == '[')
                     {
@@ -2260,6 +2259,11 @@ struct ParserState(Config cfg, R)
     alias Text = R;
     alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
 
+    static if(isDynamicArray!R || hasSlicing!R)
+        alias SliceOfR = R;
+    else
+        alias SliceOfR = typeof(takeExactly(R.init, 42));
+
     EntityType type;
 
     auto grammarPos = GrammarPos.documentStart;
@@ -2289,11 +2293,18 @@ struct ParserState(Config cfg, R)
     Taken name;
     TagStack!Taken tagStack;
 
+    ID!R id;
+    EntityDef!R entityDef;
+
     this(R xmlText)
     {
         input = byCodeUnit(xmlText);
-        savedText = typeof(savedText).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
-        name = typeof(name).init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
+
+        // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
+        savedText = typeof(savedText).init;
+        name = typeof(name).init;
+        id = typeof(id).init;
+        entityDef = typeof(entityDef).init;
     }
 }
 
@@ -2583,7 +2594,7 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func, string needle)(string origHaystack, string result, string remainder,
+    static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -2592,7 +2603,7 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeUntilAndDrop!needle(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
@@ -2934,7 +2945,7 @@ unittest
     import std.meta : AliasSeq;
     import std.range : only;
 
-    static void test(alias func)(string origHaystack, string result, string remainder,
+    static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -2943,7 +2954,7 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(takeEnquotedText(state), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
@@ -3127,7 +3138,7 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func, delim...)(string origHaystack, string result, string remainder,
+    static void test(alias func, delim...)(string origHaystack, string expected, string remainder,
                                            int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -3136,7 +3147,7 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeName!delim(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.takeName!delim(), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
@@ -3191,121 +3202,55 @@ unittest
 // PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
 // NotationDecl  ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
 // PublicID      ::= 'PUBLIC' S PubidLiteral
-// This extracts the exteral ID or Public ID with partial verfication. The
-// characters in the ID literals will be verified if/when the id property on
-// EntityCursor is accessed. Since the whitespace on the right must be stripped
-// to determine whether there's a second id literal, the whitespace is always
-// stripped in order to be consistent.
+// This extracts the exteral ID or Public ID. Since the whitespace on the right
+// must be stripped to determine whether there's a second literal, the
+// whitespace is always stripped in order to be consistent.
 auto takeID(PS)(PS state)
 {
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
+    pragma(inline, true) static isQuote(typeof(state.input.front) c) { return c == '"' || c == '\''; }
+
     alias config = PS.config;
-    auto orig = state.input.save;
-    size_t takeLen = "PUBLIC".length;
-    static if(config.posType != PositionType.none)
-        size_t lineStart = takeLen; // Adjusts for call to stripStartsWith.
-    int maxIDs;
+    alias Text = PS.Text;
+
+    ID!Text retval;
+
     if(state.stripStartsWith("PUBLIC"))
-        maxIDs = 2;
+    {
+        if(!stripWS(state))
+            throw new XMLParsingException("There must be whitespace after PUBLIC", state.pos);
+        if(!isQuote(state.input.front))
+            throw new XMLParsingException("Missing quote", state.pos);
+        retval.publicLiteral = stripBCU!Text(state.takePubidLiteral());
+        immutable wasSpace = stripWS(state);
+        checkNotEmpty(state);
+        if(isQuote(state.input.front))
+        {
+            if(!wasSpace)
+            {
+                throw new XMLParsingException("There must be whitespace between a Public ID literal " ~
+                                              "and a System literal", state.pos);
+            }
+            retval.systemLiteral = stripBCU!Text(state.takeSystemLiteral());
+            stripWS(state);
+            checkNotEmpty(state);
+        }
+    }
     else if(state.stripStartsWith("SYSTEM"))
-        maxIDs = 1;
+    {
+        if(!stripWS(state))
+            throw new XMLParsingException("There must be whitespace after SYSTEM", state.pos);
+        if(!isQuote(state.input.front))
+            throw new XMLParsingException("Missing quote", state.pos);
+        retval.systemLiteral = stripBCU!Text(state.takeSystemLiteral());
+        stripWS(state);
+        checkNotEmpty(state);
+    }
     else
         throw new XMLParsingException("Expected SYSTEM or PUBLIC", state.pos);
 
-    outer: foreach(i; 0 .. maxIDs)
-    {
-        Unqual!(typeof(state.input.front)) quote;
-        for(; true; state.input.popFront(), checkNotEmpty(state))
-        {
-            switch(state.input.front)
-            {
-                static if(config.posType != PositionType.none)
-                {
-                    case '\n':
-                    {
-                        lineStart = ++takeLen;
-                        nextLine!config(state.pos);
-                        continue;
-                    }
-                }
-                // TODO If the goto isn't here, then the cases following are
-                // grouped under the else, which seems wrong.
-                else
-                    case '\n': goto case ' ';
-                case ' ':
-                case '\t':
-                case '\r': ++takeLen; continue;
-                case '"':
-                case '\'':
-                {
-                    ++takeLen;
-                    quote = state.input.front;
-                    state.input.popFront();
-                    checkNotEmpty(state);
-                    break;
-                }
-                default:
-                {
-                    if(i == 0)
-                        throw new XMLParsingException("Missing quote", state.pos);
-                    if(maxIDs == 1)
-                        throw new XMLParsingException("SYSTEM only takes one ID literal", state.pos);
-                    break outer;
-                }
-            }
-            break;
-        }
-
-        for(; true; state.input.popFront(), checkNotEmpty(state))
-        {
-            immutable c = state.input.front;
-            if(c == quote)
-            {
-                ++takeLen;
-                state.input.popFront();
-                checkNotEmpty(state);
-                for(; true; state.input.popFront(), checkNotEmpty(state))
-                {
-                    immutable d = state.input.front;
-                    static if(config.posType != PositionType.none)
-                    {
-                        if(isHSpace(d))
-                            ++takeLen;
-                        else if(d == '\n')
-                        {
-                            lineStart = ++takeLen;
-                            nextLine!config(state.pos);
-                        }
-                        else
-                            break;
-                    }
-                    else
-                    {
-                        if(isSpace(d))
-                            ++takeLen;
-                        else
-                            break;
-                    }
-                }
-                break;
-            }
-            ++takeLen;
-            static if(config.posType != PositionType.none)
-            {
-                if(c == '\n')
-                {
-                    lineStart = takeLen;
-                    nextLine!config(state.pos);
-                }
-            }
-        }
-    }
-
-    static if(config.posType == PositionType.lineAndCol)
-        state.pos.col += takeLen - lineStart;
-
-    return takeExactly(orig, takeLen);
+    return retval;
 }
 
 unittest
@@ -3314,7 +3259,16 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func)(string origHaystack, string result, string remainder,
+    static bool eqLit(T, U)(T lhs, U rhs)
+    {
+        if(lhs.isNull != rhs.isNull)
+            return false;
+        if(lhs.isNull)
+            return true;
+        return equal(lhs, rhs);
+    }
+
+    static void test(alias func)(string origHaystack, ID!string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -3323,9 +3277,11 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeID(), result), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            auto id = state.takeID();
+            enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
         }
     }
 
@@ -3339,36 +3295,57 @@ unittest
         }
     }
 
+    static auto pubLit(string[] literals...)
+    {
+        ID!string retval;
+        retval.publicLiteral = nullable(literals[0]);
+        if(literals.length != 1)
+            retval.systemLiteral = nullable(literals[1]);
+        return retval;
+    }
+
+    static auto sysLit(string literal)
+    {
+        ID!string retval;
+        retval.systemLiteral = nullable(literal);
+        return retval;
+    }
+
     foreach(func; testRangeFuncs)
     {
-        test!func(`SYSTEM "Name">`, `SYSTEM "Name"`, ">", 1, 14);
-        test!func(`SYSTEM 'Name'>`, `SYSTEM 'Name'`, ">", 1, 14);
-        test!func("SYSTEM\n\n\n'Name'    >", "SYSTEM\n\n\n'Name'    ", ">", 4, 11);
-        test!func("SYSTEM  'Foo\nBar'>", "SYSTEM  'Foo\nBar'", ">", 2, 5);
-        test!func(`SYSTEM "">`, `SYSTEM ""`, ">", 1, 10);
+        test!func(`SYSTEM "Name">`, sysLit(`Name`), ">", 1, 14);
+        test!func(`SYSTEM 'Name'>`, sysLit(`Name`), ">", 1, 14);
+        test!func(`SYSTEM 'Name'>`, sysLit(`Name`), ">", 1, 14);
+        test!func("SYSTEM\n\n\n'Name'    >", sysLit("Name"), ">", 4, 11);
+        test!func("SYSTEM  'Foo\nBar'>", sysLit("Foo\nBar"), ">", 2, 5);
+        test!func(`SYSTEM "">`, sysLit(``), ">", 1, 10);
 
-        test!func(`PUBLIC "Name">`, `PUBLIC "Name"`, ">", 1, 14);
-        test!func(`PUBLIC 'Name'>`, `PUBLIC 'Name'`, ">", 1, 14);
-        test!func("PUBLIC\n\n\n'Name'    >", "PUBLIC\n\n\n'Name'    ", ">", 4, 11);
-        test!func("PUBLIC  'Foo\nBar'>", "PUBLIC  'Foo\nBar'", ">", 2, 5);
-        test!func(`PUBLIC "">`, `PUBLIC ""`, ">", 1, 10);
+        test!func(`PUBLIC "Name">`, pubLit(`Name`), ">", 1, 14);
+        test!func(`PUBLIC 'Name'>`, pubLit(`Name`), ">", 1, 14);
+        test!func(`PUBLIC 'Name'>`, pubLit(`Name`), ">", 1, 14);
+        test!func("PUBLIC\n\n\n'Name'    >", pubLit("Name"), ">", 4, 11);
+        test!func("PUBLIC  'Foo\nBar'>", pubLit("Foo\nBar"), ">", 2, 5);
+        test!func(`PUBLIC "">`, pubLit(``), ">", 1, 10);
 
-        test!func(`PUBLIC "Name" 'Foo'>`, `PUBLIC "Name" 'Foo'`, ">", 1, 20);
-        test!func(`PUBLIC 'Name' "Foo">`, `PUBLIC 'Name' "Foo"`, ">", 1, 20);
-        test!func("PUBLIC\n\n\n'Name'    'Foo' >", "PUBLIC\n\n\n'Name'    'Foo' ", ">", 4, 17);
-        test!func("PUBLIC  'Foo\nBar' 'Foo'>", "PUBLIC  'Foo\nBar' 'Foo'", ">", 2, 11);
-        test!func("PUBLIC 'A' \n\n 'B'>", "PUBLIC 'A' \n\n 'B'", ">", 3, 5);
-        test!func("PUBLIC 'A' 'B\n\n\n'>", "PUBLIC 'A' 'B\n\n\n'", ">", 4, 2);
-        test!func(`PUBLIC '' ''>`, `PUBLIC '' ''`, ">", 1, 13);
+        test!func(`PUBLIC "Name" 'Foo'>`, pubLit(`Name`, `Foo`), ">", 1, 20);
+        test!func(`PUBLIC 'Name' "Foo">`, pubLit(`Name`, `Foo`), ">", 1, 20);
+        test!func("PUBLIC\n\n\n'Name'    'Foo' >", pubLit("Name", "Foo"), ">", 4, 17);
+        test!func("PUBLIC  'Foo\nBar' 'Foo'>", pubLit("Foo\nBar", "Foo"), ">", 2, 11);
+        test!func("PUBLIC 'A' \n\n 'B'>", pubLit("A", "B"), ">", 3, 5);
+        test!func("PUBLIC 'A' 'B\n\n\n'>", pubLit("A", "B\n\n\n"), ">", 4, 2);
+        test!func("PUBLIC '' ''>", pubLit("", ""), ">", 1, 13);
 
+        testFail!func(`SYSTEM`);
         testFail!func(`SYSTEM>`);
         testFail!func(`SYSTEM >`);
         testFail!func(`SYSTEM ">`);
         testFail!func(`SYSTEM '>`);
         testFail!func(`SYSTEM ""`);
+        testFail!func(`SYSTEM ''`);
         testFail!func(`SYSTEM "'>`);
         testFail!func(`SYSTEM '">`);
 
+        testFail!func(`PUBLIC`);
         testFail!func(`PUBLIC>`);
         testFail!func(`PUBLIC >`);
         testFail!func(`PUBLIC ">`);
@@ -3381,6 +3358,9 @@ unittest
         testFail!func(`PUBLIC '' ">`);
         testFail!func(`PUBLIC '' '>`);
         testFail!func(`PUBLIC "" ""`);
+        testFail!func(`PUBLIC """"`);
+        testFail!func(`PUBLIC '' ''`);
+        testFail!func(`PUBLIC ''''`);
     }
 }
 
@@ -3402,21 +3382,23 @@ auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
 {
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
-    // We skip various checks for empty in this function on the assumption that
-    // what's being passed in comes from takeID.
-
     alias config = PS.config;
+
     immutable quote = state.input.front;
     assert(quote == '"' || quote == '\'');
     state.input.popFront();
     nextCol!config(state.pos);
+    checkNotEmpty(state);
+
     auto temp = state.input.save;
     size_t takeLen;
 
     static if(config.posType != PositionType.none)
         size_t lineStart = 0;
 
-    for(auto c = cast()state.input.front; c != quote; state.input.popFront(), c = state.input.front)
+    for(auto c = cast()state.input.front;
+        c != quote;
+        state.input.popFront(), checkNotEmpty(state), c = state.input.front)
     {
         static if(checkPubidChar)
         {
@@ -3446,7 +3428,6 @@ auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
         state.pos.col += takeLen - lineStart;
     state.input.popFront();
     nextCol!config(state.pos);
-    stripWS(state);
 
     return takeExactly(temp, takeLen);
 }
@@ -3457,7 +3438,7 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func)(string origHaystack, string result, string remainder,
+    static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -3466,7 +3447,7 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takePubidLiteral(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
@@ -3487,11 +3468,13 @@ unittest
         test!func(`""`, ``, "", 1, 3);
         test!func(`"Name"`, `Name`, "", 1, 7);
         test!func(`'Name'`, `Name`, "", 1, 7);
-        test!func(`'Name'    `, `Name`, "", 1, 11);
-        test!func("'Name'\n\n  ", `Name`, "", 3, 3);
-        test!func("'Name'  'Bar'  ", `Name`, "'Bar'  ", 1, 9);
-        test!func("'\n\n\n'  'Bar'  ", "\n\n\n", "'Bar'  ", 4, 4);
+        test!func(`'Name'    `, `Name`, "    ", 1, 7);
+        test!func("'Name'\n\n  ", `Name`, "\n\n  ", 1, 7);
+        test!func("'Name'  'Bar'  ", `Name`, "  'Bar'  ", 1, 7);
+        test!func("'\n\n\n'  'Bar'  ", "\n\n\n", "  'Bar'  ", 4, 2);
         test!func(`"'''''''"`, "'''''''", "", 1, 10);
+        test!func(`"""`, ``, `"`, 1, 3);
+        test!func(`'''`, ``, `'`, 1, 3);
 
         foreach(char c; 0 .. 128)
         {
@@ -3507,6 +3490,8 @@ unittest
                 testFail!func(`"` ~ c ~ `"`);
         }
 
+        testFail!func(`"`);
+        testFail!func(`'`);
         testFail!func(`">><<<>>><<>"`);
         testFail!func("'>><>\n\n\"><>'");
         testFail!func(`'"'`);
@@ -3533,7 +3518,7 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func)(string origHaystack, string result, string remainder,
+    static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
@@ -3542,9 +3527,19 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeSystemLiteral(), result), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeSystemLiteral(), "unittest failure", __FILE__, line);
         }
     }
 
@@ -3553,9 +3548,13 @@ unittest
         test!func(`""`, ``, "", 1, 3);
         test!func(`"Name"`, `Name`, "", 1, 7);
         test!func(`'Name'`, `Name`, "", 1, 7);
-        test!func(`'Name'    `, `Name`, "", 1, 11);
-        test!func("'Name'\n\n  ", `Name`, "", 3, 3);
-        test!func("'Name'  'Bar'  ", `Name`, "'Bar'  ", 1, 9);
+        test!func(`'Name'    `, `Name`, "    ", 1, 7);
+        test!func("'Name'\n\n  ", `Name`, "\n\n  ", 1, 7);
+        test!func("'Name'  'Bar'  ", `Name`, "  'Bar'  ", 1, 7);
+        test!func("'\n\n\n'  'Bar'  ", "\n\n\n", "  'Bar'  ", 4, 2);
+        test!func(`"'''''''"`, "'''''''", "", 1, 10);
+        test!func(`"""`, ``, `"`, 1, 3);
+        test!func(`'''`, ``, `'`, 1, 3);
         test!func(`">><<<>>><<''''''>"`, `>><<<>>><<''''''>`, "", 1, 20);
         test!func("'>><>\n\n\"><>'", ">><>\n\n\"><>", "", 3, 6);
 
@@ -3568,6 +3567,9 @@ unittest
             else
                 test!func(`"` ~ c ~ `"`, [c], "", 1, 4);
         }
+
+        testFail!func(`"`);
+        testFail!func(`'`);
     }
 }
 
