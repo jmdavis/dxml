@@ -1070,7 +1070,7 @@ public:
 
         Throws: $(LREF XMLParsingException) on invalid XML.
       +/
-    @property XMLDecl!R xmlDecl()
+    @property XMLDecl!SliceOfR xmlDecl()
     {
         assert(_state.type == EntityType.xmlDecl);
 
@@ -1084,8 +1084,8 @@ public:
         // We shouldn't need to use .init like this, but when compiling the
         // examples with filter, we get an error about accessing the frame
         // pointer if we don't, which seems like a bug in dmd which should
-        // probably be reduced and reported.
-        XMLDecl!R retval = XMLDecl!R.init;
+        // probably be reduced and reported. It may be https://issues.dlang.org/show_bug.cgi?id=13945
+        XMLDecl!SliceOfR retval = XMLDecl!SliceOfR.init;
 
         // XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
         // VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
@@ -1300,7 +1300,7 @@ public:
 
         See_Also: $(LREF ID);
       +/
-    @property ID!R id()
+    @property ID!SliceOfR id()
     {
         with(EntityType)
             assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
@@ -1308,7 +1308,7 @@ public:
         /+
         auto state = _state.savedText;
 
-        ID!R retval;
+        ID!SliceOfR retval;
 
         if(state.input.empty)
             return retval;
@@ -1362,12 +1362,12 @@ public:
 
         See_Also: $(LREF EntityDef)
       +/
-    @property EntityDef!R entityDef()
+    @property EntityDef!SliceOfR entityDef()
     {
         assert(_state.type == EntityType.entity);
 
         auto state = _state.savedText;
-        EntityDef!R retval;
+        EntityDef!SliceOfR retval;
 
         if(state.input.front == '%')
         {
@@ -2091,25 +2091,10 @@ version(unittest)
   +/
 struct XMLDecl(R)
 {
-    import std.typecons : Nullable;
-
-    /++
-        The type used when any slice of the original text is used. If $(D R)
-        is a string or supports slicing, then SliceOfR is the same as $(D R);
-        otherwise, it's the result of calling
-        $(PHOBOS_REF takeExcatly, std, range) on the text.
-
-        See_Also: $(LREF EntityCursor._SliceOfR)
-      +/
-    static if(isDynamicArray!R || hasSlicing!R)
-        alias SliceOfR = R;
-    else
-        alias SliceOfR = typeof(takeExactly(R.init, 42));
-
     /++
         The version of XML that the document contains.
       +/
-    SliceOfR xmlVersion;
+    R xmlVersion;
 
     /++
         The encoding of the text in the XML document.
@@ -2123,7 +2108,7 @@ struct XMLDecl(R)
         the $(D "encoding") field, should read
         $(LINK http://www.w3.org/TR/REC-xml/#sec-guessing).
       +/
-    Nullable!SliceOfR encoding;
+    Nullable!R encoding;
 
     /++
         $(D true) if the XML document does $(I not) contain any external
@@ -2145,29 +2130,16 @@ struct XMLDecl(R)
 struct ID(R)
 {
     /++
-        The type used when any slice of the original text is used. If $(D R)
-        is a string or supports slicing, then SliceOfR is the same as $(D R);
-        otherwise, it's the result of calling
-        $(PHOBOS_REF takeExcatly, std, range) on the text.
-
-        See_Also: $(LREF EntityCursor._SliceOfR)
-      +/
-    static if(isDynamicArray!R || hasSlicing!R)
-        alias SliceOfR = R;
-    else
-        alias SliceOfR = typeof(takeExactly(R.init, 42));
-
-    /++
         The PubidLiteral portion of a `PUBLIC ...` delaration. If the
         $(LREF _ID) was a `SYSTEM ...` declaration, then this is null.
       +/
-    Nullable!SliceOfR publicLiteral;
+    Nullable!R publicLiteral;
 
     /++
         The SystemLiteral portion of a `SYSTEM ...` or `PUBLIC ...` delaration.
         If the $(LREF _ID) is a PublicID, then this is null.
       +/
-    Nullable!SliceOfR systemLiteral;
+    Nullable!R systemLiteral;
 }
 
 
@@ -2182,19 +2154,6 @@ struct ID(R)
   +/
 struct EntityDef(R)
 {
-    /++
-        The type used when any slice of the original text is used. If $(D R)
-        is a string or supports slicing, then SliceOfR is the same as $(D R);
-        otherwise, it's the result of calling
-        $(PHOBOS_REF takeExcatly, std, range) on the text.
-
-        See_Also: $(LREF EntityCursor._SliceOfR)
-      +/
-    static if(isDynamicArray!R || hasSlicing!R)
-        alias SliceOfR = R;
-    else
-        alias SliceOfR = typeof(takeExactly(R.init, 42));
-
     /++
         True when the `<!ENTITY ...>` declaration contains the '%' sign after
         `ENTITY`.
@@ -2235,7 +2194,7 @@ struct EntityDef(R)
 
     /++
       +/
-    Nullable!SliceOfR value;
+    Nullable!R value;
 
     /++
       +/
@@ -2243,7 +2202,7 @@ struct EntityDef(R)
 
     /++
       +/
-    Nullable!SliceOfR ndataName;
+    Nullable!R ndataName;
 }
 
 
@@ -2293,8 +2252,8 @@ struct ParserState(Config cfg, R)
     Taken name;
     TagStack!Taken tagStack;
 
-    ID!R id;
-    EntityDef!R entityDef;
+    ID!SliceOfR id;
+    EntityDef!SliceOfR entityDef;
 
     this(R xmlText)
     {
@@ -3213,8 +3172,9 @@ auto takeID(PS)(PS state)
 
     alias config = PS.config;
     alias Text = PS.Text;
+    alias SliceOfR = PS.SliceOfR;
 
-    ID!Text retval;
+    ID!SliceOfR retval;
 
     if(state.stripStartsWith("PUBLIC"))
     {
