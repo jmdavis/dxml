@@ -918,13 +918,15 @@ public:
     /++
         Returns the value of the current entity.
 
-        In the case of $(LREF EntityType.processingInstruction), this is the text
-        that follows the name.
+        In the case of $(LREF EntityType.elementDecl) and
+        $(LREF EntityType.processingInstruction), this is the text that follows
+        the name.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
             $(TR $(TD $(LREF2 cdata, EntityType)))
             $(TR $(TD $(LREF2 comment, EntityType)))
+            $(TR $(TD $(LREF2 elementDecl, EntityType)))
             $(TR $(TD $(LREF2 processingInstruction, EntityType)))
             $(TR $(TD $(LREF2 _text, EntityType)))
         )
@@ -932,7 +934,7 @@ public:
     @property SliceOfR text()
     {
         with(EntityType)
-            assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
+            assert(only(cdata, comment, elementDecl, processingInstruction, text).canFind(_state.type));
         return stripBCU!R(_state.savedText.input);
     }
 
@@ -1055,6 +1057,39 @@ public:
             assert(cursor.next() == EntityType.elementEnd);
             assert(cursor.next() == EntityType.documentEnd);
         }
+    }
+
+    ///
+    unittest
+    {
+        enum xml = "<!DOCTYPE medical [\n" ~
+                   "    <!ELEMENT spec (front, body, back?)>\n" ~
+                   "    <!ELEMENT div1 (head, (p | list | note)*, div2*)>\n" ~
+                   "    <!ELEMENT dictionary-body (%div.mix; | %dict.mix;)*>\n" ~
+                   "]> <potato/>";
+
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.docTypeStart);
+        assert(cursor.name == "medical");
+
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "spec");
+        assert(cursor.text == "(front, body, back?)");
+
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "div1");
+        assert(cursor.text == "(head, (p | list | note)*, div2*)");
+
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "dictionary-body");
+        assert(cursor.text == "(%div.mix; | %dict.mix;)*");
+
+        assert(cursor.next() == EntityType.docTypeEnd);
+
+        assert(cursor.next() == EntityType.elementEmpty);
+        assert(cursor.name == "potato");
+
+        assert(cursor.next() == EntityType.documentEnd);
     }
 
 
@@ -1989,6 +2024,23 @@ private:
     void _parseElementDecl()
     {
         _state.type = EntityType.elementDecl;
+        _parseTagName("ELEMENT");
+        _state.savedText.pos = _state.pos;
+        _state.savedText.input = _state.takeUntilAndDrop!">"();
+    }
+
+
+    void _parseTagName(string tagName)
+    {
+        import std.format : format;
+        if(_state.input.empty)
+            throw new XMLParsingException(tagName ~ " tag missing name", _state.pos);
+        _state.name = _state.takeName();
+        if(!stripWS(_state))
+        {
+            throw new XMLParsingException(format!"There must be whitespace after the %s tag's name"(tagName),
+                                          _state.pos);
+        }
     }
 
 
@@ -2011,6 +2063,7 @@ private:
     void _parseAttlistDecl()
     {
         _state.type = EntityType.attlistDecl;
+        _parseTagName("ATTLIST");
     }
 
 
@@ -2124,11 +2177,7 @@ private:
     void _parseNotationDecl()
     {
         _state.type = EntityType.notationDecl;
-        if(_state.input.empty)
-            throw new XMLParsingException("NOTATION tag missing name", _state.pos);
-        _state.name = _state.takeName();
-        if(!stripWS(_state))
-            throw new XMLParsingException("There must be whitespace after the NOTATION tag's name", _state.pos);
+        _parseTagName("NOTATION");
         _state.id = nullable(_state.takeID!(false, false)());
         if(_state.input.front != '>')
             throw new XMLParsingException("> missing", _state.pos);
@@ -2539,7 +2588,6 @@ struct EntityDef(R)
       +/
     bool parsedEntity;
 
-    /+
     unittest
     {
         import std.algorithm : equal;
@@ -2547,9 +2595,9 @@ struct EntityDef(R)
         enum xml = "<!DOCTYPE surgeon\n" ~
                    "    [\n" ~
                    "        <!ENTITY one 'foo'>\n" ~
-                   "        <!ENTITY two % 'bar'>\n" ~
+                   "        <!ENTITY % two 'bar'>\n" ~
                    "    ]>\n" ~
-                   "</root>";
+                   "<root/>";
 
         auto cursor = parseXML(xml);
         assert(cursor.next == EntityType.docTypeStart);
@@ -2568,8 +2616,14 @@ struct EntityDef(R)
         auto two = cursor.entityDef;
         assert(two.parsedEntity);
         assert(!two.value.isNull && equal(two.value, "bar"));
+
+        assert(cursor.next() == EntityType.docTypeEnd);
+
+        assert(cursor.next() == EntityType.elementEmpty);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.documentEnd);
     }
-    +/
 
     /++
       +/
