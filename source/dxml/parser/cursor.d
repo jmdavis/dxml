@@ -403,22 +403,26 @@ enum EntityType
     comment,
 
     /++
-        The beginning of a `<!DOCTYPE ... >` tag where intSubset is not empty.
+        The beginning of a `<!DOCTYPE ... >` tag where
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, intSubset)) is
+        not empty.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
     docTypeStart,
 
     /++
-        A `<!DOCTYPE ... >` tag with no intSubset.
+        A `<!DOCTYPE ... >` tag with no
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, intSubset)).
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
     docTypeEmpty,
 
     /++
-        The `>` indicating the end of a `<!DOCTYPE` tag where intSubset was not
-        empty.
+        The `>` indicating the end of a `<!DOCTYPE` tag where
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, intSubset))
+        was not empty.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-prolog-dtd)
       +/
@@ -438,7 +442,7 @@ enum EntityType
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#elemdecls)
       +/
-    elementTypeDecl,
+    elementDecl,
 
     /++
         The start tag for an element. e.g. `<foo name="value">`.
@@ -474,6 +478,28 @@ enum EntityType
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#Notations)
       +/
     notationDecl,
+
+    /++
+        A $(I PEReference) inside the
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, intSubset))
+        of a `<!DOCTYPE ...>` declaration.
+
+        e.g. In `<!DOCTYPE Name [ %someref; ]>`, it would be the `%someref;`,
+        and $(LREF EntityCursor.name) would return $(D "someref").
+
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-PEReference, PEReference)
+        does appear elsewhere in the grammar for XML, but in the other cases,
+        it's within text and is treated as part of the text just like
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-CharRef, CharRef))s such
+        as `&#20` are. However, within a
+        $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, doctypedecl)),
+        that doesn't really work, so in that case, it's treated as its own
+        entity.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-doctypedecl)($BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-PEReference)
+      +/
+    peReference,
 
     /++
         A processing instruction such as `<?foo?>`. Note that
@@ -671,8 +697,8 @@ public:
                 }
                 case intSubset:
                 {
-                    assert(0);
-                    //break;
+                    _parseAtIntSubset();
+                    break;
                 }
                 case splittingEmpty:
                 {
@@ -708,10 +734,15 @@ public:
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
+            $(TR $(TD $(LREF2 acttlistDecl, EntityType)))
             $(TR $(TD $(LREF2 docTypeStart, EntityType)))
+            $(TR $(TD $(LREF2 docTypeEmpty, EntityType)))
+            $(TR $(TD $(LREF2 elementDecl, EntityType)))
             $(TR $(TD $(LREF2 elementStart, EntityType)))
             $(TR $(TD $(LREF2 elementEnd, EntityType)))
             $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+            $(TR $(TD $(LREF2 entityDecl, EntityType)))
+            $(TR $(TD $(LREF2 notationDecl, EntityType)))
             $(TR $(TD $(LREF2 processingInstruction, EntityType)))
         )
 
@@ -721,8 +752,8 @@ public:
     {
         with(EntityType)
         {
-            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty,
-                        processingInstruction).canFind(_state.type));
+            assert(only(attlistDecl, docTypeStart, docTypeEmpty, elementDecl, elementStart, elementEnd,
+                        elementEmpty, entityDecl, notationDecl, processingInstruction).canFind(_state.type));
         }
 
         return stripBCU!R(_state.name);
@@ -1305,46 +1336,85 @@ public:
         with(EntityType)
             assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
 
-        /+
-        auto state = _state.savedText;
+        return _state.id;
+    }
 
-        ID!SliceOfR retval;
-
-        if(state.input.empty)
-            return retval;
-
-        if(state.input.front == 'P')
+    ///
+    unittest
+    {
         {
-            state.input.popFrontN("PUBLIC".length);
-            static if(config.posType == PositionType.lineAndCol)
-                state.pos.col += "PUBLIC".length;
-            stripWS(&state);
-            retval.publicLiteral = takePubidLiteral(&state);
-            if(!state.input.empty)
-                retval.systemLiteral = takeSystemLiteral(&state);
-            else if(_state.type != EntityType.notationDecl)
-                throw new XMLParsingException("Missing system literal", state.pos);
+            enum xml = "<!DOCTYPE dentist PUBLIC 'foo' 'bar'\n" ~
+                       "    [\n" ~
+                       "        <!NOTATION good PUBLIC 'something'>\n" ~
+                       "        <!NOTATION bad PUBLIC 'else' 'to'>\n" ~
+                       "        <!NOTATION ugly SYSTEM 'parse'>\n" ~
+                       "    ]>\n" ~
+                       "<root/>";
+
+            auto cursor = parseXML(xml);
+            assert(cursor.next() == EntityType.docTypeStart);
+            assert(cursor.name == "dentist");
+            assert(cursor.id.publicLiteral == "foo");
+            assert(cursor.id.systemLiteral == "bar");
+            assert(!cursor.id.empty);
+
+            assert(cursor.next() == EntityType.notationDecl);
+            assert(cursor.name == "good");
+            assert(cursor.id.publicLiteral == "something");
+            assert(cursor.id.systemLiteral.isNull);
+            assert(!cursor.id.empty);
+
+            assert(cursor.next() == EntityType.notationDecl);
+            assert(cursor.name == "bad");
+            assert(cursor.id.publicLiteral == "else");
+            assert(cursor.id.systemLiteral == "to");
+            assert(!cursor.id.empty);
+
+            assert(cursor.next() == EntityType.notationDecl);
+            assert(cursor.name == "ugly");
+            assert(cursor.id.publicLiteral.isNull);
+            assert(cursor.id.systemLiteral == "parse");
+            assert(!cursor.id.empty);
+
+            assert(cursor.next() == EntityType.docTypeEnd);
+
+            assert(cursor.next() == EntityType.elementEmpty);
+            assert(cursor.name == "root");
+
+            assert(cursor.next() == EntityType.documentEnd);
         }
-        else
         {
-            assert(state.input.front == 'S');
-            state.input.popFrontN("SYSTEM".length);
-            static if(config.posType == PositionType.lineAndCol)
-                state.pos.col += "SYSTEM".length;
-            stripWS(&state);
-            retval.systemLiteral = takeSystemLiteral(&state);
-        }
+            enum xml = "<!DOCTYPE archaelogist SYSTEM 'digging'>\n" ~
+                       "<root/>";
 
-        version(assert)
+            auto cursor = parseXML(xml);
+            assert(cursor.next() == EntityType.docTypeEmpty);
+            assert(cursor.name == "archaelogist");
+            assert(cursor.id.publicLiteral.isNull);
+            assert(cursor.id.systemLiteral == "digging");
+            assert(!cursor.id.empty);
+
+            assert(cursor.next() == EntityType.elementEmpty);
+            assert(cursor.name == "root");
+
+            assert(cursor.next() == EntityType.documentEnd);
+        }
         {
-            stripWS(&state);
-            assert(state.input.empty);
+            enum xml = "<!DOCTYPE optometrist>\n" ~
+                       "<root/>";
+
+            auto cursor = parseXML(xml);
+            assert(cursor.next() == EntityType.docTypeEmpty);
+            assert(cursor.name == "optometrist");
+            assert(cursor.id.publicLiteral.isNull);
+            assert(cursor.id.systemLiteral.isNull);
+            assert(cursor.id.empty);
+
+            assert(cursor.next() == EntityType.elementEmpty);
+            assert(cursor.name == "root");
+
+            assert(cursor.next() == EntityType.documentEnd);
         }
-
-        return retval;
-        +/
-
-        assert(0);
     }
 
 
@@ -1471,9 +1541,16 @@ private:
                 {
                     if(_state.stripStartsWith("DOCTYPE"))
                     {
+                        if(!_state.stripWS())
+                            throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
                         _parseDoctypeDecl();
                         break;
                     }
+                }
+                else if(_state.stripStartsWith("DOCTYPE"))
+                {
+                    throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
+                                                  _state.pos);
                 }
                 throw new XMLParsingException("Invalid XML", _state.pos);
             }
@@ -1548,7 +1625,6 @@ private:
                     }
                 }
             }
-            stripWS(_state);
         }
     }
 
@@ -1572,12 +1648,10 @@ private:
     // intSubset   ::= (markupdecl | DeclSep)*
     // markupdecl  ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
     // Parse doctypedecl after GrammarPos.prologMisc1.
-    // <!DOCTYPE was already removed from the front of the input.
+    // <!DOCTYPE and any whitespace after it should have already been removed
+    // from the input.
     void _parseDoctypeDecl()
     {
-        if(!_state.stripWS())
-            throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
-
         static if(config.skipProlog == SkipProlog.yes)
         {
             _state.skipToOneOf!('"', '\'', '[', '>')();
@@ -1643,9 +1717,7 @@ private:
         }
         else
         {
-            import std.range : takeNone;
-
-            _state.name = _state.takeName();
+            _state.name = _state.takeName!'>'();
             immutable wasSpace = _state.stripWS();
             checkNotEmpty(_state);
 
@@ -1654,7 +1726,14 @@ private:
                 case 'S':
                 case 'P':
                 {
+                    if(!wasSpace)
+                    {
+                        throw new XMLParsingException("There must be whitespace between the name and the ID",
+                                                      _state.pos);
+                    }
                     _state.id = _state.takeID();
+                    if(!_state.id.publicLiteral.isNull && _state.id.systemLiteral.isNull)
+                        throw new XMLParsingException("System literal missing after public ID literal", _state.pos);
                     immutable c = _state.input.front;
                     if(c == '[')
                     {
@@ -1667,28 +1746,151 @@ private:
                         _state.grammarPos = GrammarPos.prologMisc2;
                     }
                     else
-                        throw new XMLParsingException("Invalid XML", _state.pos);
+                        throw new XMLParsingException("Expected [ or >", _state.pos);
                     popFrontAndIncCol(_state);
                     break;
                 }
                 case '[':
                 {
                     popFrontAndIncCol(_state);
+                    _state.id = typeof(_state.id).init; // In case it has an ID from a previous entity.
                     _state.type = EntityType.docTypeStart;
-                    _state.savedText.input = _state.input.takeNone();
                     _state.grammarPos = GrammarPos.intSubset;
                     break;
                 }
                 case '>':
                 {
                     popFrontAndIncCol(_state);
+                    _state.id = typeof(_state.id).init; // In case it has an ID from a previous entity.
                     _state.type = EntityType.docTypeEmpty;
-                    _state.savedText.input = _state.input.takeNone();
                     _state.grammarPos = GrammarPos.prologMisc2;
                     break;
                 }
                 default: assert(0);
             }
+        }
+    }
+
+
+    // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+    // DeclSep     ::= PEReference | S
+    // intSubset   ::= (markupdecl | DeclSep)*
+    // markupdecl  ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    // DeclSep     ::= PEReference | S
+    // Parse doctypedecl at GrammarPos.intSubset.
+    // The next thing to be parsed is always either a PEReference, one of the
+    // items in markupdecl (all of which start with '<'), one of those two
+    // things preceded by whitespace, or it's the ']' following the intSubset.
+    void _parseAtIntSubset()
+    {
+        stripWS(_state);
+        checkNotEmpty(_state);
+        switch(_state.input.front)
+        {
+            case '<':
+            {
+                popFrontAndIncCol(_state);
+                checkNotEmpty(_state);
+                break;
+            }
+            case ']':
+            {
+                popFrontAndIncCol(_state);
+                stripWS(_state);
+                if(_state.input.front != '>')
+                    throw new XMLParsingException("Expected >", _state.pos);
+                popFrontAndIncCol(_state);
+                _state.type = EntityType.docTypeEnd;
+                _state.grammarPos = GrammarPos.prologMisc2;
+                return;
+            }
+            // PEReference ::= '%' Name ';'
+            case '%':
+            {
+                popFrontAndIncCol(_state);
+                checkNotEmpty(_state);
+                _state.type = EntityType.peReference;
+                _state.savedText.input = _state.takeUntilAndDrop!";"();
+                checkNotEmpty(_state);
+                return;
+            }
+            default: throw new XMLParsingException("Expected <, %, ]", _state.pos);
+        }
+        switch(_state.input.front)
+        {
+            case '!':
+            {
+                popFrontAndIncCol(_state);
+                checkNotEmpty(_state);
+                break;
+            }
+            // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
+            case '?':
+            {
+                _parsePI();
+                return;
+            }
+            default: throw new XMLParsingException("Expected ! or ?", _state.pos);
+        }
+
+        void stripTagName(string tagName, SourcePos posBefore)
+        {
+            popFrontAndIncCol(_state);
+            if(!_state.stripStartsWith(tagName[1 .. $]))
+                throw new XMLParsingException("Unknown tag type", posBefore);
+            if(!stripWS(_state))
+                throw new XMLParsingException("There must be whitespace after " ~ tagName, _state.pos);
+        }
+
+        switch(_state.input.front)
+        {
+            // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+            case '-':
+            {
+                popFrontAndIncCol(_state);
+                checkNotEmpty(_state);
+                if(_state.input.front != '-')
+                    throw new XMLParsingException("Invalid start of comment. Missing a '-'.", _state.pos);
+                popFrontAndIncCol(_state);
+                _parseComment();
+                return;
+            }
+            // elementdecl ::= '<!ELEMENT' S Name S contentspec S? '>'
+            // EntityDecl  ::= GEDecl | PEDecl
+            // GEDecl      ::= '<!ENTITY' S Name S EntityDef S? '>'
+            // PEDecl      ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+            case 'E':
+            {
+                immutable posBefore = _state.pos;
+                popFrontAndIncCol(_state);
+                if(_state.stripStartsWith("LEMENT"))
+                {
+                    if(!stripWS(_state))
+                        throw new XMLParsingException("There must be whitespace after ELEMENT", _state.pos);
+                    _parseElementDecl();
+                }
+                else
+                {
+                    stripTagName("ENTITY", posBefore);
+                    _parseEntityDecl();
+                }
+                return;
+            }
+            // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
+            case 'A':
+            {
+                stripTagName("ATTLIST", _state.pos);
+                _parseAttlistDecl();
+                return;
+            }
+            // NotationDecl ::= '<!NOTATION' S Name S (ExternalID | PublicID) S? '>'
+            case 'N':
+            {
+                stripTagName("NOTATION", _state.pos);
+                _parseNotationDecl();
+                return;
+            }
+            default: throw new XMLParsingException("Unknown tag type", _state.pos);
         }
     }
 
@@ -1700,8 +1902,11 @@ private:
     // cp          ::= (Name | choice | seq) ('?' | '*' | '+')?
     // choice      ::= '(' S? cp ( S? '|' S? cp )+ S? ')'
     // seq         ::= '(' S? cp ( S? ',' S? cp )* S? ')'
+    // <!ELEMENT and any whitespace after it should have already been removed
+    // from the input.
     void _parseElementDecl()
     {
+        _state.type = EntityType.elementDecl;
     }
 
 
@@ -1719,8 +1924,11 @@ private:
     // Reference      ::= EntityRef | CharRef
     // EntityRef      ::= '&' Name ';'
     // CharRef        ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    // <!ATTLIST and any whitespace after it should have already been removed
+    // from the input.
     void _parseAttlistDecl()
     {
+        _state.type = EntityType.attlistDecl;
     }
 
 
@@ -1739,8 +1947,11 @@ private:
     // SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
     // PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
     // PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+    // <!ENTITY and any whitespace after it should have already been removed
+    // from the input.
     void _parseEntityDecl()
     {
+        _state.type = EntityType.entityDecl;
     }
 
 
@@ -1751,8 +1962,20 @@ private:
     // SystemLiteral ::= ('"' [^"]* '"') | ("'" [^']* "'")
     // PubidLiteral  ::= '"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
     // PubidChar     ::= #x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+    // <!NOTATION and any whitespace after it should have already been removed
+    // from the input.
     void _parseNotationDecl()
     {
+        _state.type = EntityType.notationDecl;
+        if(_state.input.empty)
+            throw new XMLParsingException("NOTATION tag missing name", _state.pos);
+        _state.name = takeName(_state);
+        if(!stripWS(_state))
+            throw new XMLParsingException("There must be whitespace after the NOTATION tag's name", _state.pos);
+        _state.id = _state.takeID();
+        if(_state.input.front != '>')
+            throw new XMLParsingException("> missing", _state.pos);
+        popFrontAndIncCol(_state);
     }
 
 
@@ -1836,7 +2059,6 @@ private:
         if(_state.input.front != '<')
         {
             _state.type = EntityType.text;
-            _state.savedText.pos = _state.pos;
             _state.savedText.input = _state.takeUntilAndDrop!"<"();
             checkNotEmpty(_state);
             if(_state.input.front == '/')
@@ -2140,6 +2362,13 @@ struct ID(R)
         If the $(LREF _ID) is a PublicID, then this is null.
       +/
     Nullable!R systemLiteral;
+
+    /++
+        Convenience wrapper that returns true if both
+        $(LREF2 publicLiteral, ID.publicLiteral) and
+        $(LREF2 systemLiteral, ID.systemLiteral) are null.
+      +/
+    @property bool empty() { return publicLiteral.isNull && systemLiteral.isNull; }
 }
 
 
@@ -3005,42 +3234,39 @@ unittest
 
 // Removes a name (per the Name grammar rule) from the front of the input and
 // returns it.
-// If delim is char.init, then XML space is the delimeter, otherwise it's
-// whatever delim is, but all the XML space between the name and the delimiter
-// is stripped. The delimiter is also stripped.
+// If delim is char.init, then parsing ends when any whitespace is encountered.
+// If delim is '>', then parsing ends when either whitespace or '>'
+// is encountered, and '>' is not removed from the input.
+// If delim is '=', then the name ends when whitespace or '=' is encountered,
+// but the parsing continues until '=' is consumed, with any whitespace between
+// the name and '=' stripped.
 auto takeName(char delim = char.init, PS)(PS state)
 {
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
     import std.format : format;
-    enum hasDelim = delim != char.init;
 
     assert(!state.input.empty);
 
-    static if(hasDelim)
-    {
-        if(state.input.front == delim)
-            throw new XMLParsingException("Cannot have empty name", state.pos);
-    }
-
     auto orig = state.input.save;
     size_t takeLen;
-    auto c = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
-    if(!isNameStartChar(c))
-        throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
+    auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
+    if(!isNameStartChar(decodedC))
+        throw new XMLParsingException(format!"Name contains invalid character: %s"(decodedC), state.pos);
 
     if(state.input.empty)
     {
-        static if(hasDelim)
+        static if(delim == '=')
             throw new XMLParsingException("Missing " ~ delim, state.pos);
     }
     else
     {
         while(true)
         {
-            static if(hasDelim)
+            immutable c = state.input.front;
+            if(isSpace(c))
             {
-                if(isSpace(state.input.front))
+                static if(delim == '=')
                 {
                     static if(state.config.posType == PositionType.lineAndCol)
                         state.pos.col += takeLen;
@@ -3048,14 +3274,19 @@ auto takeName(char delim = char.init, PS)(PS state)
                     if(state.input.empty)
                         throw new XMLParsingException("Missing " ~ delim, state.pos);
                     if(state.input.front != delim)
-                    {
-                        throw new XMLParsingException("Characters other than whitespace between name and " ~ delim,
-                                                      state.pos);
-                    }
+                        throw new XMLParsingException("Characters other than whitespace between name and =", state.pos);
                     popFrontAndIncCol(state);
-                    break;
                 }
-                else if(state.input.front == delim)
+                break;
+            }
+            static if(delim == '>')
+            {
+                if(c == delim)
+                    break;
+            }
+            else static if(delim == '=')
+            {
+                if(c == delim)
                 {
                     static if(state.config.posType == PositionType.lineAndCol)
                         state.pos.col += takeLen;
@@ -3063,21 +3294,16 @@ auto takeName(char delim = char.init, PS)(PS state)
                     break;
                 }
             }
-            else
-            {
-                if(isSpace(state.input.front))
-                    break;
-            }
 
             size_t numCodeUnits;
-            c = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-            if(!isNameChar(c))
-                throw new XMLParsingException(format!"Name contains invalid character: %s"(c), state.pos);
+            decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+            if(!isNameChar(decodedC))
+                throw new XMLParsingException(format!"Name contains invalid character: %s"(decodedC), state.pos);
             takeLen += numCodeUnits;
 
             if(state.input.empty)
             {
-                static if(hasDelim)
+                static if(delim == '=')
                     throw new XMLParsingException("Missing " ~ delim, state.pos);
                 else
                     break;
@@ -3085,7 +3311,7 @@ auto takeName(char delim = char.init, PS)(PS state)
         }
     }
 
-    static if(!hasDelim && state.config.posType == PositionType.lineAndCol)
+    static if(delim != '=' && state.config.posType == PositionType.lineAndCol)
         state.pos.col += takeLen;
 
     return takeExactly(orig, takeLen);
@@ -3130,7 +3356,12 @@ unittest
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
             foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
+            {
                 test!func(str ~ remainder, str, remainder, 1, len + 1);
+                test!(func, '>')(str ~ remainder, str, remainder, 1, len + 1);
+                test!(func, '>')(str ~ '>' ~ remainder, str, ">" ~ remainder, 1, len + 1);
+                test!(func, '>')(str ~ remainder ~ '>', str, remainder ~ '>', 1, len + 1);
+            }
 
             import std.typecons : tuple;
             foreach(ends; AliasSeq!(tuple("=", ""), tuple(" =", ""), tuple("\t\r=  ", "  "),
@@ -3142,13 +3373,20 @@ unittest
             test!(func, '=')(str ~ "\n\n  \n \n \r\t  =blah", str, "blah", 5, 7);
         }
 
+        foreach(haystack; AliasSeq!("<", "foo!", "foo!>"))
+        {
+            testFail!func(haystack);
+            testFail!(func, '>')(haystack);
+            testFail!(func, '=')(haystack);
+        }
+
         foreach(haystack; AliasSeq!("4", "42", "-", ".", " ", "\t", "\n", "\r", " foo", "\tfoo", "\nfoo", "\rfoo"))
         {
             testFail!func(haystack);
             testFail!(func, '=')(haystack);
         }
 
-        foreach(haystack; AliasSeq!("fo o=bar", "\nfoo=bar", "foo", "f", "=bar"))
+        foreach(haystack; AliasSeq!("fo o=bar", "\nfoo=bar", "foo", "foo ", "f", "=bar"))
             testFail!(func, '=')(haystack);
     }
 }
