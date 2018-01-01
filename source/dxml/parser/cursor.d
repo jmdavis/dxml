@@ -1677,10 +1677,18 @@ private:
         {
             auto pos = _state.pos;
             _state.type = EntityType.processingInstruction;
+            _state.name = takeName!'?'(_state);
+            checkNotEmpty(_state);
+            if(_state.input.front != '?')
+            {
+                if(!stripWS(_state))
+                {
+                    throw new XMLParsingException("There must be whitespace after the name if there is text before " ~
+                                                  "the terminating ?>", _state.pos);
+                }
+            }
             _state.savedText.pos = _state.pos;
             _state.savedText.input = _state.takeUntilAndDrop!"?>"();
-            _state.name = takeName(&_state.savedText);
-            stripWS(&_state.savedText);
             if(walkLength(_state.name.save) == 3)
             {
                 // FIXME icmp doesn't compile right now due to an issue with
@@ -2118,7 +2126,7 @@ private:
         _state.type = EntityType.notationDecl;
         if(_state.input.empty)
             throw new XMLParsingException("NOTATION tag missing name", _state.pos);
-        _state.name = takeName(_state);
+        _state.name = _state.takeName();
         if(!stripWS(_state))
             throw new XMLParsingException("There must be whitespace after the NOTATION tag's name", _state.pos);
         _state.id = nullable(_state.takeID!(false, false)());
@@ -3377,14 +3385,15 @@ unittest
 // Removes a name (per the Name grammar rule) from the front of the input and
 // returns it.
 // If delim is char.init, then parsing ends when any whitespace is encountered.
-// If delim is '>', then parsing ends when either whitespace or '>'
-// is encountered, and '>' is not removed from the input.
+// If delim is '>' or '?', then parsing ends when either whitespace or delim
+// is encountered. delim is not removed from the input.
 // If delim is '=', then the name ends when whitespace or '=' is encountered,
 // but the parsing continues until '=' is consumed, with any whitespace between
 // the name and '=' stripped.
 auto takeName(char delim = char.init, PS)(PS state)
 {
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
+    static assert(delim == char.init || delim == '=' || delim == '>' || delim == '?');
 
     import std.format : format;
 
@@ -3421,7 +3430,7 @@ auto takeName(char delim = char.init, PS)(PS state)
                 }
                 break;
             }
-            static if(delim == '>')
+            static if(delim == '>' || delim == '?')
             {
                 if(c == delim)
                     break;
@@ -3500,9 +3509,12 @@ unittest
             foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
             {
                 test!func(str ~ remainder, str, remainder, 1, len + 1);
-                test!(func, '>')(str ~ remainder, str, remainder, 1, len + 1);
-                test!(func, '>')(str ~ '>' ~ remainder, str, ">" ~ remainder, 1, len + 1);
-                test!(func, '>')(str ~ remainder ~ '>', str, remainder ~ '>', 1, len + 1);
+                static foreach(delim; ">?")
+                {
+                    test!(func, delim)(str ~ remainder, str, remainder, 1, len + 1);
+                    test!(func, delim)(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
+                    test!(func, delim)(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
+                }
             }
 
             import std.typecons : tuple;
@@ -3518,8 +3530,8 @@ unittest
         foreach(haystack; AliasSeq!("<", "foo!", "foo!>"))
         {
             testFail!func(haystack);
-            testFail!(func, '>')(haystack);
-            testFail!(func, '=')(haystack);
+            static foreach(delim; ">?=")
+                testFail!(func, delim)(haystack);
         }
 
         foreach(haystack; AliasSeq!("4", "42", "-", ".", " ", "\t", "\n", "\r", " foo", "\tfoo", "\nfoo", "\rfoo"))
