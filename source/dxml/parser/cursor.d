@@ -34,7 +34,15 @@ package:
 
     this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__)
     {
+        import std.format : format;
         pos = sourcePos;
+        if(pos.line != -1)
+        {
+            if(pos.col != -1)
+                msg = format!"[%s:%s]: %s"(pos.line, pos.col, msg);
+            else
+                msg = format!"[Line %s]: %s"(pos.line, msg);
+        }
         super(msg, file, line);
     }
 }
@@ -755,7 +763,6 @@ public:
             assert(only(attlistDecl, docTypeStart, docTypeEmpty, elementDecl, elementStart, elementEnd,
                         elementEmpty, entityDecl, notationDecl, processingInstruction).canFind(_state.type));
         }
-
         return stripBCU!R(_state.name);
     }
 
@@ -926,7 +933,6 @@ public:
     {
         with(EntityType)
             assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
-
         return stripBCU!R(_state.savedText.input);
     }
 
@@ -1317,8 +1323,7 @@ public:
         current entity.
 
         In the case of `<!DOCTYPE ...>` (where the external ID is optional),
-        both $(LREF ID.publicLiteral) and $(LREF ID.systemLiteral) will be null
-        if there was no external ID present.
+        if there is no external ID present, then the return value will be null.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
@@ -1331,11 +1336,10 @@ public:
 
         See_Also: $(LREF ID);
       +/
-    @property ID!SliceOfR id()
+    @property Nullable!(ID!SliceOfR) id()
     {
         with(EntityType)
             assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
-
         return _state.id;
     }
 
@@ -1356,25 +1360,21 @@ public:
             assert(cursor.name == "dentist");
             assert(cursor.id.publicLiteral == "foo");
             assert(cursor.id.systemLiteral == "bar");
-            assert(!cursor.id.empty);
 
             assert(cursor.next() == EntityType.notationDecl);
             assert(cursor.name == "good");
             assert(cursor.id.publicLiteral == "something");
             assert(cursor.id.systemLiteral.isNull);
-            assert(!cursor.id.empty);
 
             assert(cursor.next() == EntityType.notationDecl);
             assert(cursor.name == "bad");
             assert(cursor.id.publicLiteral == "else");
             assert(cursor.id.systemLiteral == "to");
-            assert(!cursor.id.empty);
 
             assert(cursor.next() == EntityType.notationDecl);
             assert(cursor.name == "ugly");
             assert(cursor.id.publicLiteral.isNull);
             assert(cursor.id.systemLiteral == "parse");
-            assert(!cursor.id.empty);
 
             assert(cursor.next() == EntityType.docTypeEnd);
 
@@ -1392,7 +1392,6 @@ public:
             assert(cursor.name == "archaelogist");
             assert(cursor.id.publicLiteral.isNull);
             assert(cursor.id.systemLiteral == "digging");
-            assert(!cursor.id.empty);
 
             assert(cursor.next() == EntityType.elementEmpty);
             assert(cursor.name == "root");
@@ -1406,9 +1405,7 @@ public:
             auto cursor = parseXML(xml);
             assert(cursor.next() == EntityType.docTypeEmpty);
             assert(cursor.name == "optometrist");
-            assert(cursor.id.publicLiteral.isNull);
-            assert(cursor.id.systemLiteral.isNull);
-            assert(cursor.id.empty);
+            assert(cursor.id.isNull);
 
             assert(cursor.next() == EntityType.elementEmpty);
             assert(cursor.name == "root");
@@ -1418,14 +1415,13 @@ public:
     }
 
 
-    /+
     /++
         Returns the EntityDef or PEDecl portion of an `<!ENTITY ...>`
         declaration (both represented by $(LREF EntityDef)).
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
-            $(TR $(TD $(LREF2 entity, EntityType))),
+            $(TR $(TD $(LREF2 entityDecl, EntityType))),
         )
 
         Throws: $(LREF XMLParsingException) on invalid XML.
@@ -1434,18 +1430,98 @@ public:
       +/
     @property EntityDef!SliceOfR entityDef()
     {
-        assert(_state.type == EntityType.entity);
-
-        auto state = _state.savedText;
-        EntityDef!SliceOfR retval;
-
-        if(state.input.front == '%')
-        {
-            retval.parsedEntity = true;
-            popFrontAndIncCol!config(state);
-        }
+        assert(_state.type == EntityType.entityDecl);
+        return _state.entityDef;
     }
-    +/
+
+    unittest
+    {
+        enum xml = "<!DOCTYPE pediatrist\n" ~
+                   "    [\n" ~
+                   "        <!ENTITY Name 'a value'>\n" ~
+                   "        <!ENTITY abcd 'another value'>\n" ~
+                   "        <!ENTITY nom PUBLIC 'foo' 'bar' NDATA baz>\n" ~
+                   "        <!ENTITY xyzzy SYSTEM 'hello' NDATA world>\n" ~
+                   "        <!ENTITY % e01 'nothing to see'>\n" ~
+                   "        <!ENTITY % e02 PUBLIC '1' '2'>\n" ~
+                   "        <!ENTITY % e03 SYSTEM '3'>\n" ~
+                   "    ]>\n" ~
+                   "<root/>";
+
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.docTypeStart);
+        assert(cursor.name == "pediatrist");
+
+        import std.stdio;
+        // "<!ENTITY Name 'a value'>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "Name");
+        assert(!cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value == "a value");
+        assert(cursor.entityDef.externalID.isNull);
+        assert(cursor.entityDef.ndataName.empty);
+
+        // "<!ENTITY abcd 'another value'>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "abcd");
+        assert(!cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value == "another value");
+        assert(cursor.entityDef.externalID.isNull);
+        assert(cursor.entityDef.ndataName.empty);
+
+        // "<!ENTITY nom PUBLIC 'foo' 'bar' NDATA baz>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "nom");
+        assert(!cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value.isNull);
+        assert(cursor.entityDef.externalID.publicLiteral == "foo");
+        assert(cursor.entityDef.externalID.systemLiteral == "bar");
+        assert(cursor.entityDef.ndataName == "baz");
+
+        // "<!ENTITY xyzzy SYSTEM 'hello' NDATA world>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "xyzzy");
+        assert(!cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value.isNull);
+        assert(cursor.entityDef.externalID.publicLiteral.isNull);
+        assert(cursor.entityDef.externalID.systemLiteral == "hello");
+        assert(cursor.entityDef.ndataName == "world");
+
+        // "<!ENTITY % e01 'nothing to see'>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "e01");
+        assert(cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value == "nothing to see");
+        assert(cursor.entityDef.externalID.isNull);
+        assert(cursor.entityDef.ndataName.empty);
+
+        // "<!ENTITY % e02 PUBLIC '1' '2'>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "e02");
+        assert(cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value.isNull);
+        assert(cursor.entityDef.externalID.publicLiteral == "1");
+        assert(cursor.entityDef.externalID.systemLiteral == "2");
+        assert(cursor.entityDef.ndataName.empty);
+
+        // "<!ENTITY % e03 SYSTEM '3'>"
+        assert(cursor.next() == EntityType.entityDecl);
+        assert(cursor.name == "e03");
+        assert(cursor.entityDef.parsedEntity);
+        assert(cursor.entityDef.value.isNull);
+        assert(cursor.entityDef.externalID.publicLiteral.isNull);
+        assert(cursor.entityDef.externalID.systemLiteral == "3");
+        assert(cursor.entityDef.ndataName.empty);
+
+        // ">"
+        assert(cursor.next() == EntityType.docTypeEnd);
+
+        // "<root/>"
+        assert(cursor.next() == EntityType.elementEmpty);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.documentEnd);
+    }
 
 
 private:
@@ -1731,9 +1807,7 @@ private:
                         throw new XMLParsingException("There must be whitespace between the name and the ID",
                                                       _state.pos);
                     }
-                    _state.id = _state.takeID();
-                    if(!_state.id.publicLiteral.isNull && _state.id.systemLiteral.isNull)
-                        throw new XMLParsingException("System literal missing after public ID literal", _state.pos);
+                    _state.id = nullable(_state.takeID!(true, false)());
                     immutable c = _state.input.front;
                     if(c == '[')
                     {
@@ -1753,7 +1827,7 @@ private:
                 case '[':
                 {
                     popFrontAndIncCol(_state);
-                    _state.id = typeof(_state.id).init; // In case it has an ID from a previous entity.
+                    _state.id.nullify(); // In case it has an ID from a previous entity.
                     _state.type = EntityType.docTypeStart;
                     _state.grammarPos = GrammarPos.intSubset;
                     break;
@@ -1761,12 +1835,12 @@ private:
                 case '>':
                 {
                     popFrontAndIncCol(_state);
-                    _state.id = typeof(_state.id).init; // In case it has an ID from a previous entity.
+                    _state.id.nullify(); // In case it has an ID from a previous entity.
                     _state.type = EntityType.docTypeEmpty;
                     _state.grammarPos = GrammarPos.prologMisc2;
                     break;
                 }
-                default: assert(0);
+                default: throw new XMLParsingException("Expected SYSTIME, PUBLIC, [, or >", _state.pos);
             }
         }
     }
@@ -1871,7 +1945,7 @@ private:
                 }
                 else
                 {
-                    stripTagName("ENTITY", posBefore);
+                    stripTagName("NTITY", posBefore);
                     _parseEntityDecl();
                 }
                 return;
@@ -1952,6 +2026,81 @@ private:
     void _parseEntityDecl()
     {
         _state.type = EntityType.entityDecl;
+        _state.entityDef = typeof(_state.entityDef).init;
+
+        checkNotEmpty(_state);
+        if(_state.input.front == '%')
+        {
+            _state.entityDef.parsedEntity = true;
+            popFrontAndIncCol(_state);
+            if(!stripWS(_state))
+                throw new XMLParsingException("Whitespace missing after %", _state.pos);
+            checkNotEmpty(_state);
+        }
+
+        _state.name = _state.takeName();
+        if(!stripWS(_state))
+            throw new XMLParsingException("Missing whitespace", _state.pos);
+
+        checkNotEmpty(_state);
+        switch(_state.input.front)
+        {
+            case 'P':
+            case 'S':
+            {
+                auto temp = _state.takeID!(true, true)();
+                _state.entityDef.externalID = temp[0];
+                switch(_state.input.front)
+                {
+                    case '>':
+                    {
+                        if(!_state.entityDef.parsedEntity)
+                            throw new XMLParsingException("Expected NDATA", _state.pos);
+                        popFrontAndIncCol(_state);
+                        return;
+                    }
+                    case 'N':
+                    {
+                        if(_state.entityDef.parsedEntity)
+                            throw new XMLParsingException("Expected >", _state.pos);
+                        popFrontAndIncCol(_state);
+                        if(!_state.stripStartsWith("DATA"))
+                            throw new XMLParsingException("Expected NDATA", _state.pos);
+                        if(!stripWS(_state))
+                            throw new XMLParsingException("There must be whitespace after NDATA", _state.pos);
+                        _state.entityDef.ndataName = stripBCU!R(_state.takeName!'>'());
+                        break;
+
+                    }
+                    default:
+                    {
+                        if(_state.entityDef.parsedEntity)
+                            throw new XMLParsingException("Expected >", _state.pos);
+                        else
+                            throw new XMLParsingException("Expected NDATA", _state.pos);
+                    }
+                }
+                break;
+            }
+            case '"':
+            {
+                popFrontAndIncCol(_state);
+                _state.entityDef.value = stripBCU!R(_state.takeUntilAndDrop!`"`());
+                break;
+            }
+            case '\'':
+            {
+                popFrontAndIncCol(_state);
+                _state.entityDef.value = stripBCU!R(_state.takeUntilAndDrop!"'"());
+                break;
+            }
+            default: throw new XMLParsingException(`Expected PUBLIC, SYSTEM, ", or '`, _state.pos);
+        }
+
+        stripWS(_state);
+        if(_state.input.front != '>')
+            throw new XMLParsingException("Expected >", _state.pos);
+        popFrontAndIncCol(_state);
     }
 
 
@@ -1972,7 +2121,7 @@ private:
         _state.name = takeName(_state);
         if(!stripWS(_state))
             throw new XMLParsingException("There must be whitespace after the NOTATION tag's name", _state.pos);
-        _state.id = _state.takeID();
+        _state.id = nullable(_state.takeID!(false, false)());
         if(_state.input.front != '>')
             throw new XMLParsingException("> missing", _state.pos);
         popFrontAndIncCol(_state);
@@ -2362,13 +2511,6 @@ struct ID(R)
         If the $(LREF _ID) is a PublicID, then this is null.
       +/
     Nullable!R systemLiteral;
-
-    /++
-        Convenience wrapper that returns true if both
-        $(LREF2 publicLiteral, ID.publicLiteral) and
-        $(LREF2 systemLiteral, ID.systemLiteral) are null.
-      +/
-    @property bool empty() { return publicLiteral.isNull && systemLiteral.isNull; }
 }
 
 
@@ -2431,7 +2573,7 @@ struct EntityDef(R)
 
     /++
       +/
-    Nullable!R ndataName;
+    R ndataName;
 }
 
 
@@ -2481,7 +2623,7 @@ struct ParserState(Config cfg, R)
     Taken name;
     TagStack!Taken tagStack;
 
-    ID!SliceOfR id;
+    Nullable!(ID!SliceOfR) id;
     EntityDef!SliceOfR entityDef;
 
     this(R xmlText)
@@ -3252,7 +3394,7 @@ auto takeName(char delim = char.init, PS)(PS state)
     size_t takeLen;
     auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
     if(!isNameStartChar(decodedC))
-        throw new XMLParsingException(format!"Name contains invalid character: %s"(decodedC), state.pos);
+        throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
 
     if(state.input.empty)
     {
@@ -3402,7 +3544,7 @@ unittest
 // This extracts the exteral ID or Public ID. Since the whitespace on the right
 // must be stripped to determine whether there's a second literal, the
 // whitespace is always stripped in order to be consistent.
-auto takeID(PS)(PS state)
+auto takeID(bool requireSystemAfterPublic, bool returnWasSpace, PS)(PS state)
 {
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
@@ -3413,6 +3555,7 @@ auto takeID(PS)(PS state)
     alias SliceOfR = PS.SliceOfR;
 
     ID!SliceOfR retval;
+    bool wasSpace;
 
     if(state.stripStartsWith("PUBLIC"))
     {
@@ -3421,7 +3564,7 @@ auto takeID(PS)(PS state)
         if(!isQuote(state.input.front))
             throw new XMLParsingException("Missing quote", state.pos);
         retval.publicLiteral = stripBCU!Text(state.takePubidLiteral());
-        immutable wasSpace = stripWS(state);
+        wasSpace = stripWS(state);
         checkNotEmpty(state);
         if(isQuote(state.input.front))
         {
@@ -3431,8 +3574,16 @@ auto takeID(PS)(PS state)
                                               "and a System literal", state.pos);
             }
             retval.systemLiteral = stripBCU!Text(state.takeSystemLiteral());
-            stripWS(state);
+            static if(returnWasSpace)
+                wasSpace = stripWS(state);
+            else
+                stripWS(state);
             checkNotEmpty(state);
+        }
+        else
+        {
+            static if(requireSystemAfterPublic)
+                throw new XMLParsingException("System literal missing after public ID literal", state.pos);
         }
     }
     else if(state.stripStartsWith("SYSTEM"))
@@ -3442,13 +3593,22 @@ auto takeID(PS)(PS state)
         if(!isQuote(state.input.front))
             throw new XMLParsingException("Missing quote", state.pos);
         retval.systemLiteral = stripBCU!Text(state.takeSystemLiteral());
-        stripWS(state);
+        static if(returnWasSpace)
+            wasSpace = stripWS(state);
+        else
+            stripWS(state);
         checkNotEmpty(state);
     }
     else
         throw new XMLParsingException("Expected SYSTEM or PUBLIC", state.pos);
 
-    return retval;
+    static if(returnWasSpace)
+    {
+        import std.typecons : tuple;
+        return tuple(retval, wasSpace);
+    }
+    else
+        return retval;
 }
 
 unittest
@@ -3466,8 +3626,8 @@ unittest
         return equal(lhs, rhs);
     }
 
-    static void test(alias func)(string origHaystack, ID!string expected, string remainder,
-                                 int row, int col, size_t line = __LINE__)
+    static void test(alias func, bool rsap, bool rws)(string origHaystack, ID!string expected, string remainder,
+                                                      bool expectedWS, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
 
@@ -3475,21 +3635,27 @@ unittest
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            auto id = state.takeID();
+            auto result = state.takeID!(rsap, rws)();
+            static if(rws)
+                auto id = result[0];
+            else
+                auto id = result;
             enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", __FILE__, line);
             enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+            static if(rws)
+                enforce!AssertError(result[1] == expectedWS, "unittest failure 5", __FILE__, line);
         }
     }
 
-    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, bool rsap, bool rws)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
             auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeID(), "unittest failure", __FILE__, line);
+            assertThrown!XMLParsingException(state.takeID!(rsap, rws)(), "unittest failure", __FILE__, line);
         }
     }
 
@@ -3511,54 +3677,72 @@ unittest
 
     foreach(func; testRangeFuncs)
     {
-        test!func(`SYSTEM "Name">`, sysLit(`Name`), ">", 1, 14);
-        test!func(`SYSTEM 'Name'>`, sysLit(`Name`), ">", 1, 14);
-        test!func(`SYSTEM 'Name'>`, sysLit(`Name`), ">", 1, 14);
-        test!func("SYSTEM\n\n\n'Name'    >", sysLit("Name"), ">", 4, 11);
-        test!func("SYSTEM  'Foo\nBar'>", sysLit("Foo\nBar"), ">", 2, 5);
-        test!func(`SYSTEM "">`, sysLit(``), ">", 1, 10);
+        foreach(rws; AliasSeq!(false, true))
+        {
+            foreach(rsap; AliasSeq!(false, true))
+            {
+                test!(func, rsap, rws)(`SYSTEM "Name">`, sysLit(`Name`), ">", false, 1, 14);
+                test!(func, rsap, rws)(`SYSTEM 'Name'>`, sysLit(`Name`), ">", false, 1, 14);
+                test!(func, rsap, rws)(`SYSTEM "Name"   >`, sysLit(`Name`), ">", true, 1, 17);
+                test!(func, rsap, rws)("SYSTEM 'Name'\n\n>", sysLit(`Name`), ">", true, 3, 1);
+                test!(func, rsap, rws)("SYSTEM\n\n\n'Name'    >", sysLit("Name"), ">", true, 4, 11);
+                test!(func, rsap, rws)("SYSTEM  'Foo\nBar'>", sysLit("Foo\nBar"), ">", false, 2, 5);
+                test!(func, rsap, rws)(`SYSTEM "">`, sysLit(``), ">", false, 1, 10);
 
-        test!func(`PUBLIC "Name">`, pubLit(`Name`), ">", 1, 14);
-        test!func(`PUBLIC 'Name'>`, pubLit(`Name`), ">", 1, 14);
-        test!func(`PUBLIC 'Name'>`, pubLit(`Name`), ">", 1, 14);
-        test!func("PUBLIC\n\n\n'Name'    >", pubLit("Name"), ">", 4, 11);
-        test!func("PUBLIC  'Foo\nBar'>", pubLit("Foo\nBar"), ">", 2, 5);
-        test!func(`PUBLIC "">`, pubLit(``), ">", 1, 10);
+                test!(func, rsap, rws)(`PUBLIC "Name" 'Foo'>`, pubLit(`Name`, `Foo`), ">", false, 1, 20);
+                test!(func, rsap, rws)(`PUBLIC 'Name' "Foo">`, pubLit(`Name`, `Foo`), ">", false, 1, 20);
+                test!(func, rsap, rws)(`PUBLIC "Name"   "thing"  >`, pubLit(`Name`, "thing"), ">", true, 1, 26);
+                test!(func, rsap, rws)("PUBLIC 'Name' \n 'thing'\n\n>", pubLit(`Name`, "thing"), ">", true, 4, 1);
+                test!(func, rsap, rws)("PUBLIC\n\n\n'Name'    'Foo' >", pubLit("Name", "Foo"), ">", true, 4, 17);
+                test!(func, rsap, rws)("PUBLIC  'Foo\nBar' 'Foo'>", pubLit("Foo\nBar", "Foo"), ">", false, 2, 11);
+                test!(func, rsap, rws)("PUBLIC 'A' \n\n 'B'>", pubLit("A", "B"), ">", false, 3, 5);
+                test!(func, rsap, rws)("PUBLIC 'A' 'B\n\n\n'>", pubLit("A", "B\n\n\n"), ">", false, 4, 2);
+                test!(func, rsap, rws)("PUBLIC '' ''>", pubLit("", ""), ">", false, 1, 13);
 
-        test!func(`PUBLIC "Name" 'Foo'>`, pubLit(`Name`, `Foo`), ">", 1, 20);
-        test!func(`PUBLIC 'Name' "Foo">`, pubLit(`Name`, `Foo`), ">", 1, 20);
-        test!func("PUBLIC\n\n\n'Name'    'Foo' >", pubLit("Name", "Foo"), ">", 4, 17);
-        test!func("PUBLIC  'Foo\nBar' 'Foo'>", pubLit("Foo\nBar", "Foo"), ">", 2, 11);
-        test!func("PUBLIC 'A' \n\n 'B'>", pubLit("A", "B"), ">", 3, 5);
-        test!func("PUBLIC 'A' 'B\n\n\n'>", pubLit("A", "B\n\n\n"), ">", 4, 2);
-        test!func("PUBLIC '' ''>", pubLit("", ""), ">", 1, 13);
+                testFail!(func, rsap, rws)(`SYSTEM`);
+                testFail!(func, rsap, rws)(`SYSTEM>`);
+                testFail!(func, rsap, rws)(`SYSTEM >`);
+                testFail!(func, rsap, rws)(`SYSTEM ">`);
+                testFail!(func, rsap, rws)(`SYSTEM '>`);
+                testFail!(func, rsap, rws)(`SYSTEM ""`);
+                testFail!(func, rsap, rws)(`SYSTEM ''`);
+                testFail!(func, rsap, rws)(`SYSTEM "'>`);
+                testFail!(func, rsap, rws)(`SYSTEM '">`);
 
-        testFail!func(`SYSTEM`);
-        testFail!func(`SYSTEM>`);
-        testFail!func(`SYSTEM >`);
-        testFail!func(`SYSTEM ">`);
-        testFail!func(`SYSTEM '>`);
-        testFail!func(`SYSTEM ""`);
-        testFail!func(`SYSTEM ''`);
-        testFail!func(`SYSTEM "'>`);
-        testFail!func(`SYSTEM '">`);
+                testFail!(func, rsap, rws)(`PUBLIC`);
+                testFail!(func, rsap, rws)(`PUBLIC>`);
+                testFail!(func, rsap, rws)(`PUBLIC >`);
+                testFail!(func, rsap, rws)(`PUBLIC ">`);
+                testFail!(func, rsap, rws)(`PUBLIC '>`);
+                testFail!(func, rsap, rws)(`PUBLIC ""`);
+                testFail!(func, rsap, rws)(`PUBLIC "'>`);
+                testFail!(func, rsap, rws)(`PUBLIC '">`);
+                testFail!(func, rsap, rws)(`PUBLIC "" ">`);
+                testFail!(func, rsap, rws)(`PUBLIC "" '>`);
+                testFail!(func, rsap, rws)(`PUBLIC '' ">`);
+                testFail!(func, rsap, rws)(`PUBLIC '' '>`);
+                testFail!(func, rsap, rws)(`PUBLIC "" ""`);
+                testFail!(func, rsap, rws)(`PUBLIC """"`);
+                testFail!(func, rsap, rws)(`PUBLIC '' ''`);
+                testFail!(func, rsap, rws)(`PUBLIC ''''`);
+            }
 
-        testFail!func(`PUBLIC`);
-        testFail!func(`PUBLIC>`);
-        testFail!func(`PUBLIC >`);
-        testFail!func(`PUBLIC ">`);
-        testFail!func(`PUBLIC '>`);
-        testFail!func(`PUBLIC ""`);
-        testFail!func(`PUBLIC "'>`);
-        testFail!func(`PUBLIC '">`);
-        testFail!func(`PUBLIC "" ">`);
-        testFail!func(`PUBLIC "" '>`);
-        testFail!func(`PUBLIC '' ">`);
-        testFail!func(`PUBLIC '' '>`);
-        testFail!func(`PUBLIC "" ""`);
-        testFail!func(`PUBLIC """"`);
-        testFail!func(`PUBLIC '' ''`);
-        testFail!func(`PUBLIC ''''`);
+            test!(func, false, rws)(`PUBLIC "Name">`, pubLit(`Name`), ">", false, 1, 14);
+            test!(func, false, rws)(`PUBLIC 'Name'>`, pubLit(`Name`), ">", false, 1, 14);
+            test!(func, false, rws)(`PUBLIC "Name"   >`, pubLit(`Name`), ">", true, 1, 17);
+            test!(func, false, rws)("PUBLIC 'Name'\n\n>", pubLit(`Name`), ">", true, 3, 1);
+            test!(func, false, rws)("PUBLIC\n\n\n'Name'    >", pubLit("Name"), ">", true, 4, 11);
+            test!(func, false, rws)("PUBLIC  'Foo\nBar'>", pubLit("Foo\nBar"), ">", false, 2, 5);
+            test!(func, false, rws)(`PUBLIC "">`, pubLit(``), ">", false, 1, 10);
+
+            testFail!(func, true, rws)(`PUBLIC "Name">`);
+            testFail!(func, true, rws)(`PUBLIC 'Name'>`);
+            testFail!(func, true, rws)(`PUBLIC "Name"  >`);
+            testFail!(func, true, rws)("PUBLIC 'Name'\n\n>");
+            testFail!(func, true, rws)("PUBLIC\n\n\n'Name'    >");
+            testFail!(func, true, rws)("PUBLIC  'Foo\nBar'>");
+            testFail!(func, true, rws)(`PUBLIC "">`);
+        }
     }
 }
 
