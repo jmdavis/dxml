@@ -390,11 +390,27 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipDTD.yes, SkipProlog.yes, SkipP
 enum EntityType
 {
     /++
-        The `<!ATTLIST ... >` tag.
+        The beginning of an `<!ATTLIST ... >` tag.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
       +/
-    attlistDecl,
+    attlistDeclStart,
+
+    /++
+        One of the
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)s) in
+        `'<!ATTLIST' S Name AttDef* S? '>'`.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+      +/
+    attDef,
+
+    /++
+        The end of an `<!ATTLIST ... >` tag.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+      +/
+    attlistDeclEnd,
 
     /++
         A cdata section: `<![CDATA[ ... ]]>`.
@@ -708,6 +724,11 @@ public:
                     _parseAtIntSubset();
                     break;
                 }
+                case intSubsetAttDef:
+                {
+                    _parseAtAttDef();
+                    break;
+                }
                 case splittingEmpty:
                 {
                     _state.type = EntityType.elementEnd;
@@ -742,7 +763,8 @@ public:
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 acttlistDecl, EntityType)))
+            $(TR $(TD $(LREF2 acttlistDeclStart, EntityType)))
+            $(TR $(TD $(LREF2 attDef, EntityType)))
             $(TR $(TD $(LREF2 docTypeStart, EntityType)))
             $(TR $(TD $(LREF2 docTypeEmpty, EntityType)))
             $(TR $(TD $(LREF2 elementDecl, EntityType)))
@@ -760,10 +782,10 @@ public:
     {
         with(EntityType)
         {
-            assert(only(attlistDecl, docTypeStart, docTypeEmpty, elementDecl, elementStart, elementEnd,
+            assert(only(attlistDeclStart, attDef, docTypeStart, docTypeEmpty, elementDecl, elementStart, elementEnd,
                         elementEmpty, entityDecl, notationDecl, processingInstruction).canFind(_state.type));
         }
-        return stripBCU!R(_state.name);
+        return stripBCU!R(_state.name.save);
     }
 
 
@@ -935,7 +957,7 @@ public:
     {
         with(EntityType)
             assert(only(cdata, comment, elementDecl, processingInstruction, text).canFind(_state.type));
-        return stripBCU!R(_state.savedText.input);
+        return stripBCU!R(_state.savedText.input.save);
     }
 
     ///
@@ -1133,16 +1155,54 @@ public:
 
 
     /++
-        Returns the $(LREF XMLDecl) corresponding to the current entity.
+        Information parsed from an `<?xml ... ?>` declaration.
+
+        Note that while XML 1.1 requires this declaration, it's optional in XML
+        1.0.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
             $(TR $(TD $(LREF2 _xmlDecl, EntityType)))
         )
 
+        Returns: The XMLDecl corresponding to the current entity.
+
         Throws: $(LREF XMLParsingException) on invalid XML.
+
+        See_Also: $(LINK http://www.w3.org/TR/xml/#NT-XMLDecl)
       +/
-    @property XMLDecl!SliceOfR xmlDecl()
+    struct XMLDecl
+    {
+        /++
+            The version of XML that the document contains.
+          +/
+        SliceOfR xmlVersion;
+
+        /++
+            The encoding of the text in the XML document.
+
+            Note that dxml only supports UTF-8, UTF-16, and UTF-32, and it is
+            assumed that the encoding matches the character type. The parser
+            ignores this field aside from providing its value as part of an
+            $(LREF XMLDecl).
+
+            Anyone looking to make their program determine the encoding based on
+            the $(D "encoding") field, should read
+            $(LINK http://www.w3.org/TR/REC-xml/#sec-guessing).
+          +/
+        Nullable!SliceOfR encoding;
+
+        /++
+            $(D true) if the XML document does $(I not) contain any external
+            references. $(D false) if it does or may contain external references.
+            It's null if the $(D "standalone") declaration was not included in
+            the `<?xml ..?>` declaration.
+          +/
+        Nullable!bool standalone;
+    }
+
+    /// Ditto
+    @property XMLDecl xmlDecl()
     {
         assert(_state.type == EntityType.xmlDecl);
 
@@ -1157,7 +1217,7 @@ public:
         // examples with filter, we get an error about accessing the frame
         // pointer if we don't, which seems like a bug in dmd which should
         // probably be reduced and reported. It may be https://issues.dlang.org/show_bug.cgi?id=13945
-        XMLDecl!SliceOfR retval = XMLDecl!SliceOfR.init;
+        XMLDecl retval = XMLDecl.init;
 
         // XMLDecl      ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
         // VersionInfo  ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"')
@@ -1353,9 +1413,10 @@ public:
     }
 
 
+
     /++
-        Returns the external $(LREF ID) or public $(LREF ID) portion of the
-        current entity.
+        Information for an external or public ID as parsed from a `SYSTEM ...` or
+        `PUBLIC ...` declaration inside a `<!DOCTYPE ...>` declaration.
 
         In the case of `<!DOCTYPE ...>` (where the external ID is optional),
         if there is no external ID present, then the return value will be null.
@@ -1367,11 +1428,28 @@ public:
             $(TR $(TD $(LREF2 notation, EntityType)))
         )
 
-        Throws: $(LREF XMLParsingException) on invalid XML.
+        Returns: The external ID or public ID portion of the current entity.
 
-        See_Also: $(LREF ID);
+        See_Also: $(LINK http://www.w3.org/TR/xml/#NT-ExternalID)$(BR)
+                  $(LINK http://www.w3.org/TR/xml/#NT-PublicID)
       +/
-    @property Nullable!(ID!SliceOfR) id()
+    struct ID
+    {
+        /++
+            The PubidLiteral portion of a `PUBLIC ...` delaration. If the
+            ID was a `SYSTEM ...` declaration, then this is null.
+          +/
+        Nullable!SliceOfR publicLiteral;
+
+        /++
+            The SystemLiteral portion of a `SYSTEM ...` or `PUBLIC ...` delaration.
+            If the ID is a PublicID, then this is null.
+          +/
+        Nullable!SliceOfR systemLiteral;
+    }
+
+    /// Ditto
+    @property Nullable!ID id()
     {
         with(EntityType)
             assert(only(docTypeStart, docTypeEmpty, notationDecl).canFind(_state.type));
@@ -1451,19 +1529,84 @@ public:
 
 
     /++
-        Returns the EntityDef or PEDecl portion of an `<!ENTITY ...>`
-        declaration (both represented by $(LREF EntityDef)).
+        Information for an `<!ENTIITY ...>` declaration.
+
+        It either contains an entity value, an external ID, or an external ID
+        and an `NDATA` declaration.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
             $(TR $(TD $(LREF2 entityDecl, EntityType))),
         )
 
+        Returns: The EntityDef or PEDecl portion of an `<!ENTITY ...>`
+        declaration (both represented by $(LREF EntityDef)).
+
         Throws: $(LREF XMLParsingException) on invalid XML.
 
-        See_Also: $(LREF EntityDef)
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityDecl)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityValue)
       +/
-    @property EntityDef!SliceOfR entityDef()
+    struct EntityDef
+    {
+        /++
+            True when the `<!ENTITY ...>` declaration contains the '%' sign after
+            `ENTITY`.
+          +/
+        bool parsedEntity;
+
+        unittest
+        {
+            import std.algorithm : equal;
+
+            enum xml = "<!DOCTYPE surgeon\n" ~
+                       "    [\n" ~
+                       "        <!ENTITY one 'foo'>\n" ~
+                       "        <!ENTITY % two 'bar'>\n" ~
+                       "    ]>\n" ~
+                       "<root/>";
+
+            auto cursor = parseXML(xml);
+            assert(cursor.next == EntityType.docTypeStart);
+            assert(cursor.name == "surgeon");
+
+            assert(cursor.next == EntityType.entityDecl);
+            assert(cursor.name == "one");
+
+            auto one = cursor.entityDef;
+            assert(!one.parsedEntity);
+            assert(!one.value.isNull && equal(one.value, "foo"));
+
+            assert(cursor.next == EntityType.entityDecl);
+            assert(cursor.name == "two");
+
+            auto two = cursor.entityDef;
+            assert(two.parsedEntity);
+            assert(!two.value.isNull && equal(two.value, "bar"));
+
+            assert(cursor.next() == EntityType.docTypeEnd);
+
+            assert(cursor.next() == EntityType.elementEmpty);
+            assert(cursor.name == "root");
+
+            assert(cursor.next() == EntityType.documentEnd);
+        }
+
+        /++
+          +/
+        Nullable!SliceOfR value;
+
+        /++
+          +/
+        Nullable!ID externalID;
+
+        /++
+          +/
+        SliceOfR ndataName;
+    }
+
+    /// Ditto
+    @property EntityDef entityDef() nothrow
     {
         assert(_state.type == EntityType.entityDecl);
         return _state.entityDef;
@@ -1557,6 +1700,109 @@ public:
 
         assert(cursor.next() == EntityType.documentEnd);
     }
+
+
+    /+
+    /++
+        Information for an
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)) in
+        `'<!ATTLIST' S Name AttDef* S? '>'`.
+
+        The name of the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef))
+        itself is contained in $(LREF EntityCursor.name), whereas the
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttType, $(I AttType)) and
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl)) are
+        contained in an $(LREF _AttDefInfo).
+
+        See_Also: $(LREF EntityCursor.attDefInfo)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+      +/
+    struct AttDefInfo(R)
+    {
+        /++
+            The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttType, $(I AttType)) for
+            the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)).
+
+            See_also: $(LREF AttType)$(BR)
+                      $(LINK http://www.w3.org/TR/REC-xml/#NT-AttType)
+          +/
+        AttType attType;
+
+        /++
+            If $(D attType == AttType.notationType), then this will contain its
+            name. Otherwise, it's an error to call name.
+
+            See_also: $(LINK http://www.w3.org/TR/REC-xml/#NT-NotationType)
+          +/
+        @property R name()
+        {
+            assert(attType == AttType.notationType);
+            return _savedText.input.save;
+        }
+
+        /++
+            If $(D attType == AttType.enumeration), then this will contain its
+            everything starting at $(D '$(LPAREN)') and goin through $(D '$(RPAREN)').
+            Otherwise, it's empty and should be ignored.
+
+            See_also: $(LINK http://www.w3.org/TR/REC-xml/#NT-Enumeration)
+          +/
+        @property auto values()
+        {
+        }
+
+        /++
+            The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl))
+            for the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)).
+
+            See_also: $(LREF DefaultDecl)$(BR)
+                      $(LINK http://www.w3.org/TR/REC-xml/#NT-DefaultDecl)
+          +/
+        DefaultDecl defaultDecl;
+
+        /++
+            The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttValue, $(I AttValue))
+            for the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl)).
+
+            If $(D defaultDecl == DefaultDecl.required) or
+            $(D defaultDecl == DefaultDecl.implied), then this will be empty and
+            should be ignored.
+
+            If $(D defaultDecl == DefaultDecl.fixed) or
+            $(D defaultDecl == DefaultDecl.unspecified), and this is empty, then
+            that is because there was nothing between the quotes of the
+            $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttValue, $(I AttValue)).
+
+            See_also: $(LREF DefaultDecl)$(BR)
+                      $(LINK http://www.w3.org/TR/REC-xml/#NT-DefaultDecl)
+          +/
+        R attValue;
+
+    private:
+
+        ParserState
+        R _text;
+    }
+
+    /++
+        Returns information for the
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)) portion
+        of an `'<!ATTLIST' S Name AttDef* S? '>'`.
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 attDef, EntityType))),
+        )
+
+        See_Also: $(LREF AttDefInfo)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+      +/
+    @property AttDefInfo!SliceOfR attDefInfo() nothrow
+    {
+        assert(_state.type == EntityType.attDef);
+        return _state.attDefInfo;
+    }
+    +/
 
 
 private:
@@ -1850,7 +2096,7 @@ private:
                         throw new XMLParsingException("There must be whitespace between the name and the ID",
                                                       _state.pos);
                     }
-                    _state.id = nullable(_state.takeID!(true, false)());
+                    _state.id = _state.takeID!(true, false)();
                     immutable c = _state.input.front;
                     if(c == '[')
                     {
@@ -2046,6 +2292,18 @@ private:
 
     // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
     // AttDef         ::= S Name S AttType S DefaultDecl
+    // <!ATTLIST and any whitespace after it should have already been removed
+    // from the input.
+    void _parseAttlistDecl()
+    {
+        _state.type = EntityType.attlistDeclStart;
+        _parseTagName("ATTLIST");
+        _state.grammarPos = GrammarPos.intSubsetAttDef;
+    }
+
+
+    // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
+    // AttDef         ::= S Name S AttType S DefaultDecl
     // AttType        ::= StringType | TokenizedType | EnumeratedType
     // StringType     ::= 'CDATA'
     // TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' | 'NMTOKEN' | 'NMTOKENS'
@@ -2058,12 +2316,30 @@ private:
     // Reference      ::= EntityRef | CharRef
     // EntityRef      ::= '&' Name ';'
     // CharRef        ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
-    // <!ATTLIST and any whitespace after it should have already been removed
-    // from the input.
-    void _parseAttlistDecl()
+    void _parseAtAttDef()
     {
-        _state.type = EntityType.attlistDecl;
-        _parseTagName("ATTLIST");
+        immutable wasSpace = stripWS(_state);
+        checkNotEmpty(_state);
+        if(_state.input.front == '>')
+        {
+            popFrontAndIncCol(_state);
+            _state.type = EntityType.attlistDeclEnd;
+            return;
+        }
+        if(!wasSpace)
+            throw new XMLParsingException("Must have space before name", _state.pos);
+        _state.name = _state.takeName();
+        if(!stripWS(_state))
+            throw new XMLParsingException("Must have space after name", _state.pos);
+        checkNotEmpty(_state);
+        switch(_state.input.front)
+        {
+            case 'C':
+            case 'I':
+            case 'E':
+            case 'N':
+            default: assert(0);
+        }
     }
 
 
@@ -2178,7 +2454,7 @@ private:
     {
         _state.type = EntityType.notationDecl;
         _parseTagName("NOTATION");
-        _state.id = nullable(_state.takeID!(false, false)());
+        _state.id = _state.takeID!(false, false)();
         if(_state.input.front != '>')
             throw new XMLParsingException("> missing", _state.pos);
         popFrontAndIncCol(_state);
@@ -2384,13 +2660,67 @@ private:
     }
 
 
-    this(R xmlText)
+    struct ParserState
     {
-        _state = new ParserState!(config, R)(xmlText);
+        alias config = cfg;
+        alias Text = R;
+        alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
+        alias SliceOfR = EntityCursor.SliceOfR;
+
+        EntityType type;
+
+        auto grammarPos = GrammarPos.documentStart;
+
+        static if(config.posType == PositionType.lineAndCol)
+            auto pos = SourcePos(1, 1);
+        else static if(config.posType == PositionType.line)
+            auto pos = SourcePos(1, -1);
+        else
+            SourcePos pos;
+
+        typeof(byCodeUnit(R.init)) input;
+
+        // This mirrors the ParserState's fields so that the same parsing functions
+        // can be used to parse main text contained directly in the ParserState
+        // and the currently saved text (e.g. for the attributes of a start tag).
+        struct SavedText
+        {
+            alias config = cfg;
+            alias Text = R;
+            Taken input;
+            SourcePos pos;
+        }
+
+        SavedText savedText;
+
+        Taken name;
+        TagStack!Taken tagStack;
+
+        Nullable!ID id;
+        EntityDef entityDef;
+        //AttDefInfo attDefInfo;
+
+        this(R xmlText)
+        {
+            input = byCodeUnit(xmlText);
+
+            // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
+            savedText = typeof(savedText).init;
+            name = typeof(name).init;
+            id = typeof(id).init;
+            entityDef = typeof(entityDef).init;
+            //attDefInfo = typeof(attDefInfo).init;
+        }
     }
 
 
-    ParserState!(config, R)* _state;
+    this(R xmlText)
+    {
+        _state = new ParserState(xmlText);
+    }
+
+
+    ParserState* _state;
 }
 
 /// Ditto
@@ -2510,132 +2840,84 @@ version(unittest)
 
 
 /++
-    Information parsed from a `<?xml ... ?>` declaration.
+    Represents the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttType, $(I AttType))
+    portion of an  $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)).
 
-    Note that while XML 1.1 requires this declaration, it's optional in XML
-    1.0.
-
-    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-XMLDecl)
+    See_Also: $(LREF AttDefInfo)$(BR)
+              $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
   +/
-struct XMLDecl(R)
+enum AttType
 {
     /++
-        The version of XML that the document contains.
+        The $(D CDATA) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-StringType, $(I StringType)).
       +/
-    R xmlVersion;
-
+    cdata,
     /++
-        The encoding of the text in the XML document.
-
-        Note that dxml only supports UTF-8, UTF-16, and UTF-32, and it is
-        assumed that the encoding matches the character type. The parser
-        ignores this field aside from providing its value as part of an
-        $(LREF XMLDecl).
-
-        Anyone looking to make their program determine the encoding based on
-        the $(D "encoding") field, should read
-        $(LINK http://www.w3.org/TR/REC-xml/#sec-guessing).
+        The $(D ID) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
       +/
-    Nullable!R encoding;
-
+    id,
     /++
-        $(D true) if the XML document does $(I not) contain any external
-        references. $(D false) if it does or may contain external references.
-        It's null if the $(D "standalone") declaration was not included in the
-        `<?xml ..?>` declaration.
+        The $(D IDREF) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
       +/
-    Nullable!bool standalone;
+    idref,
+    /++
+        The $(D IDREFS) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
+      +/
+    idrefs,
+    /++
+        The $(D ENTITY) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
+      +/
+    entity,
+    /++
+        The $(D ENTITIES) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
+      +/
+    entities,
+    /++
+        The $(D NMTOKEN) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
+      +/
+    nmtoken,
+    /++
+        The $(D NMTOKENS) from
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-TokenizedType, $(I TokenizedType)).
+      +/
+    nmtokens,
+    /++
+        The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-NotationType, $(I NotationType))
+        from $(LINK2 http://www.w3.org/TR/REC-xml/#NT-EnumeratedType, $(I EnumeratedType)).
+      +/
+    notationType,
+    /++
+        The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-Enumeration, $(I Enumeration))
+        from $(LINK2 http://www.w3.org/TR/REC-xml/#NT-EnumeratedType, $(I EnumeratedType)).
+      +/
+    enumeration
 }
 
 
 /++
-    Information for an external or public ID as parsed from a `SYSTEM ...` or
-    `PUBLIC ...` declaration inside a `<!DOCTYPE ...>` declaration.
+    Represents the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl))
+    portion of an  $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)).
 
-    See_Also: $(LINK http://www.w3.org/TR/xml/#NT-ExternalID)$(BR)
-              $(LINK http://www.w3.org/TR/xml/#NT-PublicID)
+    See_Also: $(LREF AttDefInfo)$(BR)
+              $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
   +/
-struct ID(R)
+enum DefaultDecl
 {
-    /++
-        The PubidLiteral portion of a `PUBLIC ...` delaration. If the
-        $(LREF _ID) was a `SYSTEM ...` declaration, then this is null.
-      +/
-    Nullable!R publicLiteral;
-
-    /++
-        The SystemLiteral portion of a `SYSTEM ...` or `PUBLIC ...` delaration.
-        If the $(LREF _ID) is a PublicID, then this is null.
-      +/
-    Nullable!R systemLiteral;
-}
-
-
-/++
-    Information for an `<!ENTIITY ...>` declaration.
-
-    It either contains an entity value, an external ID, or an external ID and an
-    `NDATA` declaration.
-
-    See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityDecl)$(BR)
-              $(LINK http://www.w3.org/TR/REC-xml/#NT-EntityValue)
-  +/
-struct EntityDef(R)
-{
-    /++
-        True when the `<!ENTITY ...>` declaration contains the '%' sign after
-        `ENTITY`.
-      +/
-    bool parsedEntity;
-
-    unittest
-    {
-        import std.algorithm : equal;
-
-        enum xml = "<!DOCTYPE surgeon\n" ~
-                   "    [\n" ~
-                   "        <!ENTITY one 'foo'>\n" ~
-                   "        <!ENTITY % two 'bar'>\n" ~
-                   "    ]>\n" ~
-                   "<root/>";
-
-        auto cursor = parseXML(xml);
-        assert(cursor.next == EntityType.docTypeStart);
-        assert(cursor.name == "surgeon");
-
-        assert(cursor.next == EntityType.entityDecl);
-        assert(cursor.name == "one");
-
-        auto one = cursor.entityDef;
-        assert(!one.parsedEntity);
-        assert(!one.value.isNull && equal(one.value, "foo"));
-
-        assert(cursor.next == EntityType.entityDecl);
-        assert(cursor.name == "two");
-
-        auto two = cursor.entityDef;
-        assert(two.parsedEntity);
-        assert(!two.value.isNull && equal(two.value, "bar"));
-
-        assert(cursor.next() == EntityType.docTypeEnd);
-
-        assert(cursor.next() == EntityType.elementEmpty);
-        assert(cursor.name == "root");
-
-        assert(cursor.next() == EntityType.documentEnd);
-    }
-
-    /++
-      +/
-    Nullable!R value;
-
-    /++
-      +/
-    Nullable!(ID!R) externalID;
-
-    /++
-      +/
-    R ndataName;
+    /// The $(I DefaultDecl) was $(D #REQUIRED).
+    required,
+    /// The $(I DefaultDecl) was $(D #IMPLIED).
+    implied,
+    /// The $(I DefaultDecl) was an $(I AttValue) prefixed with $(D #FIXED).
+    fixed,
+    /// The $(I DefaultDecl) was an $(I AttValue) without $(D #FIXED).
+    unspecified
 }
 
 
@@ -2645,71 +2927,15 @@ struct EntityDef(R)
 private:
 
 
-struct ParserState(Config cfg, R)
-{
-    alias config = cfg;
-    alias Text = R;
-    alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
-
-    static if(isDynamicArray!R || hasSlicing!R)
-        alias SliceOfR = R;
-    else
-        alias SliceOfR = typeof(takeExactly(R.init, 42));
-
-    EntityType type;
-
-    auto grammarPos = GrammarPos.documentStart;
-
-    static if(config.posType == PositionType.lineAndCol)
-        auto pos = SourcePos(1, 1);
-    else static if(config.posType == PositionType.line)
-        auto pos = SourcePos(1, -1);
-    else
-        SourcePos pos;
-
-    typeof(byCodeUnit(R.init)) input;
-
-    // This mirrors the ParserState's fields so that the same parsing functions
-    // can be used to parse main text contained directly in the ParserState
-    // and the currently saved text (e.g. for the attributes of a start tag).
-    struct SavedText
-    {
-        alias config = cfg;
-        alias Text = R;
-        Taken input;
-        SourcePos pos;
-    }
-
-    SavedText savedText;
-
-    Taken name;
-    TagStack!Taken tagStack;
-
-    Nullable!(ID!SliceOfR) id;
-    EntityDef!SliceOfR entityDef;
-
-    this(R xmlText)
-    {
-        input = byCodeUnit(xmlText);
-
-        // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
-        savedText = typeof(savedText).init;
-        name = typeof(name).init;
-        id = typeof(id).init;
-        entityDef = typeof(entityDef).init;
-    }
-}
-
-
 version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure nothrow @nogc
 {
     static getPS(R xmlText) @trusted nothrow @nogc
     {
-        static ParserState!(config, R) ps;
-        ps = ParserState!(config, R)(xmlText);
+        static EntityCursor!(config, R).ParserState ps;
+        ps = typeof(ps)(xmlText);
         return &ps;
     }
-    alias FuncType = @trusted pure nothrow @nogc ParserState!(config, R)* function(R);
+    alias FuncType = @trusted pure nothrow @nogc EntityCursor!(config, R).ParserState* function(R);
     return (cast(FuncType)&getPS)(xmlText);
 }
 
@@ -2738,13 +2964,14 @@ enum GrammarPos
     // DeclSep, or the ']' that follows the intSubset.
     intSubset,
 
-    /+
-    // document ::= prolog element Misc*
-    // element  ::= EmptyElemTag | STag content ETag
-    // This at the element. The next thing to parse will either be an
-    // EmptyElemTag or STag.
-    element,
-    +/
+    // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+    // intSubset   ::= (markupdecl | DeclSep)*
+    // markupdecl  ::= elementdecl | AttlistDecl | EntityDecl | NotationDecl | PI | Comment
+    // AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
+    // AttDef      ::= S Name S AttType S DefaultDecl
+    // This is the AttDef such that the next thing to parse is '>', whitespace
+    // followed by '>', or whitespace followed by Name.
+    intSubsetAttDef,
 
     // Used with SplitEmpty.yes to tell the parser that we're currently at an
     // empty element tag that we're treating as a start tag, so the next entity
@@ -3620,7 +3847,7 @@ auto takeID(bool requireSystemAfterPublic, bool returnWasSpace, PS)(PS state)
     alias Text = PS.Text;
     alias SliceOfR = PS.SliceOfR;
 
-    ID!SliceOfR retval;
+    typeof(PS.id.get.init) retval;
     bool wasSpace;
 
     if(state.stripStartsWith("PUBLIC"))
@@ -3682,6 +3909,7 @@ unittest
     import core.exception : AssertError;
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
+    import std.typecons : Tuple;
 
     static bool eqLit(T, U)(T lhs, U rhs)
     {
@@ -3692,8 +3920,8 @@ unittest
         return equal(lhs, rhs);
     }
 
-    static void test(alias func, bool rsap, bool rws)(string origHaystack, ID!string expected, string remainder,
-                                                      bool expectedWS, int row, int col, size_t line = __LINE__)
+    static void test(alias func, bool rsap, bool rws, ID)(string origHaystack, ID expected, string remainder,
+                                                          bool expectedWS, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
 
@@ -3727,7 +3955,7 @@ unittest
 
     static auto pubLit(string[] literals...)
     {
-        ID!string retval;
+        Tuple!(Nullable!string, "publicLiteral", Nullable!string, "systemLiteral") retval;
         retval.publicLiteral = nullable(literals[0]);
         if(literals.length != 1)
             retval.systemLiteral = nullable(literals[1]);
@@ -3736,7 +3964,7 @@ unittest
 
     static auto sysLit(string literal)
     {
-        ID!string retval;
+        Tuple!(Nullable!string, "publicLiteral", Nullable!string, "systemLiteral") retval;
         retval.systemLiteral = nullable(literal);
         return retval;
     }
