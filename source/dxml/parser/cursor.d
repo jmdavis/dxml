@@ -899,9 +899,12 @@ public:
                 }
 
                 auto state = &_text;
-                auto pos = state.pos;
-
-                auto name = stripBCU!R(state.takeName!'='());
+                auto name = stripBCU!R(state.takeName!(true, '=')());
+                stripWS(state);
+                checkNotEmpty(state);
+                if(state.input.front != '=')
+                    throw new XMLParsingException("= missing", state.pos);
+                popFrontAndIncCol(state);
                 stripWS(state);
 
                 auto value = stripBCU!R(takeEnquotedText(state));
@@ -1702,7 +1705,6 @@ public:
     }
 
 
-    /+
     /++
         Information for an
         $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)) in
@@ -1714,11 +1716,16 @@ public:
         $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl)) are
         contained in an $(LREF _AttDefInfo).
 
-        See_Also: $(LREF EntityCursor.attDefInfo)$(BR)
-                  $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 attDef, EntityType))),
+        )
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
       +/
-    struct AttDefInfo(R)
+    struct AttDefInfo
     {
+    public:
         /++
             The $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttType, $(I AttType)) for
             the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)).
@@ -1729,26 +1736,39 @@ public:
         AttType attType;
 
         /++
-            If $(D attType == AttType.notationType), then this will contain its
-            name. Otherwise, it's an error to call name.
+            If $(D attType == AttType.notationType), then this will return a
+            range of the values in the notation. Otherwise, it's an error to
+            call notationValues.
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF AttType)s:)),
+                $(TR $(TD $(LREF2 notationType, AttType))),
+            )
 
             See_also: $(LINK http://www.w3.org/TR/REC-xml/#NT-NotationType)
           +/
-        @property R name()
+        @property auto notationValues()
         {
             assert(attType == AttType.notationType);
-            return _savedText.input.save;
+            return AttDefValueRange!(AttType.notationType)(_savedText.save);
         }
 
         /++
-            If $(D attType == AttType.enumeration), then this will contain its
-            everything starting at $(D '$(LPAREN)') and goin through $(D '$(RPAREN)').
-            Otherwise, it's empty and should be ignored.
+            If $(D attType == AttType.enumeration), then this will return a
+            range of the values in the enumeration. Otherwise, it's an error to
+            call enumValues.
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF AttType)s:)),
+                $(TR $(TD $(LREF2 enumeration, AttType))),
+            )
 
             See_also: $(LINK http://www.w3.org/TR/REC-xml/#NT-Enumeration)
           +/
-        @property auto values()
+        @property auto enumValues()
         {
+            assert(attType == AttType.enumeration);
+            return AttDefValueRange!(AttType.enumeration)(_savedText.save);
         }
 
         /++
@@ -1769,40 +1789,75 @@ public:
             should be ignored.
 
             If $(D defaultDecl == DefaultDecl.fixed) or
-            $(D defaultDecl == DefaultDecl.unspecified), and this is empty, then
+            $(D defaultDecl == DefaultDecl.unfixed), and this is empty, then
             that is because there was nothing between the quotes of the
             $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttValue, $(I AttValue)).
 
             See_also: $(LREF DefaultDecl)$(BR)
                       $(LINK http://www.w3.org/TR/REC-xml/#NT-DefaultDecl)
           +/
-        R attValue;
+        SliceOfR attValue;
 
     private:
 
-        ParserState
-        R _text;
+        struct AttDefValueRange(AttType attType)
+        {
+            static assert(attType == AttType.notationType || attType == AttType.enumeration);
+            enum requireNameStart = attType == AttType.notationType;
+
+        public:
+
+            bool empty() { return _savedText.input.front != ')'; }
+
+            SliceOfR front() { return _front.save; }
+
+            void popFront()
+            {
+                auto state = &_savedText;
+                popFrontAndIncCol(state);
+                stripWS(state);
+                _front = stripBCU!R(state.takeName!(requireNameStart, '|', ')')());
+                stripWS(state);
+                checkNotEmpty(state);
+                switch(state.input.front)
+                {
+                    case '|':
+                    case ')': break;
+                    default: throw new XMLParsingException("Expected | or )", state.pos);
+                }
+            }
+
+            @property save() { return typeof(this)(_front.save, _savedText.save); }
+
+        private:
+
+            this(SliceOfR front, ParserState.SavedText savedText)
+            {
+                _front = front;
+                _savedText = savedText;
+            }
+
+            this(ParserState.SavedText savedText)
+            {
+                assert(!savedText.input.empty);
+                assert(savedText.input.front == '(');
+                _savedText = savedText;
+                popFront();
+            }
+
+            SliceOfR _front;
+            ParserState.SavedText _savedText;
+        }
+
+        ParserState.SavedText _savedText;
     }
 
-    /++
-        Returns information for the
-        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttDef, $(I AttDef)) portion
-        of an `'<!ATTLIST' S Name AttDef* S? '>'`.
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:)),
-            $(TR $(TD $(LREF2 attDef, EntityType))),
-        )
-
-        See_Also: $(LREF AttDefInfo)$(BR)
-                  $(LINK http://www.w3.org/TR/REC-xml/#attdecls)
-      +/
-    @property AttDefInfo!SliceOfR attDefInfo() nothrow
+    /// Ditto
+    @property AttDefInfo attDefInfo() nothrow
     {
         assert(_state.type == EntityType.attDef);
         return _state.attDefInfo;
     }
-    +/
 
 
 private:
@@ -1958,7 +2013,7 @@ private:
         {
             auto pos = _state.pos;
             _state.type = EntityType.processingInstruction;
-            _state.name = takeName!'?'(_state);
+            _state.name = takeName!(true, '?')(_state);
             checkNotEmpty(_state);
             if(_state.input.front != '?')
             {
@@ -2082,7 +2137,7 @@ private:
         }
         else
         {
-            _state.name = _state.takeName!'>'();
+            _state.name = _state.takeName!(true, '>')();
             immutable wasSpace = _state.stripWS();
             checkNotEmpty(_state);
 
@@ -2281,7 +2336,7 @@ private:
         import std.format : format;
         if(_state.input.empty)
             throw new XMLParsingException(tagName ~ " tag missing name", _state.pos);
-        _state.name = _state.takeName();
+        _state.name = _state.takeName!true();
         if(!stripWS(_state))
         {
             throw new XMLParsingException(format!"There must be whitespace after the %s tag's name"(tagName),
@@ -2304,18 +2359,6 @@ private:
 
     // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
     // AttDef         ::= S Name S AttType S DefaultDecl
-    // AttType        ::= StringType | TokenizedType | EnumeratedType
-    // StringType     ::= 'CDATA'
-    // TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' | 'NMTOKEN' | 'NMTOKENS'
-    // EnumeratedType ::= NotationType | Enumeration
-    // NotationType   ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
-    // Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
-    // Nmtoken        ::= (NameChar)+
-    // DefaultDecl    ::= '#REQUIRED' | '#IMPLIED' | (('#FIXED' S)? AttValue)
-    // AttValue       ::= '"' ([^<&"] | Reference)* '"' |  "'" ([^<&'] | Reference)* "'"
-    // Reference      ::= EntityRef | CharRef
-    // EntityRef      ::= '&' Name ';'
-    // CharRef        ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
     void _parseAtAttDef()
     {
         immutable wasSpace = stripWS(_state);
@@ -2327,18 +2370,132 @@ private:
             return;
         }
         if(!wasSpace)
-            throw new XMLParsingException("Must have space before name", _state.pos);
-        _state.name = _state.takeName();
+            throw new XMLParsingException("Must have space before AttDef's name", _state.pos);
+        _parseAttType();
+        if(!stripWS(_state))
+            throw new XMLParsingException("Whitespace missing", _state.pos);
+        checkNotEmpty(_state);
+        _parseDefaultDecl();
+    }
+
+    // AttType        ::= StringType | TokenizedType | EnumeratedType
+    // StringType     ::= 'CDATA'
+    // TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES' | 'NMTOKEN' | 'NMTOKENS'
+    // EnumeratedType ::= NotationType | Enumeration
+    // NotationType   ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
+    // Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
+    // Nmtoken        ::= (NameChar)+
+    void _parseAttType()
+    {
+        _state.name = _state.takeName!true();
         if(!stripWS(_state))
             throw new XMLParsingException("Must have space after name", _state.pos);
         checkNotEmpty(_state);
         switch(_state.input.front)
         {
             case 'C':
+            {
+                if(!_state.stripStartsWith("CDATA"))
+                    throw new XMLParsingException("Expected CDATA", _state.pos);
+                _state.attDefInfo.attType = AttType.cdata;
+                break;
+            }
             case 'I':
+            {
+                if(!_state.stripStartsWith("ID"))
+                    throw new XMLParsingException("Expected ID, IDREF, or IDREFS", _state.pos);
+                if(_state.stripStartsWith("REF"))
+                {
+                    checkNotEmpty(_state);
+                    if(_state.input.front == 'S')
+                    {
+                        popFrontAndIncCol(_state);
+                        _state.attDefInfo.attType = AttType.idrefs;
+                    }
+                    else
+                        _state.attDefInfo.attType = AttType.idref;
+                }
+                else
+                    _state.attDefInfo.attType = AttType.id;
+                break;
+            }
             case 'E':
+            {
+                if(!_state.stripStartsWith("ENTIT"))
+                    throw new XMLParsingException("Expected ENTITY or ENTITIES", _state.pos);
+                checkNotEmpty(_state);
+                if(_state.input.front == 'Y')
+                {
+                    popFrontAndIncCol(_state);
+                    _state.attDefInfo.attType = AttType.entity;
+                }
+                else if(!_state.stripStartsWith("IES"))
+                    _state.attDefInfo.attType = AttType.entities;
+                else
+                    throw new XMLParsingException("Expected ENTITY or ENTITIES", _state.pos);
+                break;
+            }
             case 'N':
-            default: assert(0);
+            {
+                if(_state.stripStartsWith("NMTOKEN"))
+                {
+                    checkNotEmpty(_state);
+                    if(_state.input.front == 'S')
+                    {
+                        popFrontAndIncCol(_state);
+                        _state.attDefInfo.attType = AttType.nmtokens;
+                    }
+                    else
+                        _state.attDefInfo.attType = AttType.nmtoken;
+                }
+                else if(_state.stripStartsWith("NOTATION"))
+                {
+                    if(!stripWS(_state))
+                        throw new XMLParsingException("Whitespace missing after NOTATION", _state.pos);
+                    checkNotEmpty(_state);
+                    if(_state.input.front == '(')
+                        goto case '(';
+                    else
+                        throw new XMLParsingException("Expected (", _state.pos);
+                }
+                else
+                    throw new XMLParsingException("Expection NMTOKEN, NMTOKENS, or NOTATION", _state.pos);
+                break;
+            }
+            case '(':
+            {
+                _state.savedText.pos = _state.pos;
+                _state.savedText.input = _state.takeUntilAndKeep!")"();
+                break;
+            }
+            default: throw new XMLParsingException("Invalid AttType", _state.pos);
+        }
+    }
+
+
+    // DefaultDecl    ::= '#REQUIRED' | '#IMPLIED' | (('#FIXED' S)? AttValue)
+    // AttValue       ::= '"' ([^<&"] | Reference)* '"' |  "'" ([^<&'] | Reference)* "'"
+    // Reference      ::= EntityRef | CharRef
+    // EntityRef      ::= '&' Name ';'
+    // CharRef        ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';'
+    void _parseDefaultDecl()
+    {
+        if(_state.stripStartsWith("#REQUIRED"))
+            _state.attDefInfo.defaultDecl = DefaultDecl.required;
+        else if(_state.stripStartsWith("#IMPLIED"))
+            _state.attDefInfo.defaultDecl = DefaultDecl.implied;
+        else
+        {
+            if(_state.stripStartsWith("#FIXED"))
+            {
+                if(!stripWS(_state))
+                    throw new XMLParsingException("Whitespace missing after #FIXED", _state.pos);
+                _state.attDefInfo.defaultDecl = DefaultDecl.fixed;
+            }
+            else
+                _state.attDefInfo.defaultDecl = DefaultDecl.unfixed;
+            _state.attDefInfo.attValue = stripBCU!R(_state.takeEnquotedText());
+            //FIXME Do validation of AttValue or leave that to a helper function?
         }
     }
 
@@ -2375,7 +2532,7 @@ private:
             checkNotEmpty(_state);
         }
 
-        _state.name = _state.takeName();
+        _state.name = _state.takeName!true();
         if(!stripWS(_state))
             throw new XMLParsingException("Missing whitespace", _state.pos);
 
@@ -2405,7 +2562,7 @@ private:
                             throw new XMLParsingException("Expected NDATA", _state.pos);
                         if(!stripWS(_state))
                             throw new XMLParsingException("There must be whitespace after NDATA", _state.pos);
-                        _state.entityDef.ndataName = stripBCU!R(_state.takeName!'>'());
+                        _state.entityDef.ndataName = stripBCU!R(_state.takeName!(true, '>')());
                         break;
 
                     }
@@ -2493,7 +2650,7 @@ private:
 
         if(_state.savedText.input.empty)
             throw new XMLParsingException("Tag missing name", _state.savedText.pos);
-        _state.name = takeName(&_state.savedText);
+        _state.name = takeName!true(&_state.savedText);
         stripWS(&_state.savedText);
         // The attributes should be all that's left in savedText.
     }
@@ -2689,6 +2846,8 @@ private:
             alias Text = R;
             Taken input;
             SourcePos pos;
+
+            @property save() { return SavedText(input.save, pos); }
         }
 
         SavedText savedText;
@@ -2698,7 +2857,7 @@ private:
 
         Nullable!ID id;
         EntityDef entityDef;
-        //AttDefInfo attDefInfo;
+        AttDefInfo attDefInfo;
 
         this(R xmlText)
         {
@@ -2709,7 +2868,7 @@ private:
             name = typeof(name).init;
             id = typeof(id).init;
             entityDef = typeof(entityDef).init;
-            //attDefInfo = typeof(attDefInfo).init;
+            attDefInfo = typeof(attDefInfo).init;
         }
     }
 
@@ -2917,7 +3076,7 @@ enum DefaultDecl
     /// The $(I DefaultDecl) was an $(I AttValue) prefixed with $(D #FIXED).
     fixed,
     /// The $(I DefaultDecl) was an $(I AttValue) without $(D #FIXED).
-    unspecified
+    unfixed
 }
 
 
@@ -3199,12 +3358,94 @@ bool stripWS(PS)(PS state)
 }
 
 
+enum TakeUntil
+{
+    keepAndReturn,
+    dropAndReturn,
+    drop
+}
+
+// Returns a slice (or takeExactly) of state.input up to _and_ including the
+// given text, removing both that slice from state.input in the process. If the
+// text is not found, then an XMLParsingException is thrown.
+auto takeUntilAndKeep(string text, PS)(PS state)
+{
+    return _takeUntil!(TakeUntil.keepAndReturn, text, PS)(state);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.exception : assertThrown, enforce;
+    import std.meta : AliasSeq;
+
+    static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
+                                                int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+            auto state = testParser!config(haystack.save);
+            enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+        }
+    }
+
+    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeUntilAndKeep!needle(), "unittest failure", __FILE__, line);
+        }
+    }
+
+    foreach(func; testRangeFuncs)
+    {
+        {
+            auto haystack = "hello world";
+            enum needle = "world";
+
+            static foreach(i; 1 .. needle.length)
+                test!(func, needle[0 .. i])(haystack, haystack[0 .. $ - (needle.length - i)], needle[i .. $], 1, 7 + i);
+        }
+        test!(func, "l")("lello world", "l", "ello world", 1, 2);
+        test!(func, "ll")("lello world", "lell", "o world", 1, 5);
+        test!(func, "le")("llello world", "lle", "llo world", 1, 4);
+        {
+            import std.utf : codeLength;
+            auto haystack = "プログラミング in D is great indeed";
+            auto found = "プログラミング in D is great";
+            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
+            enum needle = "great";
+            enum remainder = "great indeed";
+
+            static foreach(i; 1 .. needle.length)
+            {
+                test!(func, needle[0 .. i])(haystack, found[0 .. $ - (needle.length - i)],
+                                            remainder[i .. $], 1, len + i + 1);
+            }
+        }
+        foreach(haystack; AliasSeq!("", "a", "hello"))
+            testFail!(func, "x")(haystack);
+        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+            testFail!(func, "le")(haystack);
+        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+            testFail!(func, "web")(haystack);
+    }
+}
+
+
 // Returns a slice (or takeExactly) of state.input up to but not including the
 // given text, removing both that slice and the given text from state.input in
 // the process. If the text is not found, then an XMLParsingException is thrown.
 auto takeUntilAndDrop(string text, PS)(PS state)
 {
-    return _takeUntilAndDrop!(true, text, PS)(state);
+    return _takeUntil!(TakeUntil.dropAndReturn, text, PS)(state);
 }
 
 unittest
@@ -3273,7 +3514,7 @@ unittest
 // when the config indicates that something should be skipped.
 void skipUntilAndDrop(string text, PS)(PS state)
 {
-    return _takeUntilAndDrop!(false, text, PS)(state);
+    return _takeUntil!(TakeUntil.drop, text, PS)(state);
 }
 
 unittest
@@ -3339,7 +3580,7 @@ unittest
     }
 }
 
-auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
+auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
@@ -3347,7 +3588,7 @@ auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     static assert(text.find!isWhite().empty);
 
-    enum trackTakeLen = retSlice || state.config.posType == PositionType.lineAndCol;
+    enum trackTakeLen = tu != TakeUntil.drop || state.config.posType == PositionType.lineAndCol;
 
     alias R = typeof(PS.input);
     auto orig = state.input.save;
@@ -3437,7 +3678,10 @@ auto _takeUntilAndDrop(bool retSlice, string text, PS)(PS state)
         state.pos.col += takeLen - lineStart + text.length;
     if(!found)
         throw new XMLParsingException("Failed to find: " ~ text, state.pos);
-    static if(retSlice)
+
+    static if(tu == TakeUntil.keepAndReturn)
+        return takeExactly(orig, takeLen + text.length);
+    else static if(tu == TakeUntil.dropAndReturn)
         return takeExactly(orig, takeLen);
 }
 
@@ -3663,90 +3907,75 @@ unittest
 }
 
 
-// Removes a name (per the Name grammar rule) from the front of the input and
-// returns it.
-// If delim is char.init, then parsing ends when any whitespace is encountered.
-// If delim is '>' or '?', then parsing ends when either whitespace or delim
-// is encountered. delim is not removed from the input.
-// If delim is '=', then the name ends when whitespace or '=' is encountered,
-// but the parsing continues until '=' is consumed, with any whitespace between
-// the name and '=' stripped.
-auto takeName(char delim = char.init, PS)(PS state)
+// If requireNameStart is true, then this removes a name per the Name grammar
+// rule from the front of the input and returns it. If requireNameStart is
+// false, then this removes a name per the Nmtoken grammar rule and returns it
+// (the difference being whether the first character must be a NameStartChar
+// rather than a NameChar like the other characters).
+// The parsing continues until either one of the given delimiters or an XML
+// whitespace character is encountered. The delimiter/whitespace is not returned
+// as part of the name and is left at the front of the input.
+template takeName(bool requireNameStart, delims...)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    static assert(delim == char.init || delim == '=' || delim == '>' || delim == '?');
-
-    import std.format : format;
-
-    assert(!state.input.empty);
-
-    auto orig = state.input.save;
-    size_t takeLen;
-    auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
-    if(!isNameStartChar(decodedC))
-        throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
-
-    if(state.input.empty)
+    static foreach(delim; delims)
     {
-        static if(delim == '=')
-            throw new XMLParsingException("Missing " ~ delim, state.pos);
+        static assert(is(typeof(delim) == char), delim);
+        static assert(!isSpace(delim));
     }
-    else
-    {
-        while(true)
-        {
-            immutable c = state.input.front;
-            if(isSpace(c))
-            {
-                static if(delim == '=')
-                {
-                    static if(state.config.posType == PositionType.lineAndCol)
-                        state.pos.col += takeLen;
-                    stripWS(state);
-                    if(state.input.empty)
-                        throw new XMLParsingException("Missing " ~ delim, state.pos);
-                    if(state.input.front != delim)
-                        throw new XMLParsingException("Characters other than whitespace between name and =", state.pos);
-                    popFrontAndIncCol(state);
-                }
-                break;
-            }
-            static if(delim == '>' || delim == '?')
-            {
-                if(c == delim)
-                    break;
-            }
-            else static if(delim == '=')
-            {
-                if(c == delim)
-                {
-                    static if(state.config.posType == PositionType.lineAndCol)
-                        state.pos.col += takeLen;
-                    popFrontAndIncCol(state);
-                    break;
-                }
-            }
 
-            size_t numCodeUnits;
-            decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-            if(!isNameChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: %s"(decodedC), state.pos);
-            takeLen += numCodeUnits;
+    auto takeName(PS)(PS state)
+    {
+        static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
+
+        import std.format : format;
+
+        assert(!state.input.empty);
+
+        auto orig = state.input.save;
+        size_t takeLen;
+        static if(requireNameStart)
+        {{
+            auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
+            if(!isNameStartChar(decodedC))
+                throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
 
             if(state.input.empty)
             {
-                static if(delim == '=')
-                    throw new XMLParsingException("Missing " ~ delim, state.pos);
-                else
-                    break;
+                static if(state.config.posType == PositionType.lineAndCol)
+                    state.pos.col += takeLen;
+                return takeExactly(orig, takeLen);
             }
+        }}
+
+        loop: while(true)
+        {
+            immutable c = state.input.front;
+            if(isSpace(c))
+                break;
+            foreach(delim; delims)
+            {
+                if(c == delim)
+                    break loop;
+            }
+
+            size_t numCodeUnits;
+            auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+            if(!isNameChar(decodedC))
+                throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
+            takeLen += numCodeUnits;
+
+            if(state.input.empty)
+                break;
         }
+
+        if(takeLen == 0)
+            throw new XMLParsingException("Name cannot be empty", state.pos);
+
+        static if(state.config.posType == PositionType.lineAndCol)
+            state.pos.col += takeLen;
+
+        return takeExactly(orig, takeLen);
     }
-
-    static if(delim != '=' && state.config.posType == PositionType.lineAndCol)
-        state.pos.col += takeLen;
-
-    return takeExactly(orig, takeLen);
 }
 
 unittest
@@ -3755,28 +3984,30 @@ unittest
     import std.exception : assertThrown, enforce;
     import std.meta : AliasSeq;
 
-    static void test(alias func, delim...)(string origHaystack, string expected, string remainder,
-                                           int row, int col, size_t line = __LINE__)
+    static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
+                                                     int row, int col, size_t line = __LINE__)
     {
+        import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
             auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
             auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeName!delim(), expected), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
         }
     }
 
-    static void testFail(alias func, delim...)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, bool rns, delim...)(string origHaystack, size_t line = __LINE__)
     {
+        import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
             auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeName!delim(), "unittest failure", __FILE__, line);
+            assertThrown!XMLParsingException(state.takeName!(rns, delim)(), "unittest failure", __FILE__, line);
         }
     }
 
@@ -3787,42 +4018,49 @@ unittest
             import std.utf : codeLength;
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
-            foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo"))
+            foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo",  "  foo \n \r "))
             {
-                test!func(str ~ remainder, str, remainder, 1, len + 1);
-                static foreach(delim; ">?")
+                foreach(bool rns; AliasSeq!(true, false))
                 {
-                    test!(func, delim)(str ~ remainder, str, remainder, 1, len + 1);
-                    test!(func, delim)(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
-                    test!(func, delim)(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
+                    test!(func, rns)(str ~ remainder, str, remainder, 1, len + 1);
+                    static foreach(char delim; ">?=")
+                    {
+                        test!(func, rns, delim)(str ~ remainder, str, remainder, 1, len + 1);
+                        test!(func, rns, delim)(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
+                        test!(func, rns, delim)(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
+                    }
+                }
+            }
+        }
+
+        foreach(bool rns; AliasSeq!(true, false))
+        {
+            foreach(haystack; AliasSeq!(" ", "<", "foo!", "foo!<"))
+            {
+                testFail!(func, rns)(haystack);
+                static foreach(char delim; ">?=")
+                {
+                    testFail!(func, rns)(haystack ~ delim);
+                    testFail!(func, rns, delim)(haystack);
+                    testFail!(func, rns, delim)(haystack ~ delim);
                 }
             }
 
-            import std.typecons : tuple;
-            foreach(ends; AliasSeq!(tuple("=", ""), tuple(" =", ""), tuple("\t\r=  ", "  "),
-                                    tuple("=foo", "foo"), tuple(" =foo", "foo"), tuple("\t\r=  bar", "  bar")))
+            static foreach(char delim; ">?=")
+                testFail!(func, rns, delim)([delim]);
+        }
+
+        foreach(haystack; AliasSeq!("42", ".", ".a"))
+        {
+            testFail!(func, true)(haystack);
+            test!(func, false)(haystack, haystack, "", 1, haystack.length + 1);
+            static foreach(char delim; ">?=")
             {
-                test!(func, '=')(str ~ ends[0], str, ends[1], 1, len + 1 + ends[0].length - ends[1].length);
+                testFail!(func, true, delim)(haystack);
+                test!(func, false, delim)(haystack, haystack, "", 1, haystack.length + 1);
+                test!(func, false, delim)(haystack ~ delim, haystack, [delim], 1, haystack.length + 1);
             }
-
-            test!(func, '=')(str ~ "\n\n  \n \n \r\t  =blah", str, "blah", 5, 7);
         }
-
-        foreach(haystack; AliasSeq!("<", "foo!", "foo!>"))
-        {
-            testFail!func(haystack);
-            static foreach(delim; ">?=")
-                testFail!(func, delim)(haystack);
-        }
-
-        foreach(haystack; AliasSeq!("4", "42", "-", ".", " ", "\t", "\n", "\r", " foo", "\tfoo", "\nfoo", "\rfoo"))
-        {
-            testFail!func(haystack);
-            testFail!(func, '=')(haystack);
-        }
-
-        foreach(haystack; AliasSeq!("fo o=bar", "\nfoo=bar", "foo", "foo ", "f", "=bar"))
-            testFail!(func, '=')(haystack);
     }
 }
 
