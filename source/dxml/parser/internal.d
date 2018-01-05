@@ -41,7 +41,7 @@ unittest
     import std.algorithm : filter;
     import std.meta : AliasSeq;
 
-    foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
+    static foreach(str; AliasSeq!("hello world", "hello world"w, "hello world"d))
     {
         assert(equalCU(str, "hello world"));
         assert(equalCU(byCodeUnit(str), "hello world"));
