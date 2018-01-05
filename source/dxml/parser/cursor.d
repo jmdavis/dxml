@@ -3259,11 +3259,24 @@ bool stripStartsWith(PS)(PS state, string text)
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -3290,7 +3303,6 @@ bool stripWS(PS)(PS state)
 
     bool strippedSpace = false;
 
-    // FIXME The col isn't handled properly if hasLength!R is false.
     static if(hasLengthAndCol)
         size_t lineStart = state.input.length;
 
@@ -3340,11 +3352,24 @@ bool stripWS(PS)(PS state)
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(state.stripWS() == stripped, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(state.stripWS() == stripped, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(state.stripWS() == stripped, "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -3386,11 +3411,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -3461,11 +3499,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -3530,11 +3581,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            state.skipUntilAndDrop!needle();
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                state.skipUntilAndDrop!needle();
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                state.skipUntilAndDrop!needle();
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }
     }
 
@@ -3597,7 +3661,6 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
     static if(trackTakeLen)
         size_t takeLen = 0;
 
-    // FIXME Verify that this works correctly when hasLength!R is false.
     static if(state.config.posType == PositionType.lineAndCol)
         size_t lineStart = 0;
 
@@ -3743,11 +3806,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            state.skipToOneOf!delims();
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                state.skipToOneOf!delims();
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                state.skipToOneOf!delims();
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }
     }
 
@@ -3815,11 +3891,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
         }
     }
 
@@ -3877,11 +3966,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            stripEq(state);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                stripEq(state);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                stripEq(state);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }
     }
 
@@ -3992,11 +4094,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -4165,19 +4280,40 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            auto result = state.takeID!(rsap, rws)();
-            static if(rws)
-                auto id = result[0];
-            else
-                auto id = result;
-            enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
-            static if(rws)
-                enforce!AssertError(result[1] == expectedWS, "unittest failure 5", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                auto result = state.takeID!(rsap, rws)();
+                static if(rws)
+                    auto id = result[0];
+                else
+                    auto id = result;
+                enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+                static if(rws)
+                    enforce!AssertError(result[1] == expectedWS, "unittest failure 5", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                auto result = state.takeID!(rsap, rws)();
+                static if(rws)
+                    auto id = result[0];
+                else
+                    auto id = result;
+                enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 6", __FILE__, line);
+                enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 7", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 8", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 9", __FILE__, line);
+                static if(rws)
+                    enforce!AssertError(result[1] == expectedWS, "unittest failure 10", __FILE__, line);
+            }
         }
     }
 
@@ -4359,11 +4495,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
@@ -4439,11 +4588,24 @@ unittest
 
         foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
         {
-            auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-            auto state = testParser!config(haystack.save);
-            enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 1", __FILE__, line);
-            enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+            }
         }
     }
 
