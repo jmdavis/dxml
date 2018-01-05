@@ -1304,10 +1304,9 @@ public:
     {
         import std.array : replace;
         import std.exception : assertThrown;
-        import std.meta : AliasSeq;
         import std.range : only;
 
-        foreach(func; testRangeFuncs)
+        static foreach(func; testRangeFuncs)
         {
             {
                 foreach(i; 0 .. 4)
@@ -1893,18 +1892,18 @@ private:
         static void test(alias func, SkipProlog skipProlog = SkipProlog.no)
                         (string xml, int row, int col, size_t line = __LINE__)
         {
-            foreach(i, config; AliasSeq!(makeConfig(skipProlog),
-                                         makeConfig(skipProlog, PositionType.line),
-                                         makeConfig(skipProlog, PositionType.none)))
-            {
+            static foreach(i, config; AliasSeq!(makeConfig(skipProlog),
+                                                makeConfig(skipProlog, PositionType.line),
+                                                makeConfig(skipProlog, PositionType.none)))
+            {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(func(xml));
                 assertNotThrown!XMLParsingException(cursor.next(), "unittest failure 1", __FILE__, line);
                 enforce!AssertError(cursor._state.pos == pos, "unittest failure 2", __FILE__, line);
-            }
+            }}
         }
 
-        foreach(func; testRangeFuncs)
+        static foreach(func; testRangeFuncs)
         {
             test!func("<root/>", 1, 8);
             test!func("\n\t\n <root/>   \n", 3, 9);
@@ -2203,28 +2202,32 @@ private:
         {
             auto xml = func(text);
 
-            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
+            static foreach(i, config; AliasSeq!(Config.init,
+                                                makeConfig(PositionType.line),
+                                                makeConfig(PositionType.none)))
+            {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(xml.save);
                 enforceTest(cursor.next() == entityType, "unittest failure 1", line);
                 enforceTest(equal(cursor.name, name), "unittest failure 2", line);
                 enforceTest(cursor._state.pos == pos, "unittest failure 3", line);
-            }
+            }}
         }
 
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
 
-            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
+            static foreach(i, config; AliasSeq!(Config.init,
+                                                makeConfig(PositionType.line),
+                                                makeConfig(PositionType.none)))
+            {{
                 auto cursor = parseXML!config(xml.save);
                 assertThrown!XMLParsingException(cursor.next(), "unittest failure", __FILE__, line);
-            }
+            }}
         }
 
-        foreach(i, func; testRangeFuncs)
+        static foreach(func; testRangeFuncs)
         {
             test!(func, EntityType.docTypeEmpty)("<!DOCTYPE name>", "name", 1, 16);
             test!(func, EntityType.docTypeEmpty)("<!DOCTYPE \n\n\n name>", "name", 4, 7);
@@ -2422,30 +2425,34 @@ private:
         {
             auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
 
-            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
+            static foreach(i, config; AliasSeq!(Config.init,
+                                                makeConfig(PositionType.line),
+                                                makeConfig(PositionType.none)))
+            {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(xml.save);
                 enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
                 enforceTest(cursor.next() == EntityType.attlistDeclStart, "unittest failure 2", line);
                 enforceTest(equal(cursor.name, name), "unittest failure 3", line);
                 enforceTest(cursor._state.pos == pos, "unittest failure 4", line);
-            }
+            }}
         }
 
         static void testFail(alias func)(string attlist, size_t line = __LINE__)
         {
             auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
 
-            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-            {
+            static foreach(i, config; AliasSeq!(Config.init,
+                                                makeConfig(PositionType.line),
+                                                makeConfig(PositionType.none)))
+            {{
                 auto cursor = parseXML!config(xml.save);
                 enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
                 assertThrown!XMLParsingException(cursor.next(), "unittest failure 2", __FILE__, line);
-            }
+            }}
         }
 
-        foreach(i, func; testRangeFuncs)
+        static foreach(i, func; testRangeFuncs)
         {
             test!func("<!ATTLIST name>", "name", 2, 15);
             test!func("<!ATTLIST foo     >", "foo", 2, 19);
@@ -3363,8 +3370,10 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init,
+                                            makeConfig(PositionType.line),
+                                            makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3383,10 +3392,10 @@ unittest
                 enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!func("hello world", "hello", " world", true, 1, "hello".length + 1);
         test!func("hello world", "hello world", "", true, 1, "hello world".length + 1);
@@ -3454,8 +3463,10 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init,
+                                            makeConfig(PositionType.line),
+                                            makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3474,10 +3485,10 @@ unittest
                 enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!func("  \t\rhello world", "hello world", true, 1, 5);
         test!func("  \n \n \n  \nhello world", "hello world", true, 5, 1);
@@ -3512,8 +3523,10 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init,
+                                            makeConfig(PositionType.line),
+                                            makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3532,20 +3545,22 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init,
+                                            makeConfig(PositionType.line),
+                                            makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeUntilAndKeep!needle(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         {
             auto haystack = "hello world";
@@ -3571,11 +3586,11 @@ unittest
                                             remainder[i .. $], 1, len + i + 1);
             }
         }
-        foreach(haystack; AliasSeq!("", "a", "hello"))
+        static foreach(haystack; AliasSeq!("", "a", "hello"))
             testFail!(func, "x")(haystack);
-        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
             testFail!(func, "le")(haystack);
-        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
             testFail!(func, "web")(haystack);
     }
 }
@@ -3599,8 +3614,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3619,20 +3634,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         {
             auto haystack = "hello world";
@@ -3654,11 +3669,11 @@ unittest
             static foreach(i; 1 .. needle.length)
                 test!(func, needle[0 .. i])(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
         }
-        foreach(haystack; AliasSeq!("", "a", "hello"))
+        static foreach(haystack; AliasSeq!("", "a", "hello"))
             testFail!(func, "x")(haystack);
-        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
             testFail!(func, "le")(haystack);
-        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
             testFail!(func, "web")(haystack);
     }
 }
@@ -3680,8 +3695,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3702,20 +3717,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         {
             enum needle = "world";
@@ -3738,11 +3753,11 @@ unittest
                 test!(func, needle[0 .. i])(haystack, remainder[i .. $], 1, len + i + 1);
         }
 
-        foreach(haystack; AliasSeq!("", "a", "hello"))
+        static foreach(haystack; AliasSeq!("", "a", "hello"))
             testFail!(func, "x")(haystack);
-        foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "l", "lte", "world", "nomatch"))
             testFail!(func, "le")(haystack);
-        foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; AliasSeq!("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
             testFail!(func, "web")(haystack);
     }
 }
@@ -3906,8 +3921,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -3926,20 +3941,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, delims...)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!(func, 'o', 'w')("hello world", "o world", 1, 5);
         test!(func, 'r', 'w', '1', '+', '*')("hello world", "world", 1, 7);
@@ -3965,7 +3980,7 @@ auto takeEnquotedText(PS)(PS state)
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     checkNotEmpty(state);
     immutable quote = state.input.front;
-    foreach(quoteChar; AliasSeq!(`"`, `'`))
+    static foreach(quoteChar; AliasSeq!(`"`, `'`))
     {
         // This would be a bit simpler if takeUntilAndDrop took a runtime
         // argument, but in all other cases, a compile-time argument makes more
@@ -3990,8 +4005,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4010,20 +4025,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 4", line);
                 enforceTest(state.pos == pos, "unittest failure 3", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeEnquotedText(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         foreach(quote; only("\"", "'"))
         {
@@ -4064,8 +4079,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4084,20 +4099,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.stripEq(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!func("=", "", 1, 2);
         test!func("=hello", "hello", 1, 2);
@@ -4191,8 +4206,8 @@ unittest
         import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4211,30 +4226,31 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, bool rns, delim...)(string origHaystack, size_t line = __LINE__)
     {
         import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeName!(rns, delim)(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
-        foreach(str; AliasSeq!("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"))
-        {
+        static foreach(str; AliasSeq!("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"))
+        {{
             import std.utf : codeLength;
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
-            foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo",  "  foo \n \r "))
+            static foreach(remainder; AliasSeq!("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo",
+                                                "\nfoo",  "  foo \n \r "))
             {
-                foreach(bool rns; AliasSeq!(true, false))
+                static foreach(bool rns; AliasSeq!(true, false))
                 {
                     test!(func, rns)(str ~ remainder, str, remainder, 1, len + 1);
                     static foreach(char delim; ">?=")
@@ -4245,9 +4261,9 @@ unittest
                     }
                 }
             }
-        }
+        }}
 
-        foreach(bool rns; AliasSeq!(true, false))
+        static foreach(bool rns; AliasSeq!(true, false))
         {
             foreach(haystack; AliasSeq!(" ", "<", "foo!", "foo!<"))
             {
@@ -4264,7 +4280,7 @@ unittest
                 testFail!(func, rns, delim)([delim]);
         }
 
-        foreach(haystack; AliasSeq!("42", ".", ".a"))
+        static foreach(haystack; AliasSeq!("42", ".", ".a"))
         {
             testFail!(func, true)(haystack);
             test!(func, false)(haystack, haystack, "", 1, haystack.length + 1);
@@ -4376,8 +4392,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4412,17 +4428,17 @@ unittest
                 static if(rws)
                     enforceTest(result[1] == expectedWS, "unittest failure 10", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func, bool rsap, bool rws)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeID!(rsap, rws)(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
     static auto pubLit(string[] literals...)
@@ -4441,11 +4457,11 @@ unittest
         return retval;
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
-        foreach(rws; AliasSeq!(false, true))
+        static foreach(rws; AliasSeq!(false, true))
         {
-            foreach(rsap; AliasSeq!(false, true))
+            static foreach(rsap; AliasSeq!(false, true))
             {
                 test!(func, rsap, rws)(`SYSTEM "Name">`, sysLit(`Name`), ">", false, 1, 14);
                 test!(func, rsap, rws)(`SYSTEM 'Name'>`, sysLit(`Name`), ">", false, 1, 14);
@@ -4590,8 +4606,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4610,20 +4626,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takePubidLiteral(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!func(`""`, ``, "", 1, 3);
         test!func(`"Name"`, `Name`, "", 1, 7);
@@ -4682,8 +4698,8 @@ unittest
     {
         auto haystack = func(origHaystack);
 
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
@@ -4702,20 +4718,20 @@ unittest
                 enforceTest(equal(state.input, remainder), "unittest failure 5", line);
                 enforceTest(state.pos == pos, "unittest failure 6", line);
             }
-        }
+        }}
     }
 
     static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
-        {
+        static foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+        {{
             auto state = testParser!config(haystack.save);
             assertThrown!XMLParsingException(state.takeSystemLiteral(), "unittest failure", __FILE__, line);
-        }
+        }}
     }
 
-    foreach(func; testRangeFuncs)
+    static foreach(func; testRangeFuncs)
     {
         test!func(`""`, ``, "", 1, 3);
         test!func(`"Name"`, `Name`, "", 1, 7);
@@ -4969,7 +4985,7 @@ unittest
     import std.ascii : isAlphaNum;
     import std.meta : AliasSeq;
 
-    foreach(C; AliasSeq!(char, wchar, dchar))
+    static foreach(C; AliasSeq!(char, wchar, dchar))
     {
         foreach(c; cast(C)0 .. cast(C)129)
         {
@@ -5024,12 +5040,12 @@ unittest
     import std.meta : AliasSeq;
     import std.typecons : tuple;
 
-    foreach(t; AliasSeq!(tuple("hello", "hello"), tuple("hello \t\r\n", "hello"),
-                         tuple("  a  aca ana ra . a", "  a  aca ana ra . a"),
-                         tuple("  a  aca ana ra . a ", "  a  aca ana ra . a"),
-                         tuple("hello\v", "hello\v")))
+    static foreach(t; AliasSeq!(tuple("hello", "hello"), tuple("hello \t\r\n", "hello"),
+                                tuple("  a  aca ana ra . a", "  a  aca ana ra . a"),
+                                tuple("  a  aca ana ra . a ", "  a  aca ana ra . a"),
+                                tuple("hello\v", "hello\v")))
     {
-        foreach(func; testRangeFuncs)
+        static foreach(func; testRangeFuncs)
             assert(equal(stripRightWS(byCodeUnit(t[0])), t[1]));
     }
 }
