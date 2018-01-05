@@ -1,7 +1,7 @@
 // Written in the D programming language
 
 /++
-    Copyright: Copyright 2017
+    Copyright: Copyright 2017 - 2018
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
     Source:    $(LINK_TO_SRC dxml/parser/_cursor.d)
@@ -1085,7 +1085,7 @@ public:
     }
 
     ///
-    unittest
+    static if(compileInTests) unittest
     {
         enum xml = "<!DOCTYPE medical [\n" ~
                    "    <!ELEMENT spec (front, body, back?)>\n" ~
@@ -1460,7 +1460,7 @@ public:
     }
 
     ///
-    unittest
+    static if(compileInTests) unittest
     {
         {
             enum xml = "<!DOCTYPE dentist PUBLIC 'foo' 'bar'\n" ~
@@ -1558,7 +1558,7 @@ public:
           +/
         bool parsedEntity;
 
-        unittest
+        static if(compileInTests) unittest
         {
             import std.algorithm : equal;
 
@@ -1615,7 +1615,7 @@ public:
         return _state.entityDef;
     }
 
-    unittest
+    static if(compileInTests) unittest
     {
         enum xml = "<!DOCTYPE pediatrist\n" ~
                    "    [\n" ~
@@ -1887,7 +1887,7 @@ private:
     static if(compileInTests) unittest
     {
         import core.exception : AssertError;
-        import std.exception : enforce;
+        import std.exception : assertNotThrown, enforce;
         import std.meta : AliasSeq;
 
         static void test(alias func, SkipProlog skipProlog = SkipProlog.no)
@@ -1899,8 +1899,8 @@ private:
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(func(xml));
-                cursor.next();
-                enforce!AssertError(cursor._state.pos == pos, "unittest failure", __FILE__, line);
+                assertNotThrown!XMLParsingException(cursor.next(), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(cursor._state.pos == pos, "unittest failure 2", __FILE__, line);
             }
         }
 
@@ -1958,13 +1958,17 @@ private:
                         _parseDoctypeDecl();
                         break;
                     }
+                    throw new XMLParsingException("Expected DOCTYPE or --", _state.pos);
                 }
-                else if(_state.stripStartsWith("DOCTYPE"))
+                else
                 {
-                    throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
-                                                  _state.pos);
+                    if(_state.stripStartsWith("DOCTYPE"))
+                    {
+                        throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
+                                                      _state.pos);
+                    }
+                    throw new XMLParsingException("--", _state.pos);
                 }
-                throw new XMLParsingException("Invalid XML", _state.pos);
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
@@ -2189,6 +2193,54 @@ private:
         }
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.exception : assertThrown;
+        import std.meta : AliasSeq;
+
+        static void test(alias func, EntityType entityType)(string text, string name,
+                                                            int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+
+            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == entityType, "unittest failure 1", line);
+                enforceTest(equal(cursor.name, name), "unittest failure 2", line);
+                enforceTest(cursor._state.pos == pos, "unittest failure 3", line);
+            }
+        }
+
+        static void testFail(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+
+            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto cursor = parseXML!config(xml.save);
+                assertThrown!XMLParsingException(cursor.next(), "unittest failure", __FILE__, line);
+            }
+        }
+
+        foreach(i, func; testRangeFuncs)
+        {
+            test!(func, EntityType.docTypeEmpty)("<!DOCTYPE name>", "name", 1, 16);
+            test!(func, EntityType.docTypeEmpty)("<!DOCTYPE \n\n\n name>", "name", 4, 7);
+            test!(func, EntityType.docTypeEmpty)("<!DOCTYPE name \n\n\n >", "name", 4, 3);
+
+            test!(func, EntityType.docTypeStart)("<!DOCTYPE name []>", "name", 1, 17);
+            test!(func, EntityType.docTypeStart)("<!DOCTYPE \n\n\n name []>", "name", 4, 8);
+            test!(func, EntityType.docTypeStart)("<!DOCTYPE name \n\n\n []>", "name", 4, 3);
+
+            testFail!func("<!DOCTYP name>");
+            testFail!func("<!DOCTYPEname>");
+            testFail!func("<!DOCTYPE >");
+            testFail!func("<!DOCTYPE>");
+        }
+    }
+
 
     // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
     // DeclSep     ::= PEReference | S
@@ -2331,16 +2383,20 @@ private:
     }
 
 
-    void _parseTagName(string tagName)
+    void _parseTagName(delims...)(string tagName)
     {
         import std.format : format;
         if(_state.input.empty)
             throw new XMLParsingException(tagName ~ " tag missing name", _state.pos);
-        _state.name = _state.takeName!true();
-        if(!stripWS(_state))
+        _state.name = _state.takeName!(true, delims)();
+        immutable wasSpace = stripWS(_state);
+        static if(delims.length == 0)
         {
-            throw new XMLParsingException(format!"There must be whitespace after the %s tag's name"(tagName),
-                                          _state.pos);
+            if(!wasSpace)
+            {
+                throw new XMLParsingException(format!"There must be whitespace after the %s tag's name"(tagName),
+                                              _state.pos);
+            }
         }
     }
 
@@ -2352,8 +2408,59 @@ private:
     void _parseAttlistDecl()
     {
         _state.type = EntityType.attlistDeclStart;
-        _parseTagName("ATTLIST");
+        _parseTagName!'>'("ATTLIST");
         _state.grammarPos = GrammarPos.intSubsetAttDef;
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.exception : assertThrown;
+        import std.format : format;
+        import std.meta : AliasSeq;
+
+        static void test(alias func)(string attlist, string name, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
+
+            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
+                enforceTest(cursor.next() == EntityType.attlistDeclStart, "unittest failure 2", line);
+                enforceTest(equal(cursor.name, name), "unittest failure 3", line);
+                enforceTest(cursor._state.pos == pos, "unittest failure 4", line);
+            }
+        }
+
+        static void testFail(alias func)(string attlist, size_t line = __LINE__)
+        {
+            auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
+
+            foreach(i, config; AliasSeq!(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)))
+            {
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
+                assertThrown!XMLParsingException(cursor.next(), "unittest failure 2", __FILE__, line);
+            }
+        }
+
+        foreach(i, func; testRangeFuncs)
+        {
+            test!func("<!ATTLIST name>", "name", 2, 15);
+            test!func("<!ATTLIST foo     >", "foo", 2, 19);
+            test!func("<!ATTLIST\n\n\nname>", "name", 5, 5);
+            test!func("<!ATTLIST bar \n\n  >", "bar", 4, 3);
+            test!func("<!ATTLIST whatever CDATA #REQUIRED>", "whatever", 2, 20);
+
+            testFail!func("<!ATTLIS name>");
+            testFail!func("<!ATTLISTname>");
+            testFail!func("<!ATTLISTTname>");
+            testFail!func("<!ATTLISTn ame>");
+            testFail!func("<!ATTLISt name>");
+            testFail!func("<!ATTLIST >");
+            testFail!func("<!ATTLIST>");
+        }
     }
 
 
@@ -2377,6 +2484,7 @@ private:
         checkNotEmpty(_state);
         _parseDefaultDecl();
     }
+
 
     // AttType        ::= StringType | TokenizedType | EnumeratedType
     // StringType     ::= 'CDATA'
@@ -2804,7 +2912,7 @@ private:
                     _parseComment();
                     break;
                 }
-                throw new XMLParsingException("Invalid XML", _state.pos);
+                throw new XMLParsingException("Expected --", _state.pos);
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
@@ -3246,10 +3354,8 @@ bool stripStartsWith(PS)(PS state, string text)
     return true;
 }
 
-@safe pure unittest
+unittest
 {
-    import core.exception : AssertError;
-    import std.exception : enforce;
     import std.meta : AliasSeq;
 
     static void test(alias func)(string origHaystack, string needle, string remainder, bool startsWith,
@@ -3262,9 +3368,9 @@ bool stripStartsWith(PS)(PS state, string text)
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(state.stripStartsWith(needle) == startsWith, "unittest failure 1", line);
+                enforceTest(equalCU(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3273,9 +3379,9 @@ bool stripStartsWith(PS)(PS state, string text)
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(state.stripStartsWith(needle) == startsWith, "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(state.stripStartsWith(needle) == startsWith, "unittest failure 4", line);
+                enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3339,10 +3445,8 @@ bool stripWS(PS)(PS state)
     return strippedSpace;
 }
 
-@safe pure unittest
+unittest
 {
-    import core.exception : AssertError;
-    import std.exception : enforce;
     import std.meta : AliasSeq;
 
     static void test(alias func)(string origHaystack, string remainder, bool stripped,
@@ -3355,9 +3459,9 @@ bool stripWS(PS)(PS state)
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(state.stripWS() == stripped, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(state.stripWS() == stripped, "unittest failure 1", line);
+                enforceTest(equalCU(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3366,9 +3470,9 @@ bool stripWS(PS)(PS state)
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(state.stripWS() == stripped, "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equalCU(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(state.stripWS() == stripped, "unittest failure 4", line);
+                enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3400,8 +3504,7 @@ auto takeUntilAndKeep(string text, PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
@@ -3414,9 +3517,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3425,9 +3528,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3488,8 +3591,7 @@ auto takeUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
@@ -3502,9 +3604,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3513,9 +3615,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3570,8 +3672,7 @@ void skipUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertNotThrown, assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func, string needle)(string origHaystack, string remainder,
@@ -3584,9 +3685,10 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                state.skipUntilAndDrop!needle();
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+                assertNotThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure 1",
+                                                    __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3595,9 +3697,10 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                state.skipUntilAndDrop!needle();
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+                assertNotThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure 4",
+                                                    __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3795,8 +3898,7 @@ template skipToOneOf(delims...)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertNotThrown, assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
@@ -3809,9 +3911,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                state.skipToOneOf!delims();
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+                assertNotThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest 1", __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3820,9 +3922,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                state.skipToOneOf!delims();
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+                assertNotThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest 4", __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -3879,8 +3981,7 @@ auto takeEnquotedText(PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
     import std.range : only;
 
@@ -3894,9 +3995,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(takeEnquotedText(state), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3905,9 +4006,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(takeEnquotedText(state), expected), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(takeEnquotedText(state), expected), "unittest failure 3", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 4", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
         }
     }
@@ -3956,8 +4057,7 @@ void stripEq(PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertNotThrown, assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func)(string origHaystack, string remainder, int row, int col, size_t line = __LINE__)
@@ -3969,9 +4069,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                stripEq(state);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 2", __FILE__, line);
+                assertNotThrown!XMLParsingException(stripEq(state), "unittest failure 1", __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -3980,9 +4080,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                stripEq(state);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+                assertNotThrown!XMLParsingException(stripEq(state), "unittest failure 4", __FILE__, line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -4082,8 +4182,7 @@ template takeName(bool requireNameStart, delims...)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
@@ -4097,9 +4196,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -4108,9 +4207,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(state.takeName!(rns, delim)(), expected), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(equal(state.takeName!(rns, delim)(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -4259,8 +4358,7 @@ auto takeID(bool requireSystemAfterPublic, bool returnWasSpace, PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
     import std.typecons : Tuple;
 
@@ -4288,12 +4386,12 @@ unittest
                     auto id = result[0];
                 else
                     auto id = result;
-                enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 4", __FILE__, line);
+                enforceTest(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 1", line);
+                enforceTest(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 2", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 3", line);
+                enforceTest(state.pos == pos, "unittest failure 4", line);
                 static if(rws)
-                    enforce!AssertError(result[1] == expectedWS, "unittest failure 5", __FILE__, line);
+                    enforceTest(result[1] == expectedWS, "unittest failure 5", line);
             }
             static if(i != 2)
             {
@@ -4307,12 +4405,12 @@ unittest
                     auto id = result[0];
                 else
                     auto id = result;
-                enforce!AssertError(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 6", __FILE__, line);
-                enforce!AssertError(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 7", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 8", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 9", __FILE__, line);
+                enforceTest(eqLit(id.publicLiteral, expected.publicLiteral), "unittest failure 6", line);
+                enforceTest(eqLit(id.systemLiteral, expected.systemLiteral), "unittest failure 7", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 8", line);
+                enforceTest(state.pos == pos, "unittest failure 9", line);
                 static if(rws)
-                    enforce!AssertError(result[1] == expectedWS, "unittest failure 10", __FILE__, line);
+                    enforceTest(result[1] == expectedWS, "unittest failure 10", line);
             }
         }
     }
@@ -4484,8 +4582,7 @@ auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
@@ -4498,9 +4595,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(state.takePubidLiteral(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -4509,9 +4606,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(state.takePubidLiteral(), expected), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(equal(state.takePubidLiteral(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -4577,8 +4674,7 @@ auto takeSystemLiteral(PS)(PS state)
 
 unittest
 {
-    import core.exception : AssertError;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown;
     import std.meta : AliasSeq;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
@@ -4591,9 +4687,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto state = testParser!config(haystack.save);
-                enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 3", __FILE__, line);
+                enforceTest(equal(state.takeSystemLiteral(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
@@ -4602,9 +4698,9 @@ unittest
                 state.pos.line += 3;
                 static if(i == 0)
                     state.pos.col += 7;
-                enforce!AssertError(equal(state.takeSystemLiteral(), expected), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(state.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(state.pos == pos, "unittest failure 6", __FILE__, line);
+                enforceTest(equal(state.takeSystemLiteral(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
             }
         }
     }
@@ -4982,5 +5078,22 @@ version(unittest)
         alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
                                           a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a),
                                           a => byCodeUnit(a));
+    }
+
+
+    void enforceTest(T)(T value, lazy const(char)[] msg = null, size_t line = __LINE__)
+    {
+        import core.exception : AssertError;
+        import std.exception : enforce;
+        import std.format : format;
+        import std.stdio : writeln;
+
+        try
+            enforce!AssertError(value, msg, __FILE__, line);
+        catch(XMLParsingException e)
+        {
+            writeln(e);
+            throw new AssertError(format("XMLParsingException thrown: %s", msg), __FILE__, line);
+        }
     }
 }
