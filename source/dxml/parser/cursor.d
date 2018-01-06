@@ -8,7 +8,7 @@
   +/
 module dxml.parser.cursor;
 
-import std.algorithm : equal, startsWith;
+import std.algorithm : equal;
 import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
@@ -943,15 +943,15 @@ public:
     /++
         Returns the value of the current entity.
 
-        In the case of $(LREF EntityType.elementDecl) and
-        $(LREF EntityType.processingInstruction), this is the text that follows
-        the name.
+        In the case of $(LREF EntityType.processingInstruction), this is the
+        text that follows the name, whereas in the other cases, the text is
+        the entire contents of the entity (save for the delimeters on the ends
+        if that entity has them).
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
             $(TR $(TD $(LREF2 cdata, EntityType)))
             $(TR $(TD $(LREF2 comment, EntityType)))
-            $(TR $(TD $(LREF2 elementDecl, EntityType)))
             $(TR $(TD $(LREF2 processingInstruction, EntityType)))
             $(TR $(TD $(LREF2 _text, EntityType)))
         )
@@ -959,7 +959,7 @@ public:
     @property SliceOfR text()
     {
         with(EntityType)
-            assert(only(cdata, comment, elementDecl, processingInstruction, text).canFind(_state.type));
+            assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
         return stripBCU!R(_state.savedText.input.save);
     }
 
@@ -1082,39 +1082,6 @@ public:
             assert(cursor.next() == EntityType.elementEnd);
             assert(cursor.next() == EntityType.documentEnd);
         }
-    }
-
-    ///
-    static if(compileInTests) unittest
-    {
-        enum xml = "<!DOCTYPE medical [\n" ~
-                   "    <!ELEMENT spec (front, body, back?)>\n" ~
-                   "    <!ELEMENT div1 (head, (p | list | note)*, div2*)>\n" ~
-                   "    <!ELEMENT dictionary-body (%div.mix; | %dict.mix;)*>\n" ~
-                   "]> <potato/>";
-
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.docTypeStart);
-        assert(cursor.name == "medical");
-
-        assert(cursor.next() == EntityType.elementDecl);
-        assert(cursor.name == "spec");
-        assert(cursor.text == "(front, body, back?)");
-
-        assert(cursor.next() == EntityType.elementDecl);
-        assert(cursor.name == "div1");
-        assert(cursor.text == "(head, (p | list | note)*, div2*)");
-
-        assert(cursor.next() == EntityType.elementDecl);
-        assert(cursor.name == "dictionary-body");
-        assert(cursor.text == "(%div.mix; | %dict.mix;)*");
-
-        assert(cursor.next() == EntityType.docTypeEnd);
-
-        assert(cursor.next() == EntityType.elementEmpty);
-        assert(cursor.name == "potato");
-
-        assert(cursor.next() == EntityType.documentEnd);
     }
 
 
@@ -1713,7 +1680,7 @@ public:
         itself is contained in $(LREF EntityCursor.name), whereas the
         $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttType, $(I AttType)) and
         $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl)) are
-        contained in an $(LREF _AttDefInfo).
+        contained in an AttDefInfo.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:)),
@@ -1749,7 +1716,7 @@ public:
         @property auto notationValues()
         {
             assert(attType == AttType.notationType);
-            return AttDefValueRange!(AttType.notationType)(_savedText.save);
+            return PipeSeparatedRange!(PSRConfig.name)(_savedText.save);
         }
 
         /++
@@ -1767,7 +1734,7 @@ public:
         @property auto enumValues()
         {
             assert(attType == AttType.enumeration);
-            return AttDefValueRange!(AttType.enumeration)(_savedText.save);
+            return PipeSeparatedRange!(PSRConfig.nmtoken)(_savedText.save);
         }
 
         /++
@@ -1784,71 +1751,33 @@ public:
             for the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-DefaultDecl, $(I DefaultDecl)).
 
             If $(D defaultDecl == DefaultDecl.required) or
-            $(D defaultDecl == DefaultDecl.implied), then this will be empty and
-            should be ignored.
+            $(D defaultDecl == DefaultDecl.implied), then it is an error to call
+            attValue.
 
             If $(D defaultDecl == DefaultDecl.fixed) or
             $(D defaultDecl == DefaultDecl.unfixed), and this is empty, then
             that is because there was nothing between the quotes of the
             $(LINK2 http://www.w3.org/TR/REC-xml/#NT-AttValue, $(I AttValue)).
 
+            $(TABLE
+                $(TR $(TH Supported $(LREF DefaultDecl)s:)),
+                $(TR $(TD $(LREF2 fixed, DefaultDecl))),
+                $(TR $(TD $(LREF2 unfixed, DefaultDecl))),
+            )
+
             See_also: $(LREF DefaultDecl)$(BR)
                       $(LINK http://www.w3.org/TR/REC-xml/#NT-DefaultDecl)
           +/
-        SliceOfR attValue;
+        @property SliceOfR attValue()
+        {
+            assert(defaultDecl == DefaultDecl.fixed || defaultDecl == DefaultDecl.unfixed);
+            return _attValue.save;
+        }
 
     private:
 
-        struct AttDefValueRange(AttType attType)
-        {
-            static assert(attType == AttType.notationType || attType == AttType.enumeration);
-            enum requireNameStart = attType == AttType.notationType;
-
-        public:
-
-            bool empty() { return _savedText.input.front != ')'; }
-
-            SliceOfR front() { return _front.save; }
-
-            void popFront()
-            {
-                auto state = &_savedText;
-                popFrontAndIncCol(state);
-                stripWS(state);
-                _front = stripBCU!R(state.takeName!(requireNameStart, '|', ')')());
-                stripWS(state);
-                checkNotEmpty(state);
-                switch(state.input.front)
-                {
-                    case '|':
-                    case ')': break;
-                    default: throw new XMLParsingException("Expected | or )", state.pos);
-                }
-            }
-
-            @property save() { return typeof(this)(_front.save, _savedText.save); }
-
-        private:
-
-            this(SliceOfR front, ParserState.SavedText savedText)
-            {
-                _front = front;
-                _savedText = savedText;
-            }
-
-            this(ParserState.SavedText savedText)
-            {
-                assert(!savedText.input.empty);
-                assert(savedText.input.front == '(');
-                _savedText = savedText;
-                popFront();
-            }
-
-            SliceOfR _front;
-            ParserState.SavedText _savedText;
-        }
-
         ParserState.SavedText _savedText;
+        SliceOfR _attValue;
     }
 
     /// Ditto
@@ -1859,7 +1788,243 @@ public:
     }
 
 
+    /++
+        Information for an `<!ELEMENT ...>`.
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-elementDecl, $(I elementDecl))
+
+        The name of the $(LINK2 http://www.w3.org/TR/REC-xml/#NT-elementDecl,
+        $(I elementDecl)) itself is contained in $(LREF EntityCursor.name),
+        whereas the
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-contentspec, $(I contentspec))
+        is contained in a ContentSpec.
+
+        $(TABLE
+            $(TR $(TH Supported $(LREF EntityType)s:)),
+            $(TR $(TD $(LREF2 elementDecl, EntityType))),
+        )
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#elemdecls)
+      +/
+    struct ContentSpec
+    {
+    public:
+
+        /++
+            The type of data that the $(I contentspec) contains.
+
+            See_Also: $(LREF ContentSpecType)
+          +/
+        ContentSpecType type;
+
+        /++
+            If $(D type == ContentSpecType.mixedStar), then this will return a
+            range of the names in the
+            $(LINK2 http://www.w3.org/TR/REC-xml/#NT-Mixed, mixed-content declaration).
+            Otherwise, it's an error to call mixedNames.
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF ContentSpecType)s:)),
+                $(TR $(TD $(LREF2 mixed, AttType))),
+            )
+
+            Throws: $(LREF XMLParsingException on invalid XML)
+
+            See_also: $(LINK http://www.w3.org/TR/REC-xml/#NT-Mixed)
+          +/
+        auto mixedNames()
+        {
+            assert(type == ContentSpecType.mixedStar);
+            return PipeSeparatedRange!(PSRConfig.pcdataAndName)(_savedText.save);
+        }
+
+        /++
+            If $(D type == ContentSpecType.children), then this will return a
+            slice/$(D takeExactly) of the `<!ELEMENT ...>` declaration, starting
+            with the $(D '$(LPAREN)') that starts the element-content model
+            and ending with with the $(D '$(RPAREN)'), $(D '?'), $(D '*'),
+            or $(D '+') that terminates it.
+
+            If $(D type != ContentSpecType.children), then it is an error to
+            call children.
+
+            At some point, a helper function should probably be added to parse
+            this and turn into into something more easily used, but for now,
+            it's just provided as text.
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF ContentSpecType)s:)),
+                $(TR $(TD $(LREF2 children, AttType))),
+            )
+
+            See_also: $(LINK http://www.w3.org/TR/REC-xml/#sec-element-content)
+          +/
+        @property SliceOfR children()
+        {
+            assert(type == ContentSpecType.children);
+            return stripBCU!R(_savedText.input);
+        }
+
+
+    private:
+
+        ParserState.SavedText _savedText;
+    }
+
+    /// Ditto
+    @property contentSpec() nothrow
+    {
+        assert(_state.type == EntityType.elementDecl);
+        return _state.contentSpec;
+    }
+
+    ///
+    static if(compileInTests) unittest
+    {
+        import std.algorithm.comparison : equal;
+
+        enum xml = "<!DOCTYPE medical [\n" ~
+                   "    <!ELEMENT br EMPTY>\n" ~
+                   "    <!ELEMENT container ANY>\n" ~
+                   "    <!ELEMENT p (#PCDATA|emph|blah)* >\n" ~
+                   "    <!ELEMENT foo (#PCDATA)* >\n" ~
+                   "    <!ELEMENT bar (#PCDATA) >\n" ~
+                   "    <!ELEMENT spec (front, body, back?)>\n" ~
+                   "    <!ELEMENT div1 (head, (p | list | note)*, div2*)>\n" ~
+                   "]> <potato/>";
+
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.docTypeStart);
+        assert(cursor.name == "medical");
+
+        // "<!ELEMENT br EMPTY>"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "br");
+        assert(cursor.contentSpec.type == ContentSpecType.empty);
+
+        // "<!ELEMENT container ANY>"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "container");
+        assert(cursor.contentSpec.type == ContentSpecType.any);
+
+        // "<!ELEMENT p (#PCDATA|emph|blah)* >"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "p");
+        assert(cursor.contentSpec.type == ContentSpecType.mixedStar);
+        assert(equal(cursor.contentSpec.mixedNames, ["emph", "blah"]));
+
+        // "<!ELEMENT foo (#PCDATA)* >";
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "foo");
+        assert(cursor.contentSpec.type == ContentSpecType.mixedStar);
+        assert(cursor.contentSpec.mixedNames.empty);
+
+        // "<!ELEMENT bar (#PCDATA) >"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "bar");
+        assert(cursor.contentSpec.type == ContentSpecType.mixedSingle);
+
+        // "<!ELEMENT spec (front, body, back?)>"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "spec");
+        assert(cursor.contentSpec.type == ContentSpecType.children);
+        assert(cursor.contentSpec.children == "(front, body, back?)");
+
+        // "<!ELEMENT div1 (head, (p | list | note)*, div2*)>"
+        assert(cursor.next() == EntityType.elementDecl);
+        assert(cursor.name == "div1");
+        assert(cursor.contentSpec.type == ContentSpecType.children);
+        assert(cursor.contentSpec.children == "(head, (p | list | note)*, div2*)");
+
+        assert(cursor.next() == EntityType.docTypeEnd);
+
+        assert(cursor.next() == EntityType.elementEmpty);
+        assert(cursor.name == "potato");
+
+        assert(cursor.next() == EntityType.documentEnd);
+    }
+
+
 private:
+
+    enum PSRConfig
+    {
+        name,
+        nmtoken,
+        pcdataAndName
+    }
+
+    struct PipeSeparatedRange(PSRConfig psrc)
+    {
+        enum requireNameStart = psrc != PSRConfig.nmtoken;
+
+    public:
+
+        bool empty() { return _savedText.input.empty; }
+
+        SliceOfR front() { return _front.save; }
+
+        void popFront()
+        {
+            auto state = &_savedText;
+            if(state.input.front == ')')
+            {
+                popFrontAndIncCol(state);
+                assert(state.input.empty);
+                return;
+            }
+            popFrontAndIncCol(state);
+            stripWS(state);
+            _front = stripBCU!R(state.takeName!(requireNameStart, '|', ')')());
+            stripWS(state);
+            checkNotEmpty(state);
+            switch(state.input.front)
+            {
+                case '|':
+                case ')': break;
+                default: throw new XMLParsingException("Expected | or )", state.pos);
+            }
+        }
+
+        @property save() { return typeof(this)(_front.save, _savedText.save); }
+
+    private:
+
+        this(SliceOfR front, ParserState.SavedText savedText)
+        {
+            _front = front;
+            _savedText = savedText;
+        }
+
+        this(ParserState.SavedText savedText)
+        {
+            assert(!savedText.input.empty);
+            assert(savedText.input.front == '(');
+            _savedText = savedText;
+
+            static if(psrc == PSRConfig.pcdataAndName)
+            {
+                auto state = &_savedText;
+                popFrontAndIncCol(state);
+                stripWS(state);
+                immutable stripped = state.stripStartsWith("#PCDATA");
+                assert(stripped);
+                stripWS(state);
+                checkNotEmpty(state);
+                switch(state.input.front)
+                {
+                    case '|':
+                    case ')': popFront(); break;
+                    default: throw new XMLParsingException("Expected | or )", state.pos);
+                }
+            }
+            else
+                popFront();
+        }
+
+        SliceOfR _front;
+        ParserState.SavedText _savedText;
+    }
+
 
     void _parseDocumentStart()
     {
@@ -2376,8 +2541,103 @@ private:
     {
         _state.type = EntityType.elementDecl;
         _parseTagName("ELEMENT");
-        _state.savedText.pos = _state.pos;
-        _state.savedText.input = _state.takeUntilAndDrop!">"();
+
+        if(_state.stripStartsWith("EMPTY"))
+            _state.contentSpec.type = ContentSpecType.empty;
+        else if(_state.stripStartsWith("ANY"))
+            _state.contentSpec.type = ContentSpecType.any;
+        else
+        {
+            import std.algorithm.searching : startsWith;
+
+            checkNotEmpty(_state);
+            if(_state.input.front != '(')
+                throw new XMLParsingException("Expected EMPTY, ANY, or (", _state.pos);
+            _state.contentSpec._savedText.pos = _state.pos;
+            _state.contentSpec._savedText.input = _state.takeParenedText();
+
+            auto temp = _state.contentSpec._savedText.save;
+            auto tempState = &temp;
+            popFrontAndIncCol(tempState);
+            if(tempState.stripStartsWith("#PCDATA"))
+            {
+                _state.contentSpec.type = _state.stripStartsWith("*")
+                                          ? ContentSpecType.mixedStar : ContentSpecType.mixedSingle;
+            }
+            else
+                _state.contentSpec.type = ContentSpecType.children;
+        }
+
+        stripWS(_state);
+        if(!_state.input.front == '>')
+            throw new XMLParsingException("Expected >", _state.pos);
+        popFrontAndIncCol(_state);
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.exception : assertThrown;
+        import std.format : format;
+
+        static void test(alias func)(string elementDecl, string name, ContentSpecType type,
+                                     int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", elementDecl));
+
+            static foreach(i, config; testConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
+                enforceTest(cursor.next() == EntityType.elementDecl, "unittest failure 2", line);
+                enforceTest(equal(cursor.name, name), "unittest failure 3", line);
+                enforceTest(cursor.contentSpec.type == type, "unittest failure 4", line);
+                enforceTest(cursor._state.pos == pos, "unittest failure 5", line);
+            }}
+        }
+
+        static void testFail(alias func)(string elementDecl, size_t line = __LINE__)
+        {
+            auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", elementDecl));
+
+            static foreach(i, config; testConfigs)
+            {{
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
+                assertThrown!XMLParsingException(cursor.next(), "unittest failure 2", __FILE__, line);
+            }}
+        }
+
+        static foreach(i, func; testRangeFuncs)
+        {
+            test!func("<!ELEMENT name EMPTY>", "name", ContentSpecType.empty, 2, 22);
+            test!func("<!ELEMENT foo   EMPTY   >", "foo", ContentSpecType.empty, 2, 26);
+            test!func("<!ELEMENT\n\n\nname EMPTY>", "name", ContentSpecType.empty, 5, 12);
+            test!func("<!ELEMENT bar \n\n EMPTY >", "bar", ContentSpecType.empty, 4, 8);
+            test!func("<!ELEMENT bar  ANY \n >", "bar", ContentSpecType.any, 2, 3);
+            test!func("<!ELEMENT whatever (#PCDATA)>", "whatever", ContentSpecType.mixedSingle, 2, 30);
+            test!func("<!ELEMENT whatever (\n#PCDATA )>", "whatever", ContentSpecType.mixedSingle, 3, 11);
+            test!func("<!ELEMENT whatever (#PCDATA)*>", "whatever", ContentSpecType.mixedStar, 2, 31);
+            test!func("<!ELEMENT whatever (\n#PCDATA )*>", "whatever", ContentSpecType.mixedStar, 3, 12);
+            test!func("<!ELEMENT whatever (Foo)>", "whatever", ContentSpecType.children, 2, 26);
+
+            testFail!func("<!ELEMEN name>");
+            testFail!func("<!ELEMENTname>");
+            testFail!func("<!ELEMENTTname>");
+            testFail!func("<!ELEMENTn ame>");
+            testFail!func("<!ELEMENT name>");
+            testFail!func("<!ELEMENT >");
+            testFail!func("<!ELEMENT>");
+
+            testFail!func("<!ELEMENT name EMPT>");
+            testFail!func("<!ELEMENT name AN>");
+            testFail!func("<!ELEMENT name EMPTY foo>");
+            testFail!func("<!ELEMENT name ANY foo>");
+            testFail!func("<!ELEMENT name (>");
+            testFail!func("<!ELEMENT name (>)>");
+            testFail!func("<!ELEMENT whatever(#PCDATA)>");
+            testFail!func("<!ELEMENT whatever(Foo)*>");
+        }
     }
 
 
@@ -2599,8 +2859,7 @@ private:
             }
             else
                 _state.attDefInfo.defaultDecl = DefaultDecl.unfixed;
-            _state.attDefInfo.attValue = stripBCU!R(_state.takeEnquotedText());
-            //FIXME Do validation of AttValue or leave that to a helper function?
+            _state.attDefInfo._attValue = stripBCU!R(_state.takeEnquotedText());
         }
     }
 
@@ -2718,7 +2977,7 @@ private:
         _parseTagName("NOTATION");
         _state.id = _state.takeID!(false, false)();
         if(_state.input.front != '>')
-            throw new XMLParsingException("> missing", _state.pos);
+            throw new XMLParsingException("Expected >", _state.pos);
         popFrontAndIncCol(_state);
     }
 
@@ -2963,6 +3222,7 @@ private:
         Nullable!ID id;
         EntityDef entityDef;
         AttDefInfo attDefInfo;
+        ContentSpec contentSpec;
 
         this(R xmlText)
         {
@@ -2974,6 +3234,7 @@ private:
             id = typeof(id).init;
             entityDef = typeof(entityDef).init;
             attDefInfo = typeof(attDefInfo).init;
+            contentSpec = typeof(contentSpec).init;
         }
     }
 
@@ -3185,6 +3446,47 @@ enum DefaultDecl
 }
 
 
+/++
+    Represents the type of the
+    $(LINK2 http://www.w3.org/TR/REC-xml/#NT-contentspec, $(I contentspec))
+    portion of an
+    $(LINK2 http://www.w3.org/TR/REC-xml/#NT-elemendecl, $(I elementDecl)).
+
+    See_Also: $(LREF ContentSpec)$(BR)
+              $(LINK http://www.w3.org/TR/REC-xml/#elemdecls)
+  +/
+enum ContentSpecType
+{
+    /// The $(I contentspec) was $(D EMPTY).
+    empty,
+
+    /// The $(I contentspec) was $(D ANY).
+    any,
+
+    /++
+        The $(I contentspec) was a
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-Mixed, mixed-content declaration)
+        that terminated with a $(D '*') and thus contains $(D #PCDATA) and zero
+        or more $(I Name)s.
+      +/
+    mixedStar,
+
+    /++
+        The $(I contentspec) was a
+        $(LINK2 http://www.w3.org/TR/REC-xml/#NT-Mixed, mixed-content declaration).
+        that did $(I not) terminate with a $(D '*') and thus contains only a
+        single $(D #PCDATA).
+      +/
+    mixedSingle,
+
+    /++
+        The $(I contentspec) was an
+        $(LINK2 http://www.w3.org/TR/REC-xml/#sec-element-content, element content model).
+      +/
+    children
+}
+
+
 //------------------------------------------------------------------------------
 // Private Section
 //------------------------------------------------------------------------------
@@ -3345,7 +3647,7 @@ bool stripStartsWith(PS)(PS state, string text)
         }
     }
 
-    static if(state.config.posType == PositionType.lineAndCol)
+    static if(PS.config.posType == PositionType.lineAndCol)
         state.pos.col += text.length;
 
     return true;
@@ -3748,7 +4050,7 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     static assert(text.find!isWhite().empty);
 
-    enum trackTakeLen = tu != TakeUntil.drop || state.config.posType == PositionType.lineAndCol;
+    enum trackTakeLen = tu != TakeUntil.drop || PS.config.posType == PositionType.lineAndCol;
 
     alias R = typeof(PS.input);
     auto orig = state.input.save;
@@ -3757,7 +4059,7 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
     static if(trackTakeLen)
         size_t takeLen = 0;
 
-    static if(state.config.posType == PositionType.lineAndCol)
+    static if(PS.config.posType == PositionType.lineAndCol)
         size_t lineStart = 0;
 
     loop: while(!state.input.empty)
@@ -3810,14 +4112,14 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
                     break loop;
                 }
             }
-            static if(state.config.posType != PositionType.none)
+            static if(PS.config.posType != PositionType.none)
             {
                 case '\n':
                 {
                     static if(trackTakeLen)
                         ++takeLen;
-                    nextLine!(state.config)(state.pos);
-                    static if(state.config.posType == PositionType.lineAndCol)
+                    nextLine!(PS.config)(state.pos);
+                    static if(PS.config.posType == PositionType.lineAndCol)
                         lineStart = takeLen;
                     break;
                 }
@@ -3833,7 +4135,7 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
         state.input.popFront();
     }
 
-    static if(state.config.posType == PositionType.lineAndCol)
+    static if(PS.config.posType == PositionType.lineAndCol)
         state.pos.col += takeLen - lineStart + text.length;
     if(!found)
         throw new XMLParsingException("Failed to find: " ~ text, state.pos);
@@ -3869,11 +4171,11 @@ template skipToOneOf(delims...)
             {
                 foreach(delim; delims)
                     case delim: return;
-                static if(state.config.posType != PositionType.none)
+                static if(PS.config.posType != PositionType.none)
                 {
                     case '\n':
                     {
-                        nextLine!(state.config)(state.pos);
+                        nextLine!(PS.config)(state.pos);
                         state.input.popFront();
                         break;
                     }
@@ -4042,7 +4344,7 @@ void stripEq(PS)(PS state)
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     stripWS(state);
     if(!stripStartsWith(state, "="))
-        throw new XMLParsingException("= missing", state.pos);
+        throw new XMLParsingException("Expec= missing", state.pos);
     stripWS(state);
 }
 
@@ -4133,7 +4435,7 @@ template takeName(bool requireNameStart, delims...)
 
             if(state.input.empty)
             {
-                static if(state.config.posType == PositionType.lineAndCol)
+                static if(PS.config.posType == PositionType.lineAndCol)
                     state.pos.col += takeLen;
                 return takeExactly(orig, takeLen);
             }
@@ -4163,7 +4465,7 @@ template takeName(bool requireNameStart, delims...)
         if(takeLen == 0)
             throw new XMLParsingException("Name cannot be empty", state.pos);
 
-        static if(state.config.posType == PositionType.lineAndCol)
+        static if(PS.config.posType == PositionType.lineAndCol)
             state.pos.col += takeLen;
 
         return takeExactly(orig, takeLen);
@@ -4178,7 +4480,6 @@ unittest
     static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
                                                      int row, int col, size_t line = __LINE__)
     {
-        import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
 
         static foreach(i, config; testConfigs)
@@ -4206,7 +4507,6 @@ unittest
 
     static void testFail(alias func, bool rns, delim...)(string origHaystack, size_t line = __LINE__)
     {
-        import std.stdio; scope(failure) writeln(line);
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
@@ -4228,11 +4528,14 @@ unittest
                 static foreach(bool rns; only(true, false))
                 {
                     test!(func, rns)(str ~ remainder, str, remainder, 1, len + 1);
-                    static foreach(char delim; ">?=")
+                    static foreach(char delim; ">?=|")
                     {
                         test!(func, rns, delim)(str ~ remainder, str, remainder, 1, len + 1);
                         test!(func, rns, delim)(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
                         test!(func, rns, delim)(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
+                        test!(func, rns, '>', '?', '=')(str ~ remainder, str, remainder, 1, len + 1);
+                        test!(func, rns, '>', '?', '=')(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
+                        test!(func, rns, '>', '?', '=')(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
                     }
                 }
             }
@@ -4735,6 +5038,141 @@ unittest
 }
 
 
+// Returns a block of text encased by parens. The first character must be an
+// '(', and the parens on either end of the text will be included in the
+// slice/takeExactly that's returned. Parens are allowed to nest and will be
+// matched appropriately. If '>' is encountered or the end of the text is
+// reached prior to the last matching ')', then an XMLParsingException is thrown.
+auto takeParenedText(PS)(PS state)
+{
+    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
+    assert(!state.input.empty);
+    assert(state.input.front == '(');
+
+    static if(PS.config.posType == PositionType.lineAndCol)
+        size_t lineStart = 1;
+    size_t takeLen = 1;
+    auto orig = state.input.save;
+
+    state.input.popFront();
+
+    for(int parens = 1; parens != 0; state.input.popFront())
+    {
+        checkNotEmpty(state);
+        switch(state.input.front)
+        {
+            case '(':
+            {
+                ++takeLen;
+                ++parens;
+                break;
+            }
+            case ')':
+            {
+                ++takeLen;
+                --parens;
+                break;
+            }
+            case '>':
+            {
+                static if(PS.config.posType == PositionType.lineAndCol)
+                    state.pos.col += takeLen - lineStart;
+                throw new XMLParsingException("found > when searching for matching paren", state.pos);
+            }
+            static if(PS.config.posType != PositionType.none)
+            {
+                case '\n':
+                {
+                    ++takeLen;
+                    nextLine!(PS.config)(state.pos);
+                    static if(PS.config.posType == PositionType.lineAndCol)
+                        lineStart = takeLen;
+                    break;
+                }
+            }
+            default:
+            {
+                ++takeLen;
+                break;
+            }
+        }
+    }
+
+    static if(PS.config.posType == PositionType.lineAndCol)
+        state.pos.col += takeLen - lineStart;
+
+    return takeExactly(orig, takeLen);
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    import std.range : only;
+
+    static void test(alias func)(string origHaystack, string expected, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+
+        static foreach(i, config; testConfigs)
+        {{
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto state = testParser!config(haystack.save);
+                enforceTest(equal(state.takeParenedText(), expected), "unittest failure 1", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
+                enforceTest(state.pos == pos, "unittest failure 3", line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto state = testParser!config(haystack.save);
+                state.pos.line += 3;
+                static if(i == 0)
+                    state.pos.col += 7;
+                enforceTest(equal(state.takeParenedText(), expected), "unittest failure 4", line);
+                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
+                enforceTest(state.pos == pos, "unittest failure 6", line);
+            }
+        }}
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        static foreach(i, config; testConfigs)
+        {{
+            auto state = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(state.takeParenedText(), "unittest failure", __FILE__, line);
+        }}
+    }
+
+    static foreach(func; testRangeFuncs)
+    {
+        test!func("()", "()", "", 1, 3);
+        test!func("(hello)", "(hello)", "", 1, 8);
+        test!func("(hello)world", "(hello)", "world", 1, 8);
+        test!func("(hello|world) bar>", "(hello|world)", " bar>", 1, 14);
+        test!func("(()()()())", "(()()()())", "", 1, 11);
+        test!func("((((()))))", "((((()))))", "", 1, 11);
+        test!func("((()())())", "((()())())", "", 1, 11);
+        test!func("(((\n)())\n())", "(((\n)())\n())", "", 3, 4);
+        test!func("(((\n)())\n())\n\nfoo", "(((\n)())\n())", "\n\nfoo", 3, 4);
+        test!func("(((\n)())\n())>", "(((\n)())\n())", ">", 3, 4);
+        test!func("()(", "()", "(", 1, 3);
+        test!func("((((()))))(", "((((()))))", "", 1, 11);
+
+        testFail!func("(");
+        testFail!func("((");
+        testFail!func("(((()))");
+        testFail!func("(>");
+        testFail!func("(>)");
+        testFail!func("(hello>");
+        testFail!func("(hello>)");
+    }
+}
+
+
 // S := (#x20 | #x9 | #xD | #XA)+
 bool isSpace(C)(C c)
     if(isSomeChar!C)
@@ -4771,45 +5209,6 @@ unittest
             assert(isSpace(c));
         else
             assert(!isSpace(c));
-    }
-}
-
-
-// Same as isSpace execpt that it's false for '\n'
-bool isHSpace(C)(C c)
-    if(isSomeChar!C)
-{
-    switch(c)
-    {
-        case ' ':
-        case '\t':
-        case '\r': return true;
-        default : return false;
-    }
-}
-
-unittest
-{
-    foreach(char c; char.min .. char.max)
-    {
-        if(c == ' ' || c == '\t' || c == '\r')
-            assert(isHSpace(c));
-        else
-            assert(!isHSpace(c));
-    }
-    foreach(wchar c; wchar.min .. wchar.max / 100)
-    {
-        if(c == ' ' || c == '\t' || c == '\r')
-            assert(isHSpace(c));
-        else
-            assert(!isHSpace(c));
-    }
-    foreach(dchar c; dchar.min .. dchar.max / 1000)
-    {
-        if(c == ' ' || c == '\t' || c == '\r')
-            assert(isHSpace(c));
-        else
-            assert(!isHSpace(c));
     }
 }
 
@@ -4974,52 +5373,6 @@ unittest
             foreach(c; cast(C)256 .. cast(C)300)
                 assert(!isPubidChar(c));
         }
-    }
-}
-
-
-// Similar to Phobos' stripRight, but it only strips XML whitespace, and it
-// works on non-bidirectional ranges, as ugly as that is (it would be so much
-// nicer if we didn't care about having dxml be flexible enough to work with
-// arbitrary ranges of characters). It is expected however that what's being
-// passed to stripRightWS is the result of a previous call to takeExactly.
-R stripRightWS(R)(R range)
-    if(isForwardRange!R && isSomeChar!(ElementType!R) && is(typeof(takeExactly(range, 42)) == R))
-{
-    static if(isBidirectionalRange!R)
-    {
-        while(!range.empty && isSpace(range.back))
-            range.popBack();
-        return range;
-    }
-    else
-    {
-        size_t wsLen = 0;
-        auto orig = range.save;
-        while(!range.empty)
-        {
-            if(isSpace(range.front))
-                ++wsLen;
-            else
-                wsLen = 0;
-            range.popFront();
-        }
-        return takeExactly(orig, orig.length - wsLen);
-    }
-}
-
-unittest
-{
-    import std.range : only;
-    import std.typecons : tuple;
-
-    static foreach(t; only(tuple("hello", "hello"), tuple("hello \t\r\n", "hello"),
-                           tuple("  a  aca ana ra . a", "  a  aca ana ra . a"),
-                           tuple("  a  aca ana ra . a ", "  a  aca ana ra . a"),
-                           tuple("hello\v", "hello\v")))
-    {
-        static foreach(func; testRangeFuncs)
-            assert(equal(stripRightWS(byCodeUnit(t[0])), t[1]));
     }
 }
 
