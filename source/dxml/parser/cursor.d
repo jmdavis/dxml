@@ -8,14 +8,13 @@
   +/
 module dxml.parser.cursor;
 
-import std.algorithm : equal;
 import std.range.primitives;
 import std.range : takeExactly;
 import std.traits;
-import std.typecons : Flag, Nullable, nullable;
-import std.utf : byCodeUnit, decodeFront, UseReplacementDchar;
+import std.typecons : Flag;
 
 import dxml.parser.internal;
+
 
 /++
     The exception type thrown when the XML parser runs into invalid XML.
@@ -628,6 +627,8 @@ public:
 
     import std.algorithm : canFind;
     import std.range : only;
+    import std.typecons : Nullable;
+
 
     private enum compileInTests = is(R == EntityCompileTests);
 
@@ -1177,6 +1178,7 @@ public:
         assert(_state.type == EntityType.xmlDecl);
 
         import std.ascii : isDigit;
+        import std.typecons : nullable;
 
         void throwXPE(string msg, size_t line = __LINE__)
         {
@@ -1524,9 +1526,10 @@ public:
           +/
         bool parsedEntity;
 
+        ///
         static if(compileInTests) unittest
         {
-            import std.algorithm : equal;
+            import std.algorithm.comparison : equal;
 
             enum xml = "<!DOCTYPE surgeon\n" ~
                        "    [\n" ~
@@ -2359,6 +2362,7 @@ private:
 
     static if(compileInTests) unittest
     {
+        import std.algorithm.comparison : equal;
         import std.exception : assertThrown;
 
         static void test(alias func, EntityType entityType)(string text, string name,
@@ -2576,6 +2580,7 @@ private:
 
     static if(compileInTests) unittest
     {
+        import std.algorithm.comparison : equal;
         import std.exception : assertThrown;
         import std.format : format;
 
@@ -2672,6 +2677,7 @@ private:
 
     static if(compileInTests) unittest
     {
+        import std.algorithm.comparison : equal;
         import std.exception : assertThrown;
         import std.format : format;
 
@@ -3025,6 +3031,7 @@ private:
     // </ was already removed from the front of the input.
     void _parseElementEnd()
     {
+        import std.algorithm.comparison : equal;
         import std.format : format;
         _state.type = EntityType.elementEnd;
         _state.savedText.pos = _state.pos;
@@ -3183,6 +3190,8 @@ private:
 
     struct ParserState
     {
+        import std.utf : byCodeUnit;
+
         alias config = cfg;
         alias Text = R;
         alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
@@ -3799,6 +3808,7 @@ auto takeUntilAndKeep(string text, PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
 
@@ -3886,6 +3896,7 @@ auto takeUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
 
@@ -3967,6 +3978,7 @@ void skipUntilAndDrop(string text, PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown;
     import std.range : only;
 
@@ -4193,6 +4205,7 @@ template skipToOneOf(delims...)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
@@ -4275,6 +4288,7 @@ auto takeEnquotedText(PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
 
@@ -4350,6 +4364,7 @@ void stripEq(PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown;
 
     static void test(alias func)(string origHaystack, string remainder, int row, int col, size_t line = __LINE__)
@@ -4422,6 +4437,7 @@ template takeName(bool requireNameStart, delims...)
         static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
         import std.format : format;
+        import std.utf : decodeFront, UseReplacementDchar;
 
         assert(!state.input.empty);
 
@@ -4474,6 +4490,7 @@ template takeName(bool requireNameStart, delims...)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
 
@@ -4524,21 +4541,18 @@ unittest
 
             static foreach(remainder; only("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo",
                                            "\nfoo",  "  foo \n \r "))
-            {
+            {{
+                enum strRem = str ~ remainder;
+                enum delimRem = '>' ~ remainder;
+                enum hay = str ~ delimRem;
                 static foreach(bool rns; only(true, false))
                 {
-                    test!(func, rns)(str ~ remainder, str, remainder, 1, len + 1);
-                    static foreach(char delim; ">?=|")
-                    {
-                        test!(func, rns, delim)(str ~ remainder, str, remainder, 1, len + 1);
-                        test!(func, rns, delim)(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
-                        test!(func, rns, delim)(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
-                        test!(func, rns, '>', '?', '=')(str ~ remainder, str, remainder, 1, len + 1);
-                        test!(func, rns, '>', '?', '=')(str ~ delim ~ remainder, str, delim ~ remainder, 1, len + 1);
-                        test!(func, rns, '>', '?', '=')(str ~ remainder ~ delim, str, remainder ~ delim, 1, len + 1);
-                    }
+                    test!(func, rns)(strRem, str, remainder, 1, len + 1);
+                    test!(func, rns, '=')(strRem, str, remainder, 1, len + 1);
+                    test!(func, rns, '>', '|')(hay, str, delimRem, 1, len + 1);
+                    test!(func, rns, '|', '>')(hay, str, delimRem, 1, len + 1);
                 }
-            }
+            }}
         }}
 
         static foreach(bool rns; only(true, false))
@@ -4546,28 +4560,22 @@ unittest
             static foreach(haystack; only(" ", "<", "foo!", "foo!<"))
             {
                 testFail!(func, rns)(haystack);
-                static foreach(char delim; ">?=")
-                {
-                    testFail!(func, rns)(haystack ~ delim);
-                    testFail!(func, rns, delim)(haystack);
-                    testFail!(func, rns, delim)(haystack ~ delim);
-                }
+                testFail!(func, rns)(haystack ~ '>');
+                testFail!(func, rns, '?')(haystack);
+                testFail!(func, rns, '=')(haystack ~ '=');
             }
 
-            static foreach(char delim; ">?=")
-                testFail!(func, rns, delim)([delim]);
+            testFail!(func, rns, '>')(">");
+            testFail!(func, rns, '?')("?");
         }
 
         static foreach(haystack; only("42", ".", ".a"))
         {
             testFail!(func, true)(haystack);
             test!(func, false)(haystack, haystack, "", 1, haystack.length + 1);
-            static foreach(char delim; ">?=")
-            {
-                testFail!(func, true, delim)(haystack);
-                test!(func, false, delim)(haystack, haystack, "", 1, haystack.length + 1);
-                test!(func, false, delim)(haystack ~ delim, haystack, [delim], 1, haystack.length + 1);
-            }
+            testFail!(func, true, '>')(haystack);
+            test!(func, false, '?')(haystack, haystack, "", 1, haystack.length + 1);
+            test!(func, false, '=')(haystack ~ '=', haystack, "=", 1, haystack.length + 1);
         }
     }
 }
@@ -4652,9 +4660,10 @@ auto takeID(bool requireSystemAfterPublic, bool returnWasSpace, PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
-    import std.typecons : Tuple;
+    import std.typecons : Nullable, nullable, Tuple;
 
     static bool eqLit(T, U)(T lhs, U rhs)
     {
@@ -4876,6 +4885,7 @@ auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
@@ -4967,6 +4977,7 @@ auto takeSystemLiteral(PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
@@ -5106,6 +5117,7 @@ auto takeParenedText(PS)(PS state)
 
 unittest
 {
+    import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
     import std.range : only;
 
@@ -5356,6 +5368,7 @@ unittest
     import std.algorithm : canFind;
     import std.ascii : isAlphaNum;
     import std.meta : AliasSeq;
+    import std.utf : byCodeUnit;
 
     static foreach(C; AliasSeq!(char, wchar, dchar))
     {
@@ -5417,6 +5430,7 @@ version(unittest)
         import std.conv : to;
         import std.algorithm : filter;
         import std.meta : AliasSeq;
+        import std.utf : byCodeUnit;
         alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
                                           a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a),
                                           a => byCodeUnit(a));
