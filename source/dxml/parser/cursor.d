@@ -426,6 +426,12 @@ enum EntityType
     comment,
 
     /++
+        parseXML has been called to create the $(LREF EntityCursor), but no
+        parsing has been done.
+      +/
+    documentStart,
+
+    /++
         The beginning of a `<!DOCTYPE ... >` tag where
         $(I $(LINK2 http://www.w3.org/TR/REC-xml/#NT-doctypedecl, intSubset)) is
         not empty.
@@ -756,6 +762,27 @@ public:
 
 
     /++
+        Returns the $(LREF EntityType) for the current entity. It's the exact
+        same value that was last returned by $(LREF2 next, EntityCursor), but
+        it allows for the value to be queried again if need be.
+      +/
+    @property EntityType type() @safe const pure nothrow @nogc
+    {
+        return _state.type;
+    }
+
+
+    /++
+        Convenience function equivalent to
+        $(D cursor.type == EntityType.documentEnd).
+      +/
+    @property bool empty() @safe const pure nothrow @nogc
+    {
+        return _state.type == EntityType.documentEnd;
+    }
+
+
+    /++
         Gives the name of the current entity.
 
         Note that this is the direct name in the XML for this entity and does
@@ -967,7 +994,7 @@ public:
     ///
     static if(compileInTests) unittest
     {
-        enum xml = "<?xml version='1.0'?>\n" ~
+        auto xml = "<?xml version='1.0'?>\n" ~
                    "<?instructionName?>\n" ~
                    "<?foo here is something to say?>\n" ~
                    "<root>\n" ~
@@ -1115,13 +1142,56 @@ public:
             $(TR $(TD $(LREF2 elementStart, EntityType)))
         )
 
+        Returns: The $(LREF EntityType) of the now-current element just like
+                 $(LREF2 next, EntityCursor) does.
+
         Throws: $(LREF XMLParsingException) on invalid XML.
       +/
-    void skipContents()
+    EntityType skipContents()
     {
         assert(_state.type == EntityType.elementStart);
 
-        assert(0);
+        // FIXME Rather than parsing exactly the same as normal, this should
+        // skip as much parsing as possible.
+
+        auto type = next();
+        for(int tagDepth = 1; tagDepth != 0; type = next())
+        {
+            if(type == EntityType.elementStart)
+                ++tagDepth;
+            else if(type == EntityType.elementEnd)
+                --tagDepth;
+        }
+
+        return type;
+    }
+
+    ///
+    unittest
+    {
+        auto xml = "<root>\n" ~
+                   "    <foo>\n" ~
+                   "        <bar>\n" ~
+                   "        Some text\n" ~
+                   "        </bar>\n" ~
+                   "    </foo>\n" ~
+                   "    <!-- no comment -->\n" ~
+                   "</root>";
+
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "foo");
+
+        assert(cursor.skipContents() == EntityType.comment);
+        assert(cursor.text == " no comment ");
+
+        assert(cursor.next() == EntityType.elementEnd);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.documentEnd);
     }
 
 
@@ -1431,7 +1501,7 @@ public:
     static if(compileInTests) unittest
     {
         {
-            enum xml = "<!DOCTYPE dentist PUBLIC 'foo' 'bar'\n" ~
+            auto xml = "<!DOCTYPE dentist PUBLIC 'foo' 'bar'\n" ~
                        "    [\n" ~
                        "        <!NOTATION good PUBLIC 'something'>\n" ~
                        "        <!NOTATION bad PUBLIC 'else' 'to'>\n" ~
@@ -1468,7 +1538,7 @@ public:
             assert(cursor.next() == EntityType.documentEnd);
         }
         {
-            enum xml = "<!DOCTYPE archaelogist SYSTEM 'digging'>\n" ~
+            auto xml = "<!DOCTYPE archaelogist SYSTEM 'digging'>\n" ~
                        "<root/>";
 
             auto cursor = parseXML(xml);
@@ -1483,7 +1553,7 @@ public:
             assert(cursor.next() == EntityType.documentEnd);
         }
         {
-            enum xml = "<!DOCTYPE optometrist>\n" ~
+            auto xml = "<!DOCTYPE optometrist>\n" ~
                        "<root/>";
 
             auto cursor = parseXML(xml);
@@ -1531,7 +1601,7 @@ public:
         {
             import std.algorithm.comparison : equal;
 
-            enum xml = "<!DOCTYPE surgeon\n" ~
+            auto xml = "<!DOCTYPE surgeon\n" ~
                        "    [\n" ~
                        "        <!ENTITY one 'foo'>\n" ~
                        "        <!ENTITY % two 'bar'>\n" ~
@@ -1586,7 +1656,7 @@ public:
 
     static if(compileInTests) unittest
     {
-        enum xml = "<!DOCTYPE pediatrist\n" ~
+        auto xml = "<!DOCTYPE pediatrist\n" ~
                    "    [\n" ~
                    "        <!ENTITY Name 'a value'>\n" ~
                    "        <!ENTITY abcd 'another value'>\n" ~
@@ -1885,7 +1955,7 @@ public:
     {
         import std.algorithm.comparison : equal;
 
-        enum xml = "<!DOCTYPE medical [\n" ~
+        auto xml = "<!DOCTYPE medical [\n" ~
                    "    <!ELEMENT br EMPTY>\n" ~
                    "    <!ELEMENT container ANY>\n" ~
                    "    <!ELEMENT p (#PCDATA|emph|blah)* >\n" ~
@@ -2060,9 +2130,9 @@ private:
         static void test(alias func, SkipProlog skipProlog = SkipProlog.no)
                         (string xml, int row, int col, size_t line = __LINE__)
         {
-            static foreach(i, config; lockstep(iota(0), only(makeConfig(skipProlog),
-                                                             makeConfig(skipProlog, PositionType.line),
-                                                             makeConfig(skipProlog, PositionType.none))))
+            static foreach(i, config; [makeConfig(skipProlog),
+                                       makeConfig(skipProlog, PositionType.line),
+                                       makeConfig(skipProlog, PositionType.none)])
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(func(xml));
@@ -2543,8 +2613,11 @@ private:
     // from the input.
     void _parseElementDecl()
     {
+        checkNotEmpty(_state);
         _state.type = EntityType.elementDecl;
-        _parseTagName("ELEMENT");
+        _state.name = _state.takeName!true();
+        if(!stripWS(_state))
+            throw new XMLParsingException("There must be whitespace after the ELEMENT tag's name", _state.pos);
 
         if(_state.stripStartsWith("EMPTY"))
             _state.contentSpec.type = ContentSpecType.empty;
@@ -2563,6 +2636,7 @@ private:
             auto temp = _state.contentSpec._savedText.save;
             auto tempState = &temp;
             popFrontAndIncCol(tempState);
+            stripWS(tempState);
             if(tempState.stripStartsWith("#PCDATA"))
             {
                 _state.contentSpec.type = _state.stripStartsWith("*")
@@ -2573,7 +2647,7 @@ private:
         }
 
         stripWS(_state);
-        if(!_state.input.front == '>')
+        if(_state.input.front != '>')
             throw new XMLParsingException("Expected >", _state.pos);
         popFrontAndIncCol(_state);
     }
@@ -2618,8 +2692,8 @@ private:
             test!func("<!ELEMENT name EMPTY>", "name", ContentSpecType.empty, 2, 22);
             test!func("<!ELEMENT foo   EMPTY   >", "foo", ContentSpecType.empty, 2, 26);
             test!func("<!ELEMENT\n\n\nname EMPTY>", "name", ContentSpecType.empty, 5, 12);
-            test!func("<!ELEMENT bar \n\n EMPTY >", "bar", ContentSpecType.empty, 4, 8);
-            test!func("<!ELEMENT bar  ANY \n >", "bar", ContentSpecType.any, 2, 3);
+            test!func("<!ELEMENT bar \n\n EMPTY >", "bar", ContentSpecType.empty, 4, 9);
+            test!func("<!ELEMENT bar  ANY \n >", "bar", ContentSpecType.any, 3, 3);
             test!func("<!ELEMENT whatever (#PCDATA)>", "whatever", ContentSpecType.mixedSingle, 2, 30);
             test!func("<!ELEMENT whatever (\n#PCDATA )>", "whatever", ContentSpecType.mixedSingle, 3, 11);
             test!func("<!ELEMENT whatever (#PCDATA)*>", "whatever", ContentSpecType.mixedStar, 2, 31);
@@ -2646,24 +2720,6 @@ private:
     }
 
 
-    void _parseTagName(delims...)(string tagName)
-    {
-        import std.format : format;
-        if(_state.input.empty)
-            throw new XMLParsingException(tagName ~ " tag missing name", _state.pos);
-        _state.name = _state.takeName!(true, delims)();
-        immutable wasSpace = stripWS(_state);
-        static if(delims.length == 0)
-        {
-            if(!wasSpace)
-            {
-                throw new XMLParsingException(format!"There must be whitespace after the %s tag's name"(tagName),
-                                              _state.pos);
-            }
-        }
-    }
-
-
     // AttlistDecl    ::= '<!ATTLIST' S Name AttDef* S? '>'
     // AttDef         ::= S Name S AttType S DefaultDecl
     // <!ATTLIST and any whitespace after it should have already been removed
@@ -2671,17 +2727,30 @@ private:
     void _parseAttlistDecl()
     {
         _state.type = EntityType.attlistDeclStart;
-        _parseTagName!'>'("ATTLIST");
+        checkNotEmpty(_state);
+        _state.name = _state.takeName!(true, '>')();
         _state.grammarPos = GrammarPos.intSubsetAttDef;
     }
 
     static if(compileInTests) unittest
     {
         import std.algorithm.comparison : equal;
-        import std.exception : assertThrown;
+        import std.exception : assertNotThrown, assertThrown;
         import std.format : format;
+        import std.stdio : writefln;
 
-        static void test(alias func)(string attlist, string name, int row, int col, size_t line = __LINE__)
+        static struct TestAttDefInfo
+        {
+            string name;
+            AttType attType;
+            string[] notationValues;
+            string[] enumValues;
+            DefaultDecl defaultDecl;
+            string attValue;
+        }
+
+        static void test(alias func)(string attlist, string name, TestAttDefInfo[] attDefInfos,
+                                     int row, int col, size_t line = __LINE__)
         {
             auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
 
@@ -2692,7 +2761,39 @@ private:
                 enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
                 enforceTest(cursor.next() == EntityType.attlistDeclStart, "unittest failure 2", line);
                 enforceTest(equal(cursor.name, name), "unittest failure 3", line);
-                enforceTest(cursor._state.pos == pos, "unittest failure 4", line);
+                auto expectedADIs = attDefInfos;
+                for(int i = 0; true; ++i)
+                {
+                    assertNotThrown!XMLParsingException(cursor.next(), "unittest failure 4", __FILE__, line);
+                    if(cursor.type != EntityType.attDef)
+                        break;
+                    scope(failure) writefln("AttDef #%s", i);
+
+                    enforceTest(!expectedADIs.empty, "unittest failure 5", line);
+                    auto expected = expectedADIs.front;
+                    expectedADIs.popFront();
+
+                    enforceTest(equal(cursor.name, expected.name), "unittest failure 6", line);
+                    enforceTest(cursor.attDefInfo.attType == expected.attType, "unittest failure 7", line);
+                    if(expected.attType == AttType.notationType)
+                    {
+                        enforceTest(equal!((a, b) => equal(a, b))(cursor.attDefInfo.notationValues,
+                                                                  expected.notationValues),
+                                    "unittest failure 8", line);
+                    }
+                    else if(expected.attType == AttType.enumeration)
+                    {
+                        enforceTest(equal!((a, b) => equal(a, b))(cursor.attDefInfo.enumValues,
+                                                                  expected.enumValues),
+                                    "unittest failure 9", line);
+                    }
+                    enforceTest(cursor.attDefInfo.defaultDecl == expected.defaultDecl, "unittest failure 10", line);
+                    if(expected.defaultDecl == DefaultDecl.fixed || expected.defaultDecl == DefaultDecl.unfixed)
+                        enforceTest(equal(cursor.attDefInfo.attValue, expected.attValue), "unittest failure 11", line);
+                }
+                enforceTest(expectedADIs.empty, "unittest failure 12", line);
+                enforceTest(cursor.type == EntityType.attlistDeclEnd, "unittest failure 13", line);
+                enforceTest(cursor._state.pos == pos, "unittest failure 14", line);
             }}
         }
 
@@ -2704,17 +2805,115 @@ private:
             {{
                 auto cursor = parseXML!config(xml.save);
                 enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
-                assertThrown!XMLParsingException(cursor.next(), "unittest failure 2", __FILE__, line);
+                assertThrown!XMLParsingException({while(cursor.next() != EntityType.docTypeEnd){}}(),
+                                                 "unittest failure 2", __FILE__, line);
             }}
         }
 
-        static foreach(i, func; testRangeFuncs)
+        static auto token(Args...)(string name, AttType attType, DefaultDecl defaultDecl, Args args)
         {
-            test!func("<!ATTLIST name>", "name", 2, 15);
-            test!func("<!ATTLIST foo     >", "foo", 2, 19);
-            test!func("<!ATTLIST\n\n\nname>", "name", 5, 5);
-            test!func("<!ATTLIST bar \n\n  >", "bar", 4, 3);
-            test!func("<!ATTLIST whatever CDATA #REQUIRED>", "whatever", 2, 20);
+            TestAttDefInfo retval;
+            retval.name = name;
+            retval.attType = attType;
+            retval.defaultDecl = defaultDecl;
+            static if(args.length != 0)
+                retval.attValue = args[0];
+            return retval;
+        }
+
+        static auto notation(Args...)(string name, string[] notationValues, DefaultDecl defaultDecl, Args args)
+        {
+            auto retval = token(name, AttType.notationType, defaultDecl, args);
+            retval.notationValues = notationValues;
+            return retval;
+        }
+
+        static auto enum_(Args...)(string name, string[] enumValues, DefaultDecl defaultDecl, Args args)
+        {
+            auto retval = token(name, AttType.enumeration, defaultDecl, args);
+            retval.enumValues = enumValues;
+            return retval;
+        }
+
+        with(AttType) with(DefaultDecl) static foreach(i, func; testRangeFuncs)
+        {
+            test!func("<!ATTLIST name>", "name", null, 2, 16);
+            test!func("<!ATTLIST foo     >", "foo", null, 2, 20);
+            test!func("<!ATTLIST\n\n\nname>", "name", null, 5, 6);
+            test!func("<!ATTLIST bar \n\n  >", "bar", null, 4, 4);
+
+            static foreach(name; ["cdata", "id", "idref", "idrefs", "entity", "entities", "nmtoken", "nmtokens"])
+            {{
+                import std.uni : toUpper;
+                enum upper = name.toUpper();
+                test!func(format("<!ATTLIST whatever cname %s #REQUIRED>", upper), "whatever",
+                         [token("cname", mixin(name), required)], 2, 37 + name.length);
+                test!func(format("<!ATTLIST whatever cname %s #IMPLIED>", upper), "whatever",
+                         [token("cname", mixin(name), implied)], 2, 36 + name.length);
+                test!func(format("<!ATTLIST everwhat noname %s #FIXED 'leak'>", upper), "everwhat",
+                         [token("noname", mixin(name), fixed, "leak")], 2, 42 + name.length);
+                test!func(format(`<!ATTLIST everwhat xyzzy %s "faucet">`, upper), "everwhat",
+                         [token("xyzzy", mixin(name), unfixed, "faucet")], 2, 36 + name.length);
+
+                test!func(format("<!ATTLIST whatever blah %s #REQUIRED foo CDATA #IMPLIED>", upper), "whatever",
+                         [token("blah", mixin(name), required),
+                          token("foo", cdata, implied)], 2, 55 + name.length);
+                test!func(format("<!ATTLIST whatever bleh %s #IMPLIED bar ID #REQUIRED>", upper), "whatever",
+                         [token("bleh", mixin(name), implied),
+                          token("bar", id, required)], 2, 52 + name.length);
+                test!func(format("<!ATTLIST everwhat bluh %s #FIXED 'leak' a IDREF #IMPLIED>", upper), "everwhat",
+                         [token("bluh", mixin(name), fixed, "leak"),
+                          token("a", idref, implied)], 2, 57 + name.length);
+                test!func(format(`<!ATTLIST everwhat blug %s "faucet" arg %s 'pipe'>`, upper, upper), "everwhat",
+                         [token("blug", mixin(name), unfixed, "faucet"),
+                          token("arg", mixin(name), unfixed, "pipe")], 2, 47 + name.length * 2);
+            }}
+
+            test!func(format("<!ATTLIST\nlistname\n\ndefname1\n\n\nID\n#REQUIRED\ndefname2\n\n\nCDATA\n#IMPLIED\n >"),
+                      "listname", [token("defname1", id, required),
+                                   token("defname2", cdata, implied)], 15, 3);
+
+            test!func(format("<!ATTLIST a note NOTATION (foo) #REQUIRED>"),
+                      "a", [notation("note", ["foo"], required)], 2, 43);
+            test!func(format("<!ATTLIST a note NOTATION (foo) #IMPLIED>"),
+                      "a", [notation("note", ["foo"], implied)], 2, 42);
+            test!func(format("<!ATTLIST a note NOTATION (foo) #FIXED 'bug'>"),
+                      "a", [notation("note", ["foo"], fixed, "bug")], 2, 46);
+            test!func(format("<!ATTLIST a note NOTATION (foo) 'bug'>"),
+                      "a", [notation("note", ["foo"], unfixed, "bug")], 2, 39);
+
+            test!func(format("<!ATTLIST a note NOTATION (\n  foo \n ) #REQUIRED>"),
+                      "a", [notation("note", ["foo"], required)], 4, 14);
+
+            test!func(format("<!ATTLIST a note NOTATION (foo|bar) #REQUIRED>"),
+                      "a", [notation("note", ["foo", "bar"], required)], 2, 47);
+            test!func(format("<!ATTLIST a note NOTATION (foo|bar|baz) #REQUIRED>"),
+                      "a", [notation("note", ["foo", "bar", "baz"], required)], 2, 51);
+            test!func(format("<!ATTLIST a note NOTATION (a|bc|d) #REQUIRED>"),
+                      "a", [notation("note", ["a", "bc", "d"], required)], 2, 46);
+            test!func(format("<!ATTLIST a note NOTATION ( foo\n|\nbar   |   baz \n ) #REQUIRED>"),
+                      "a", [notation("note", ["foo", "bar", "baz"], required)], 5, 14);
+
+            test!func(format("<!ATTLIST a note (foo) #REQUIRED>"),
+                      "a", [enum_("note", ["foo"], required)], 2, 34);
+            test!func(format("<!ATTLIST a note (foo) #IMPLIED>"),
+                      "a", [enum_("note", ["foo"], implied)], 2, 33);
+            test!func(format("<!ATTLIST a note (foo) #FIXED 'bug'>"),
+                      "a", [enum_("note", ["foo"], fixed, "bug")], 2, 37);
+            test!func(format("<!ATTLIST a note (foo) 'bug'>"),
+                      "a", [enum_("note", ["foo"], unfixed, "bug")], 2, 30);
+
+            test!func(format("<!ATTLIST a note (\n  foo \n ) #REQUIRED>"),
+                      "a", [enum_("note", ["foo"], required)], 4, 14);
+
+            test!func(format("<!ATTLIST a note (foo|bar) #REQUIRED>"),
+                      "a", [enum_("note", ["foo", "bar"], required)], 2, 38);
+            test!func(format("<!ATTLIST a note (foo|bar|baz) #REQUIRED>"),
+                      "a", [enum_("note", ["foo", "bar", "baz"], required)], 2, 42);
+            test!func(format("<!ATTLIST a note (a|bc|d) #REQUIRED>"),
+                      "a", [enum_("note", ["a", "bc", "d"], required)], 2, 37);
+            test!func(format("<!ATTLIST a note ( foo\n|\nbar   |   baz \n ) #REQUIRED>"),
+                      "a", [enum_("note", ["foo", "bar", "baz"], required)], 5, 14);
 
             testFail!func("<!ATTLIS name>");
             testFail!func("<!ATTLISTname>");
@@ -2723,6 +2922,49 @@ private:
             testFail!func("<!ATTLISt name>");
             testFail!func("<!ATTLIST >");
             testFail!func("<!ATTLIST>");
+            testFail!func("<!ATTLIST foo #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar #REQUIRED>");
+            testFail!func("<!ATTLIST foo CDATA #REQUIRED>");
+            testFail!func("<!ATTLIST foo cname CDATA #REQUIRED");
+
+            static foreach(name; ["CDATA", "ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES", "NMTOKEN", "NMTOKENS"])
+            {{
+                testFail!func(format!"<!ATTLIST foo bar%s #REQUIRED>"(name));
+                testFail!func(format!"<!ATTLIST foo bar %s#REQUIRED>"(name));
+                testFail!func(format!"<!ATTLIST foo bar %s#IMPLIED>"(name));
+                testFail!func(format!"<!ATTLIST foo bar %s#FIXED 'bar'>"(name));
+                testFail!func(format!"<!ATTLIST foo bar %s #FIXED'bar'>"(name));
+                testFail!func(format!"<!ATTLIST foo bar %s'bar'>"(name));
+            }}
+
+            testFail!func("<!ATTLIST foo bar NOTATION () #REQUIRED>");
+            testFail!func("<!ATTLIST foo barNOTATION (foo) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION(foo) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo)#REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo)#IMPLIED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo)#FIXED 'bar'>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo) #FIXED'bar'>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (foo|bar|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (|bar|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (|bar) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION bar) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION (bar #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar NOTATION ((bar)) #REQUIRED>");
+
+            testFail!func("<!ATTLIST foo bar () #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar(foo) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (foo)#REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (foo)#IMPLIED>");
+            testFail!func("<!ATTLIST foo bar (foo)#FIXED 'bar'>");
+            testFail!func("<!ATTLIST foo bar (foo) #FIXED'bar'>");
+            testFail!func("<!ATTLIST foo bar (foo|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (foo|bar|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (|bar|) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (|bar) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar bar) #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar (bar #REQUIRED>");
+            testFail!func("<!ATTLIST foo bar ((bar)) #REQUIRED>");
         }
     }
 
@@ -2740,7 +2982,9 @@ private:
             return;
         }
         if(!wasSpace)
-            throw new XMLParsingException("Must have space before AttDef's name", _state.pos);
+            throw new XMLParsingException("Must have whitespace before AttDef's name", _state.pos);
+        _state.type = EntityType.attDef;
+        _state.name = _state.takeName!true();
         _parseAttType();
         if(!stripWS(_state))
             throw new XMLParsingException("Whitespace missing", _state.pos);
@@ -2758,9 +3002,8 @@ private:
     // Nmtoken        ::= (NameChar)+
     void _parseAttType()
     {
-        _state.name = _state.takeName!true();
         if(!stripWS(_state))
-            throw new XMLParsingException("Must have space after name", _state.pos);
+            throw new XMLParsingException("Must have whitespace after name", _state.pos);
         checkNotEmpty(_state);
         switch(_state.input.front)
         {
@@ -2800,7 +3043,7 @@ private:
                     popFrontAndIncCol(_state);
                     _state.attDefInfo.attType = AttType.entity;
                 }
-                else if(!_state.stripStartsWith("IES"))
+                else if(_state.stripStartsWith("IES"))
                     _state.attDefInfo.attType = AttType.entities;
                 else
                     throw new XMLParsingException("Expected ENTITY or ENTITIES", _state.pos);
@@ -2824,8 +3067,12 @@ private:
                     if(!stripWS(_state))
                         throw new XMLParsingException("Whitespace missing after NOTATION", _state.pos);
                     checkNotEmpty(_state);
+                    _state.attDefInfo.attType = AttType.notationType;
                     if(_state.input.front == '(')
-                        goto case '(';
+                    {
+                        _state.attDefInfo._savedText.pos = _state.pos;
+                        _state.attDefInfo._savedText.input = _state.takeUntilAndKeep!")"();
+                    }
                     else
                         throw new XMLParsingException("Expected (", _state.pos);
                 }
@@ -2835,8 +3082,9 @@ private:
             }
             case '(':
             {
-                _state.savedText.pos = _state.pos;
-                _state.savedText.input = _state.takeUntilAndKeep!")"();
+                _state.attDefInfo.attType = AttType.enumeration;
+                _state.attDefInfo._savedText.pos = _state.pos;
+                _state.attDefInfo._savedText.input = _state.takeUntilAndKeep!")"();
                 break;
             }
             default: throw new XMLParsingException("Invalid AttType", _state.pos);
@@ -2979,8 +3227,11 @@ private:
     // from the input.
     void _parseNotationDecl()
     {
+        checkNotEmpty(_state);
         _state.type = EntityType.notationDecl;
-        _parseTagName("NOTATION");
+        _state.name = _state.takeName!true();
+        if(!stripWS(_state))
+            throw new XMLParsingException("There must be whitespace after the NOTATION tag's name", _state.pos);
         _state.id = _state.takeID!(false, false)();
         if(_state.input.front != '>')
             throw new XMLParsingException("Expected >", _state.pos);
@@ -3020,6 +3271,8 @@ private:
 
         if(_state.savedText.input.empty)
             throw new XMLParsingException("Tag missing name", _state.savedText.pos);
+        if(_state.savedText.input.front == '/')
+            throw new XMLParsingException("Invalid end tag", _state.savedText.pos);
         _state.name = takeName!true(&_state.savedText);
         stripWS(&_state.savedText);
         // The attributes should be all that's left in savedText.
@@ -3197,8 +3450,7 @@ private:
         alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
         alias SliceOfR = EntityCursor.SliceOfR;
 
-        EntityType type;
-
+        auto type = EntityType.documentStart;
         auto grammarPos = GrammarPos.documentStart;
 
         static if(config.posType == PositionType.lineAndCol)
@@ -3267,7 +3519,7 @@ EntityCursor!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
 ///
 unittest
 {
-    enum xml = "<?xml version='1.0'?>\n" ~
+    auto xml = "<?xml version='1.0'?>\n" ~
                "<foo attr='42'>\n" ~
                "    <bar/>\n" ~
                "    <!-- no comment -->\n" ~
@@ -3810,7 +4062,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
-    import std.range : only;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -3876,11 +4127,11 @@ unittest
                                             remainder[i .. $], 1, len + i + 1);
             }
         }
-        static foreach(haystack; only("", "a", "hello"))
+        static foreach(haystack; ["", "a", "hello"])
             testFail!(func, "x")(haystack);
-        static foreach(haystack; only("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
             testFail!(func, "le")(haystack);
-        static foreach(haystack; only("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
             testFail!(func, "web")(haystack);
     }
 }
@@ -3898,7 +4149,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
-    import std.range : only;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -3960,11 +4210,11 @@ unittest
             static foreach(i; 1 .. needle.length)
                 test!(func, needle[0 .. i])(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
         }
-        static foreach(haystack; only("", "a", "hello"))
+        static foreach(haystack; ["", "a", "hello"])
             testFail!(func, "x")(haystack);
-        static foreach(haystack; only("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
             testFail!(func, "le")(haystack);
-        static foreach(haystack; only("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
             testFail!(func, "web")(haystack);
     }
 }
@@ -3980,7 +4230,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown;
-    import std.range : only;
 
     static void test(alias func, string needle)(string origHaystack, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -4045,11 +4294,11 @@ unittest
                 test!(func, needle[0 .. i])(haystack, remainder[i .. $], 1, len + i + 1);
         }
 
-        static foreach(haystack; only("", "a", "hello"))
+        static foreach(haystack; ["", "a", "hello"])
             testFail!(func, "x")(haystack);
-        static foreach(haystack; only("", "l", "lte", "world", "nomatch"))
+        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
             testFail!(func, "le")(haystack);
-        static foreach(haystack; only("", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"))
+        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
             testFail!(func, "web")(haystack);
     }
 }
@@ -4268,11 +4517,10 @@ unittest
 // advanced to one code unit beyond the quote.
 auto takeEnquotedText(PS)(PS state)
 {
-    import std.range : only;
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     checkNotEmpty(state);
     immutable quote = state.input.front;
-    static foreach(quoteChar; only(`"`, `'`))
+    static foreach(quoteChar; [`"`, `'`])
     {
         // This would be a bit simpler if takeUntilAndDrop took a runtime
         // argument, but in all other cases, a compile-time argument makes more
@@ -4447,7 +4695,7 @@ template takeName(bool requireNameStart, delims...)
         {{
             auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
             if(!isNameStartChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
+                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), state.pos);
 
             if(state.input.empty)
             {
@@ -4471,7 +4719,7 @@ template takeName(bool requireNameStart, delims...)
             size_t numCodeUnits;
             auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
             if(!isNameChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: [%s]"(decodedC), state.pos);
+                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), state.pos);
             takeLen += numCodeUnits;
 
             if(state.input.empty)
@@ -4492,7 +4740,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
-    import std.range : only;
 
     static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
                                                      int row, int col, size_t line = __LINE__)
@@ -4534,18 +4781,17 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(str; only("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"))
+        static foreach(str; ["hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"])
         {{
             import std.utf : codeLength;
             enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 
-            static foreach(remainder; only("", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo",
-                                           "\nfoo",  "  foo \n \r "))
+            static foreach(remainder; ["", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo",  "  foo \n \r "])
             {{
                 enum strRem = str ~ remainder;
                 enum delimRem = '>' ~ remainder;
                 enum hay = str ~ delimRem;
-                static foreach(bool rns; only(true, false))
+                static foreach(bool rns; [true, false])
                 {
                     test!(func, rns)(strRem, str, remainder, 1, len + 1);
                     test!(func, rns, '=')(strRem, str, remainder, 1, len + 1);
@@ -4555,9 +4801,9 @@ unittest
             }}
         }}
 
-        static foreach(bool rns; only(true, false))
+        static foreach(bool rns; [true, false])
         {
-            static foreach(haystack; only(" ", "<", "foo!", "foo!<"))
+            static foreach(haystack; [" ", "<", "foo!", "foo!<"])
             {
                 testFail!(func, rns)(haystack);
                 testFail!(func, rns)(haystack ~ '>');
@@ -4569,7 +4815,7 @@ unittest
             testFail!(func, rns, '?')("?");
         }
 
-        static foreach(haystack; only("42", ".", ".a"))
+        static foreach(haystack; ["42", ".", ".a"])
         {
             testFail!(func, true)(haystack);
             test!(func, false)(haystack, haystack, "", 1, haystack.length + 1);
@@ -4662,7 +4908,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
-    import std.range : only;
     import std.typecons : Nullable, nullable, Tuple;
 
     static bool eqLit(T, U)(T lhs, U rhs)
@@ -4746,9 +4991,9 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(rws; only(false, true))
+        static foreach(rws; [false, true])
         {
-            static foreach(rsap; only(false, true))
+            static foreach(rsap; [false, true])
             {
                 test!(func, rsap, rws)(`SYSTEM "Name">`, sysLit(`Name`), ">", false, 1, 14);
                 test!(func, rsap, rws)(`SYSTEM 'Name'>`, sysLit(`Name`), ">", false, 1, 14);
@@ -4855,10 +5100,12 @@ auto takeLiteral(bool checkPubidChar, string literalName, PS)(PS state)
         {
             if(!isPubidChar(c))
             {
+                import std.format : format;
                 auto pos = state.pos;
                 static if(config.posType == PositionType.lineAndCol)
                     pos.col += takeLen - lineStart;
-                throw new XMLParsingException("Invalid character in " ~ literalName, pos);
+                throw new XMLParsingException(format!"%s literal contains invalid character: '%s'"(literalName, c),
+                                              state.pos);
             }
         }
         static if(config.posType != PositionType.none)
@@ -5061,7 +5308,7 @@ auto takeParenedText(PS)(PS state)
     assert(state.input.front == '(');
 
     static if(PS.config.posType == PositionType.lineAndCol)
-        size_t lineStart = 1;
+        size_t lineStart;
     size_t takeLen = 1;
     auto orig = state.input.save;
 
@@ -5119,7 +5366,6 @@ unittest
 {
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown;
-    import std.range : only;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
@@ -5161,7 +5407,6 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        test!func("()", "()", "", 1, 3);
         test!func("(hello)", "(hello)", "", 1, 8);
         test!func("(hello)world", "(hello)", "world", 1, 8);
         test!func("(hello|world) bar>", "(hello|world)", " bar>", 1, 14);
@@ -5172,7 +5417,7 @@ unittest
         test!func("(((\n)())\n())\n\nfoo", "(((\n)())\n())", "\n\nfoo", 3, 4);
         test!func("(((\n)())\n())>", "(((\n)())\n())", ">", 3, 4);
         test!func("()(", "()", "(", 1, 3);
-        test!func("((((()))))(", "((((()))))", "", 1, 11);
+        test!func("((((()))))(", "((((()))))", "(", 1, 11);
 
         testFail!func("(");
         testFail!func("((");
@@ -5436,15 +5681,9 @@ version(unittest)
                                           a => byCodeUnit(a));
     }
 
-    alias testConfigs = _testConfigs!();
-    template _testConfigs()
-    {
-        import std.range : iota, lockstep, only;
-        enum _testConfigs = lockstep(iota(0),
-                                     only(Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)));
-    }
+    enum testConfigs = [ Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none) ];
 
-    void enforceTest(T)(T value, lazy const(char)[] msg = null, size_t line = __LINE__)
+    void enforceTest(T)(lazy T value, lazy const(char)[] msg = null, size_t line = __LINE__)
     {
         import core.exception : AssertError;
         import std.exception : enforce;
