@@ -134,7 +134,7 @@ struct Config
         Whether processing instructions should be skipped.
 
         If $(D true), any entities with the type
-        $(LREF EntityType.processingInstruction) will be skipped.
+        $(LREF EntityType.pi) will be skipped.
 
         Defaults to $(D SkipPI.no).
       +/
@@ -156,9 +156,9 @@ struct Config
         because any whitespace which is not part of an $(LREF EntityType.text)
         entity will be parsed without being communicated to the program
         (e.g. the program using $(LREF parseXML) won't know what whitespace
-        was between $(LREF EntityType.processingInstruction) entities and won't
-        know what kind of whitespace or how much there was between the name of
-        a start tag and its attributes).
+        was between $(LREF EntityType.pi) entities and won't know what kind of
+        whitespace or how much there was between the name of a start tag and
+        its attributes).
 
         Note that XML only considers $(D ' '), $(D '\t'), $(D '\n'), and
         $(D '\r') to be whitespace. So, those are the only character skipped
@@ -533,11 +533,11 @@ enum EntityType
     /++
         A processing instruction such as `<?foo?>`. Note that
         `<?xml ... ?>` is an $(LREF EntityType.xmlDecl) and not an
-        $(LREF EntityType.processingInstruction).
+        $(LREF EntityType.pi).
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-pi)
       +/
-    processingInstruction,
+    pi,
 
     /++
         The content of an element tag that is simple text.
@@ -598,9 +598,9 @@ enum EntityType
     beyond what is required to correctly parse what it has been told to parse.
     In particular, any portions that are skipped (either due to the values in
     the $(LREF Config) or because a function such as
-    $(LREF2 skipContents, _EntityCursor) is called) will only be validated
-    enough to correctly determine where those portions terminated. Similarly,
-    if the functions to process the value of an entity are not called (e.g.
+    $(LREF skipContents) is called) will only be validated enough to correctly
+    determine where those portions terminated. Similarly, if the functions to
+    process the value of an entity are not called (e.g.
     $(LREF2 attributes, _EntityCursor) for $(LREF EntityType.elementStart) and
     $(LREF2 xmlSpec, _EntityCursor) for $(LREF EntityType.xmlSpec)), then those
     portions of the XML will not be validated beyond what is required to iterate
@@ -801,7 +801,7 @@ public:
             $(TR $(TD $(LREF2 elementEmpty, EntityType)))
             $(TR $(TD $(LREF2 entityDecl, EntityType)))
             $(TR $(TD $(LREF2 notationDecl, EntityType)))
-            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+            $(TR $(TD $(LREF2 pi, EntityType)))
         )
 
         See_Also: $(LREF path, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
@@ -811,7 +811,7 @@ public:
         with(EntityType)
         {
             assert(only(attlistDeclStart, attDef, docTypeStart, docTypeEmpty, elementDecl, elementStart, elementEnd,
-                        elementEmpty, entityDecl, notationDecl, processingInstruction).canFind(_state.type));
+                        elementEmpty, entityDecl, notationDecl, pi).canFind(_state.type));
         }
         return stripBCU!R(_state.name.save);
     }
@@ -839,7 +839,7 @@ public:
             $(TR $(TD $(LREF2 elementStart, EntityType)))
             $(TR $(TD $(LREF2 elementEnd, EntityType)))
             $(TR $(TD $(LREF2 elementEmpty, EntityType)))
-            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+            $(TR $(TD $(LREF2 pi, EntityType)))
          )
 
         See_Also: $(LREF name, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
@@ -847,10 +847,7 @@ public:
     @property auto path()
     {
         with(EntityType)
-        {
-            assert(only(docTypeStart, elementStart, elementEmpty, elementEnd,
-                        processingInstruction).canFind(_state.type));
-        }
+            assert(only(docTypeStart, elementStart, elementEmpty, elementEnd, pi).canFind(_state.type));
 
         assert(0);
     }
@@ -877,10 +874,7 @@ public:
     @property auto parentPath()
     {
         with(EntityType)
-        {
-            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty,
-                        processingInstruction).canFind(_state.type));
-        }
+            assert(only(docTypeStart, elementStart, elementEnd, elementEmpty, pi).canFind(_state.type));
 
         assert(0);
     }
@@ -971,7 +965,7 @@ public:
     /++
         Returns the value of the current entity.
 
-        In the case of $(LREF EntityType.processingInstruction), this is the
+        In the case of $(LREF EntityType.pi), this is the
         text that follows the name, whereas in the other cases, the text is
         the entire contents of the entity (save for the delimeters on the ends
         if that entity has them).
@@ -980,14 +974,14 @@ public:
             $(TR $(TH Supported $(LREF EntityType)s:))
             $(TR $(TD $(LREF2 cdata, EntityType)))
             $(TR $(TD $(LREF2 comment, EntityType)))
-            $(TR $(TD $(LREF2 processingInstruction, EntityType)))
+            $(TR $(TD $(LREF2 pi, EntityType)))
             $(TR $(TD $(LREF2 _text, EntityType)))
         )
       +/
     @property SliceOfR text()
     {
         with(EntityType)
-            assert(only(cdata, comment, processingInstruction, text).canFind(_state.type));
+            assert(only(cdata, comment, pi, text).canFind(_state.type));
         return stripBCU!R(_state.savedText.input.save);
     }
 
@@ -1012,12 +1006,12 @@ public:
             assert(cursor.next() == EntityType.xmlDecl);
 
             // "<?instructionName?>\n" ~
-            assert(cursor.next() == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.pi);
             assert(cursor.name == "instructionName");
             assert(cursor.text.empty);
 
             // "<?foo here is something to say?>\n" ~
-            assert(cursor.next() == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.pi);
             assert(cursor.name == "foo");
             assert(cursor.text == "here is something to say");
 
@@ -1057,12 +1051,12 @@ public:
             assert(cursor.next() == EntityType.xmlDecl);
 
             // "<?instructionName?>\n" ~
-            assert(cursor.next() == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.pi);
             assert(cursor.name == "instructionName");
             assert(cursor.text.empty);
 
             // "<?foo here is something to say?>\n" ~
-            assert(cursor.next() == EntityType.processingInstruction);
+            assert(cursor.next() == EntityType.pi);
             assert(cursor.name == "foo");
             assert(cursor.text == "here is something to say");
 
@@ -1130,68 +1124,6 @@ public:
         assert(_state.type == EntityType.elementStart);
 
         assert(0);
-    }
-
-
-    /++
-        When at a start tag, moves the cursor to the entity after the
-        corresponding end tag.
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 elementStart, EntityType)))
-        )
-
-        Returns: The $(LREF EntityType) of the now-current element just like
-                 $(LREF2 next, EntityCursor) does.
-
-        Throws: $(LREF XMLParsingException) on invalid XML.
-      +/
-    EntityType skipContents()
-    {
-        assert(_state.type == EntityType.elementStart);
-
-        // FIXME Rather than parsing exactly the same as normal, this should
-        // skip as much parsing as possible.
-
-        auto type = next();
-        for(int tagDepth = 1; tagDepth != 0; type = next())
-        {
-            if(type == EntityType.elementStart)
-                ++tagDepth;
-            else if(type == EntityType.elementEnd)
-                --tagDepth;
-        }
-
-        return type;
-    }
-
-    ///
-    unittest
-    {
-        auto xml = "<root>\n" ~
-                   "    <foo>\n" ~
-                   "        <bar>\n" ~
-                   "        Some text\n" ~
-                   "        </bar>\n" ~
-                   "    </foo>\n" ~
-                   "    <!-- no comment -->\n" ~
-                   "</root>";
-
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "root");
-
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "foo");
-
-        assert(cursor.skipContents() == EntityType.comment);
-        assert(cursor.text == " no comment ");
-
-        assert(cursor.next() == EntityType.elementEnd);
-        assert(cursor.name == "root");
-
-        assert(cursor.next() == EntityType.documentEnd);
     }
 
 
@@ -1789,7 +1721,10 @@ public:
         @property auto notationValues()
         {
             assert(attType == AttType.notationType);
-            return PipeSeparatedRange!(PSRConfig.name)(_savedText.save);
+            auto retval = PipeSeparatedRange!(PSRConfig.name)(_savedText.save);
+            if(retval.empty)
+                throw new XMLParsingException("NOTATION must have at least one value", _savedText.pos);
+            return retval;
         }
 
         /++
@@ -1807,7 +1742,10 @@ public:
         @property auto enumValues()
         {
             assert(attType == AttType.enumeration);
-            return PipeSeparatedRange!(PSRConfig.nmtoken)(_savedText.save);
+            auto retval = PipeSeparatedRange!(PSRConfig.nmtoken)(_savedText.save);
+            if(retval.empty)
+                throw new XMLParsingException("Enumeration must have at least one value", _savedText.pos);
+            return retval;
         }
 
         /++
@@ -2253,7 +2191,7 @@ private:
         else
         {
             auto pos = _state.pos;
-            _state.type = EntityType.processingInstruction;
+            _state.type = EntityType.pi;
             _state.name = takeName!(true, '?')(_state);
             checkNotEmpty(_state);
             if(_state.input.front != '?')
@@ -2810,6 +2748,30 @@ private:
             }}
         }
 
+        static void testBadValues(alias func)(string attlist, size_t line = __LINE__)
+        {
+            import std.range : walkLength;
+            auto xml = func(format("<!DOCTYPE surgeon [\n%s\n]></root>", attlist));
+
+            static foreach(i, config; testConfigs)
+            {{
+                auto cursor = parseXML!config(xml.save);
+                enforceTest(cursor.next() == EntityType.docTypeStart, "unittest failure 1", line);
+                enforceTest(cursor.next() == EntityType.attlistDeclStart, "unittest failure 2", line);
+                enforceTest(cursor.next() == EntityType.attDef, "unittest failure 3", line);
+                if(cursor.attDefInfo.attType == AttType.notationType)
+                {
+                    assertThrown!XMLParsingException(walkLength(cursor.attDefInfo.notationValues),
+                                                     "unittest failure 4", __FILE__, line);
+                }
+                else if(cursor.attDefInfo.attType == AttType.enumeration)
+                {
+                    assertThrown!XMLParsingException(walkLength(cursor.attDefInfo.enumValues),
+                                                     "unittest failure 4", __FILE__, line);
+                }
+            }}
+        }
+
         static auto token(Args...)(string name, AttType attType, DefaultDecl defaultDecl, Args args)
         {
             TestAttDefInfo retval;
@@ -2937,34 +2899,37 @@ private:
                 testFail!func(format!"<!ATTLIST foo bar %s'bar'>"(name));
             }}
 
-            testFail!func("<!ATTLIST foo bar NOTATION () #REQUIRED>");
-            testFail!func("<!ATTLIST foo barNOTATION (foo) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION(foo) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION (foo)#REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION (foo)#IMPLIED>");
             testFail!func("<!ATTLIST foo bar NOTATION (foo)#FIXED 'bar'>");
             testFail!func("<!ATTLIST foo bar NOTATION (foo) #FIXED'bar'>");
-            testFail!func("<!ATTLIST foo bar NOTATION (foo|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar NOTATION (foo|bar|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar NOTATION (|bar|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar NOTATION (|bar) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION bar) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION (bar #REQUIRED>");
             testFail!func("<!ATTLIST foo bar NOTATION ((bar)) #REQUIRED>");
 
-            testFail!func("<!ATTLIST foo bar () #REQUIRED>");
             testFail!func("<!ATTLIST foo bar(foo) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar (foo)#REQUIRED>");
             testFail!func("<!ATTLIST foo bar (foo)#IMPLIED>");
             testFail!func("<!ATTLIST foo bar (foo)#FIXED 'bar'>");
             testFail!func("<!ATTLIST foo bar (foo) #FIXED'bar'>");
-            testFail!func("<!ATTLIST foo bar (foo|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar (foo|bar|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar (|bar|) #REQUIRED>");
-            testFail!func("<!ATTLIST foo bar (|bar) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar bar) #REQUIRED>");
             testFail!func("<!ATTLIST foo bar (bar #REQUIRED>");
             testFail!func("<!ATTLIST foo bar ((bar)) #REQUIRED>");
+
+            testBadValues!func("<!ATTLIST foo bar NOTATION () #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar NOTATION (foo|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar NOTATION (foo|bar|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar NOTATION (|bar|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar NOTATION (|bar) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar NOTATION ((bar) #REQUIRED>");
+
+            testBadValues!func("<!ATTLIST foo bar () #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar (foo|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar (foo|bar|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar (|bar|) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar (|bar) #REQUIRED>");
+            testBadValues!func("<!ATTLIST foo bar ((bar) #REQUIRED>");
         }
     }
 
@@ -2979,6 +2944,7 @@ private:
         {
             popFrontAndIncCol(_state);
             _state.type = EntityType.attlistDeclEnd;
+            _state.grammarPos = GrammarPos.intSubset;
             return;
         }
         if(!wasSpace)
@@ -3745,6 +3711,988 @@ enum ContentSpecType
         $(LINK2 http://www.w3.org/TR/REC-xml/#sec-element-content, element content model).
       +/
     children
+}
+
+
+/++
+    When at a start tag, moves the cursor to the corresponding end tag. It is
+    an error to call skipContents when the current entity is not
+    $(LREF EntityType.elementStart).
+
+    $(TABLE
+        $(TR $(TH Supported $(LREF EntityType)s:))
+        $(TR $(TD $(LREF2 elementStart, EntityType)))
+    )
+
+    Throws: $(LREF XMLParsingException) on invalid XML.
+  +/
+void skipContents(EC)(EC cursor)
+    if(isInstanceOf!(EntityCursor, EC))
+{
+    assert(cursor.type == EntityType.elementStart);
+
+    // FIXME Rather than parsing exactly the same as normal, this should
+    // skip as much parsing as possible.
+
+    for(int tagDepth = 1; tagDepth != 0;)
+    {
+        immutable type = cursor.next();
+        if(type == EntityType.elementStart)
+            ++tagDepth;
+        else if(type == EntityType.elementEnd)
+            --tagDepth;
+    }
+}
+
+///
+unittest
+{
+    auto xml = "<root>\n" ~
+               "    <foo>\n" ~
+               "        <bar>\n" ~
+               "        Some text\n" ~
+               "        </bar>\n" ~
+               "    </foo>\n" ~
+               "    <!-- no comment -->\n" ~
+               "</root>";
+
+    auto cursor = parseXML(xml);
+    assert(cursor.next() == EntityType.elementStart);
+    assert(cursor.name == "root");
+
+    assert(cursor.next() == EntityType.elementStart);
+    assert(cursor.name == "foo");
+
+    cursor.skipContents();
+    assert(cursor.type == EntityType.elementEnd);
+    assert(cursor.name == "foo");
+
+    assert(cursor.next() == EntityType.comment);
+    assert(cursor.text == " no comment ");
+
+    assert(cursor.next() == EntityType.elementEnd);
+    assert(cursor.name == "root");
+
+    assert(cursor.next() == EntityType.documentEnd);
+}
+
+
+/++
+    Skips entities until the given $(LREF EntityType) is reached.
+
+    If multiple $(LREF EntityType)s are given, then any one of them counts as
+    a match.
+
+    The current entity is skipped regardless of whether it is the given
+    $(LREF EntityType).
+
+    Returns: The $(LREF EntityType) of the now-current entity just like
+             $(LREF2 next, EntityCursor) would. If the requested
+             $(LREF EntityType) is not found, then
+             $(LREF EntityType.documentEnd) is returned.
+  +/
+auto skipToEntityType(EC)(EC cursor, EntityType[] entityTypes...)
+    if(isInstanceOf!(EntityCursor, EC))
+{
+    while(true)
+    {
+        auto type = cursor.next();
+        foreach(entityType; entityTypes)
+        {
+            if(type == entityType)
+                return type;
+        }
+        if(type == EntityType.documentEnd)
+            return EntityType.documentEnd;
+    }
+}
+
+unittest
+{
+    auto xml = "<root>\n" ~
+               "    <!-- blah blah blah -->\n" ~
+               "    <foo>nothing to say</foo>\n" ~
+               "</root>";
+
+    auto cursor = parseXML(xml);
+    assert(cursor.next() == EntityType.elementStart);
+    assert(cursor.name == "root");
+
+    assert(cursor.skipToEntityType(EntityType.elementStart, EntityType.elementEmpty) ==
+           EntityType.elementStart);
+    assert(cursor.name == "foo");
+
+    assert(cursor.skipToEntityType(EntityType.comment) ==
+           EntityType.documentEnd);
+}
+
+
+/+
+/++
+    Treats the given string like a file path except that each directory
+    corresponds to the name of a start tag. Note that this does $(I not) try to
+    implement XPath as that would be quite complicated, but it does try to be
+    compatible with it for the small subset of the syntax that it supports.
+
+    All paths should be relative. $(LREF EntityCursor) can only move forward
+    through the document, so using an absolute path would only make sense at
+    the beginning of the document.
+
+    Returns: The $(LREF EntityType) of the now-current entity just like
+             $(LREF2 next, EntityCursor) would. If the requested path is not
+             found, then $(LREF EntityType.documentEnd) is returned.
+  +/
+EntityType skipToPath(EC)(EC cursor, string path)
+    if(isInstanceOf!(EntityCursor, EC))
+{
+    with(EntityType):
+
+    import std.algorithm.comparison : equal;
+    import std.path : pathSplitter;
+
+    EntityType upLevel()
+    {
+        if(cursor.skipToParentDepth() == documentEnd)
+            return documentEnd;
+        static if(EC.config.splitEmpty == SplitEmpty.yes)
+            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+        else
+            immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+        return type == elementEnd ? documentEnd : type;
+    }
+
+    auto pieces = path.pathSplitter();
+
+    static if(EC.config.splitEmpty == SplitEmpty.yes)
+        immutable atStart = cursor.type == elementStart;
+    else
+        immutable atStart = cursor.type == elementStart || cursor.type == elementEmpty;
+
+    if(!atStart)
+    {
+        immutable name = pieces.front;
+        pieces.popFront();
+
+        while(true)
+        {
+            static if(EC.config.splitEmpty == SplitEmpty.yes)
+                immutable type =  cursor.skipToEntityType(elementStart, elementEnd);
+            else
+                immutable type = cursor.skipToEntityType(elementStart, e, elementEnd, lementEmpty);
+
+            if(type == elementEnd || type == documentEnd)
+                return documentEnd;
+
+            if(name == ".")
+                break;
+
+            if(name == "..")
+            {
+                immutable type = upLevel();
+                if(type == documentEnd)
+                    return documentEnd;
+                break;
+            }
+
+            if(equal(name, cursor.name))
+            {
+                pieces.popFront();
+                break;
+            }
+
+            static if(EC.config.splitEmpty == SplitEmpty.no)
+            {
+                if(type == elementEmpty)
+                    continue;
+            }
+            cursor.skipContents();
+        }
+    }
+
+    for(; !pieces.empty; pieces.popFront())
+    {
+        immutable name = pieces.front;
+
+        if(name == ".")
+            continue;
+        if(name == "..")
+        {
+            if(cursor.skipToParentDepth() == documentEnd)
+                return documentEnd;
+            static if(EC.config.splitEmpty == SplitEmpty.yes)
+                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+            else
+                immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+            if(type == elementEnd || type == documentEnd)
+                return documentEnd;
+            continue;
+        }
+        if(equal(name, cursor.name))
+        {
+            static if(EC.config.splitEmpty == SplitEmpty.yes)
+                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+            else
+                immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+        }
+        cursor.skipToEntityType(elementStart, elementEnd);
+    }
+
+    assert(0);
+}
+
+unittest
+{
+}
++/
+
+
+/++
+    Skips entities until an entity is reached that is at the same depth as the
+    parent of the current entity.
+
+    Returns: The $(LREF EntityType) of the now-current entity just like
+             $(LREF2 next, EntityCursor) would. If the requested depth is not
+             found (which mean that the depth was 0 when skipToParentDepth was
+             called), then $(LREF EntityType.documentEnd) is returned.
+  +/
+auto skipToParentDepth(EC)(EC cursor)
+    if(isInstanceOf!(EntityCursor, EC))
+{
+    with(EntityType) final switch(cursor.type)
+    {
+        case attlistDeclStart: return cursor.skipToEntityType(docTypeEnd);
+        case attDef: return cursor.skipToEntityType(attlistDeclEnd);
+        case attlistDeclEnd: goto case attlistDeclStart;
+        case cdata:
+        case comment:
+        {
+            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+            if(type == documentEnd || type == elementEnd)
+                return type;
+            goto case elementStart;
+        }
+        case docTypeStart: return cursor.skipToEntityType(documentEnd);
+        case docTypeEmpty: return documentEnd;
+        case docTypeEnd: return documentEnd;
+        case documentEnd: return cursor.next(); // will assert(0), but we don't have to duplicate the message this way
+        case documentStart: goto case docTypeStart;
+        case elementDecl: goto case attlistDeclStart;
+        case elementStart:
+        {
+            while(true)
+            {
+                {
+                    cursor.skipContents();
+                    immutable type = cursor.next();
+                    if(type == elementEnd || type == documentEnd)
+                        return type;
+                    if(type == elementStart)
+                        continue;
+                }
+                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+                if(type == elementEnd)
+                    return elementEnd;
+                if(type == documentEnd)
+                    return type;
+            }
+        }
+        case elementEnd: goto case comment;
+        case elementEmpty: goto case comment;
+        case entityDecl: goto case attlistDeclStart;
+        case notationDecl: goto case attlistDeclStart;
+        case peReference: goto case attlistDeclStart;
+        case pi:
+        {
+            immutable type = cursor.skipToEntityType(docTypeStart, docTypeEnd, elementStart, elementEnd);
+            if(type == docTypeStart)
+                return documentEnd;
+            if(type == documentEnd || type == docTypeEnd || type == elementEnd)
+                return type;
+            goto case elementStart;
+        }
+        case text: goto case comment;
+        case xmlDecl: goto case docTypeStart;
+    }
+}
+
+///
+unittest
+{
+    auto xml = "<root>\n" ~
+               "    <foo>\n" ~
+               "        <!-- comment -->\n" ~
+               "        <bar>exam</bar>\n" ~
+               "    </foo>\n" ~
+               "    <!-- another comment -->\n" ~
+               "</root>";
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "foo");
+
+        assert(cursor.next() == EntityType.comment);
+        assert(cursor.text == " comment ");
+
+        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
+        assert(cursor.name == "foo");
+
+        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
+        assert(cursor.name == "root");
+
+        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "root");
+
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "foo");
+
+        assert(cursor.next() == EntityType.comment);
+        assert(cursor.text == " comment ");
+
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "bar");
+
+        assert(cursor.next() == EntityType.text);
+        assert(cursor.text == "exam");
+
+        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
+        assert(cursor.name == "bar");
+
+        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
+        assert(cursor.name == "foo");
+
+        assert(cursor.next() == EntityType.comment);
+        assert(cursor.text == " another comment ");
+
+        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
+        assert(cursor.name == "root");
+
+        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto cursor = parseXML("<root><foo>bar</foo></root>");
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.name == "root");
+        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+}
+
+unittest
+{
+    import std.exception : assertNotThrown;
+
+    // attlistDeclStart
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // attDef
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo a CDATA #REQUIRED>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.next() == EntityType.attDef);
+        enforceTest(cursor.skipToParentDepth() == EntityType.attlistDeclEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo a CDATA #REQUIRED b ID #IMPLIED>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.next() == EntityType.attDef);
+        enforceTest(cursor.skipToParentDepth() == EntityType.attlistDeclEnd);
+    }
+    // attlistDeclEnd
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclEnd);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ATTLIST foo>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclStart);
+        enforceTest(cursor.next() == EntityType.attlistDeclEnd);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // cdata
+    {
+        auto xml = "<root>\n" ~
+                   "    <![CDATA[ cdata run ]]>\n" ~
+                   "    <nothing/>\n" ~
+                   "    <![CDATA[ cdata have its bits flipped ]]>\n" ~
+                   "    <foo></foo>\n" ~
+                   "    <![CDATA[ cdata play violin ]]>\n" ~
+                   "</root>";
+        for(int i = 0; true; ++i)
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.cdata);
+            if(i == 0)
+            {
+                enforceTest(cursor.text == " cdata run ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementEmpty);
+            enforceTest(cursor.next() == EntityType.cdata);
+            if(i == 1)
+            {
+                enforceTest(cursor.text == " cdata have its bits flipped ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementStart);
+            assertNotThrown!XMLParsingException(cursor.skipContents());
+            enforceTest(cursor.next() == EntityType.cdata);
+            enforceTest(cursor.text == " cdata play violin ");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            break;
+        }
+    }
+    // comment
+    {
+        auto xml = "<!-- before -->\n" ~
+                   "<root>\n" ~
+                   "    <!-- comment 1 -->\n" ~
+                   "    <nothing/>\n" ~
+                   "    <!-- comment 2 -->\n" ~
+                   "    <foo></foo>\n" ~
+                   "    <!-- comment 3 -->\n" ~
+                   "</root>\n" ~
+                   "<!-- after -->" ~
+                   "<!-- end -->";
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+        }
+        for(int i = 0; true; ++i)
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.comment);
+            if(i == 0)
+            {
+                enforceTest(cursor.text == " comment 1 ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementEmpty);
+            enforceTest(cursor.next() == EntityType.comment);
+            if(i == 1)
+            {
+                enforceTest(cursor.text == " comment 2 ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementStart);
+            assertNotThrown!XMLParsingException(cursor.skipContents());
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.text == " comment 3 ");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            break;
+        }
+        for(int i = 0; true; ++i)
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.next() == EntityType.elementStart);
+            assertNotThrown!XMLParsingException(cursor.skipContents());
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.text == " after ");
+            if(i == 0)
+            {
+                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.text == " end ");
+            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            break;
+        }
+    }
+    // docTypeStart
+    {
+        auto xml = "<!DOCTYPE sturgeon []>" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ELEMENT foo EMPTY>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    // docTypeEmpty
+    {
+        auto xml = "<!DOCTYPE sturgeon>" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeEmpty);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    // docTypeEnd
+    {
+        auto xml = "<!DOCTYPE sturgeon []>" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.docTypeEnd);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ELEMENT foo EMPTY>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.elementDecl);
+        enforceTest(cursor.next() == EntityType.docTypeEnd);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    // documentStart
+    {
+        auto xml = "<?xml version='1.0'?>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto xml = "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    // elementDecl
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ELEMENT foo EMPTY>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.elementDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ELEMENT foo EMPTY>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.elementDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // elementStart
+    for(int i = 0; true; ++i)
+    {
+        auto xml = "<root>\n" ~
+                   "    <a><b>foo</b></a>\n" ~
+                   "    <nothing/>\n" ~
+                   "    <c></c>\n" ~
+                   "</root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        if(i == 0)
+        {
+            enforceTest(cursor.name == "root");
+            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.elementStart);
+        if(i == 1)
+        {
+            enforceTest(cursor.name == "a");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.elementStart);
+        if(i == 2)
+        {
+            enforceTest(cursor.name == "b");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "a");
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.text);
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        enforceTest(cursor.next() == EntityType.elementEmpty);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.name == "c");
+        enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+        enforceTest(cursor.name == "root");
+        break;
+    }
+    // elementEnd
+    for(int i = 0; true; ++i)
+    {
+        auto xml = "<root>\n" ~
+                   "    <a><b>foo</b></a>\n" ~
+                   "    <nothing/>\n" ~
+                   "    <c></c>\n" ~
+                   "</root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.next() == EntityType.text);
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        if(i == 0)
+        {
+            enforceTest(cursor.name == "b");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "a");
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        if(i == 1)
+        {
+            enforceTest(cursor.name == "a");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.elementEmpty);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        if(i == 2)
+        {
+            enforceTest(cursor.name == "c");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            continue;
+        }
+        enforceTest(cursor.next() == EntityType.elementEnd);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+        break;
+    }
+    // elementEmpty
+    {
+        auto cursor = parseXML("<root/>");
+        enforceTest(cursor.next() == EntityType.elementEmpty);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    foreach(i; 0 .. 2)
+    {
+        auto xml = "<root>\n" ~
+                   "    <a><b>foo</b></a>\n" ~
+                   "    <nothing/>\n" ~
+                   "    <c></c>\n" ~
+                   "    <whatever/>\n" ~
+                   "</root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        enforceTest(cursor.next() == EntityType.elementStart);
+        assertNotThrown!XMLParsingException(cursor.skipContents());
+        enforceTest(cursor.next() == EntityType.elementEmpty);
+        if(i == 0)
+            enforceTest(cursor.name == "nothing");
+        else
+        {
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.elementEnd);
+            enforceTest(cursor.next() == EntityType.elementEmpty);
+            enforceTest(cursor.name == "whatever");
+        }
+        enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+        enforceTest(cursor.name == "root");
+    }
+    // entityDecl
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ENTITY foo 'bar'>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.entityDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!ENTITY foo 'bar'>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.entityDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // notationDecl
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!NOTATION name PUBLIC 'lit'>\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.notationDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <!NOTATION name PUBLIC 'lit'>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.notationDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // peReference
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    %name;\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.peReference);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    {
+        auto xml = "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    %name;\n" ~
+                   "    <!-- comment -->\n" ~
+                   "]>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.docTypeStart);
+        enforceTest(cursor.next() == EntityType.peReference);
+        enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+    }
+    // pi
+    {
+        auto xml = "<?Sherlock?>\n" ~
+                   "<!DOCTYPE sturgeon\n" ~
+                   "[\n" ~
+                   "    <?Poirot?>\n" ~
+                   "    <!-- comment -->\n" ~
+                   "    <?Conan?>\n" ~
+                   "]>\n" ~
+                   "<?Dick?>\n" ~
+                   "<?Tracy?>\n" ~
+                   "<root>\n" ~
+                   "    <?Foo?>\n" ~
+                   "    <nothing/>\n" ~
+                   "    <?Bar?>\n" ~
+                   "    <foo></foo>\n" ~
+                   "    <?Baz?>\n" ~
+                   "</root>\n" ~
+                   "<?post?>\n" ~
+                   "<?master?>";
+        for(int i = 0; true; ++i)
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 0)
+            {
+                enforceTest(cursor.name == "Sherlock");
+                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.docTypeStart);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 1)
+            {
+                enforceTest(cursor.name == "Poirot");
+                enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.comment);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 2)
+            {
+                enforceTest(cursor.name == "Conan");
+                enforceTest(cursor.skipToParentDepth() == EntityType.docTypeEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.docTypeEnd);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 3)
+            {
+                enforceTest(cursor.name == "Dick");
+                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 4)
+            {
+                enforceTest(cursor.name == "Tracy");
+                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 5)
+            {
+                enforceTest(cursor.name == "Foo");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementEmpty);
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 6)
+            {
+                enforceTest(cursor.name == "Bar");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.elementEnd);
+            enforceTest(cursor.next() == EntityType.pi);
+            enforceTest(cursor.name == "Baz");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            enforceTest(cursor.next() == EntityType.pi);
+            if(i == 7)
+            {
+                enforceTest(cursor.name == "post");
+                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.pi);
+            enforceTest(cursor.name == "master");
+            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            break;
+        }
+    }
+    // text
+    {
+        auto xml = "<root>\n" ~
+                   "    nothing to say\n" ~
+                   "    <nothing/>\n" ~
+                   "    nothing whatsoever\n" ~
+                   "    <foo></foo>\n" ~
+                   "    but he keeps talking\n" ~
+                   "</root>";
+        for(int i = 0; true; ++i)
+        {
+            auto cursor = parseXML(xml);
+            enforceTest(cursor.next() == EntityType.elementStart);
+            enforceTest(cursor.next() == EntityType.text);
+            if(i == 0)
+            {
+                enforceTest(cursor.text == "\n    nothing to say\n    ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementEmpty);
+            enforceTest(cursor.next() == EntityType.text);
+            if(i == 1)
+            {
+                enforceTest(cursor.text == "\n    nothing whatsoever\n    ");
+                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+                enforceTest(cursor.name == "root");
+                continue;
+            }
+            enforceTest(cursor.next() == EntityType.elementStart);
+            assertNotThrown!XMLParsingException(cursor.skipContents());
+            enforceTest(cursor.next() == EntityType.text);
+            enforceTest(cursor.text == "\n    but he keeps talking\n");
+            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
+            enforceTest(cursor.name == "root");
+            break;
+        }
+    }
+    // xmlDecl
+    {
+        auto xml = "<?xml version='1.0'?>\n" ~
+                   "<root></root>";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.xmlDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
+    {
+        auto xml = "<?xml version='1.0'?>\n" ~
+                   "<!DOCTYPE foo []>\n" ~
+                   "<!-- beginning -->\n" ~
+                   "<root>\n" ~
+                   "</root>\n" ~
+                   "<!-- end -->";
+        auto cursor = parseXML(xml);
+        enforceTest(cursor.next() == EntityType.xmlDecl);
+        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+    }
 }
 
 
@@ -4710,7 +5658,7 @@ template takeName(bool requireNameStart, delims...)
             immutable c = state.input.front;
             if(isSpace(c))
                 break;
-            foreach(delim; delims)
+            static foreach(delim; delims)
             {
                 if(c == delim)
                     break loop;
@@ -5683,7 +6631,12 @@ version(unittest)
 
     enum testConfigs = [ Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none) ];
 
-    void enforceTest(T)(lazy T value, lazy const(char)[] msg = null, size_t line = __LINE__)
+    // The main reason for using this over assert is because of how frequently a
+    // mistake in the code results in an XMLParsingException being thrown, and
+    // it's more of a pain to track down than an assertion failure, because you
+    // have to dig throught the stack trace to figure out which line failed.
+    // This way, it tells you like it would with an assertion failure.
+    void enforceTest(T)(lazy T value, lazy const(char)[] msg = "unittest failed", size_t line = __LINE__)
     {
         import core.exception : AssertError;
         import std.exception : enforce;
