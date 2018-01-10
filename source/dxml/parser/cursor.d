@@ -111,9 +111,9 @@ struct SourcePos
 /++
     At what level of granularity the position in the XML file should be kept
     track of (it's used in $(LREF XMLParsingException) to indicate where the
-    in the text the invalid XML was found). $(LREF _PositionType.none) is the
+    in the text the invalid XML was found). $(LREF _text.positionType.none) is the
     most efficient but least informative, whereas
-    $(LREF _PositionType.lineAndCol) is the most informative but least
+    $(LREF _text.positionType.lineAndCol) is the most informative but least
     efficient.
   +/
 enum PositionType
@@ -491,6 +491,7 @@ public:
     import std.algorithm : canFind;
     import std.range : only, takeExactly;
     import std.typecons : Nullable;
+    import std.utf : byCodeUnit;
 
     private enum compileInTests = is(R == EntityCompileTests);
 
@@ -557,21 +558,21 @@ public:
       +/
     EntityType next()
     {
-        final switch(_state.grammarPos) with(GrammarPos)
+        final switch(_grammarPos) with(GrammarPos)
         {
             case documentStart: _parseDocumentStart(); break;
             case prologMisc1: _parseAtPrologMisc!1(); break;
             case prologMisc2: _parseAtPrologMisc!2(); break;
             case splittingEmpty:
             {
-                _state.type = EntityType.elementEnd;
-                _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+                _type = EntityType.elementEnd;
+                _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
                 break;
             }
             case contentCharData1:
             {
-                assert(_state.type == EntityType.elementStart);
-                _state.tagStack.push(_state.name);
+                assert(_type == EntityType.elementStart);
+                _tagStack.push(_name.save);
                 _parseAtContentCharData();
                 break;
             }
@@ -582,7 +583,7 @@ public:
             case documentEnd:
                 assert(0, "It's invalid to call next when the EntityCursor has reached EntityType.documentEnd");
         }
-        return _state.type;
+        return _type;
     }
 
 
@@ -593,7 +594,7 @@ public:
       +/
     @property EntityType type() @safe const pure nothrow @nogc
     {
-        return _state.type;
+        return _type;
     }
 
 
@@ -603,7 +604,7 @@ public:
       +/
     @property bool empty() @safe const pure nothrow @nogc
     {
-        return _state.type == EntityType.documentEnd;
+        return _type == EntityType.documentEnd;
     }
 
 
@@ -627,70 +628,8 @@ public:
     @property SliceOfR name()
     {
         with(EntityType)
-            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_state.type));
-        return stripBCU!R(_state.name.save);
-    }
-
-
-    /++
-        Gives the path of the current entity as a lazy range.
-
-        Unlike $(LREF2 name, EntityCursor), this includes the names of all of
-        the parent entities. The path does not take into account the fact that
-        there may be multiple entities with the same path (e.g. a start tag
-        could have multiple start tags in its contents which have the same
-        name). The path is simply the list of the names of the parent tags plus
-        the name of the current tag.
-
-        Note that the range returned by path is only valid until
-        $(LREF next, EntityCursor) is called. Each element in the range will
-        continue to be valid, but the range itself will not be (since the range
-        refers to the internal stack of tag names, which can change when
-        $(LREF next, EntityCursor) is called).
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 elementStart, EntityType)))
-            $(TR $(TD $(LREF2 elementEnd, EntityType)))
-            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
-            $(TR $(TD $(LREF2 pi, EntityType)))
-         )
-
-        See_Also: $(LREF name, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
-      +/
-    @property auto path()
-    {
-        with(EntityType)
-            assert(only(elementStart, elementEmpty, elementEnd, pi).canFind(_state.type));
-
-        assert(0);
-    }
-
-
-    /++
-        Gives the path of the parent entity as a lazy range.
-
-        Unlike $(LREF2 name, EntityCursor), this includes the names of all of
-        the parent entities. However, unlike $(LREF2 name, EntityCursor) and
-        $(LREF2 path, EntityCursor), parentPath works with all entity types
-        (though in the case of root-level elements, it will be empty). Like
-        (LREF2 path, EntityCursor), no effort is made to make the path unique.
-        It is simply a list of the names of the parent tags.
-
-        Note that the range returned by parentPath is only valid until
-        $(LREF next, EntityCursor) is called. Each element in the range will
-        continue to be valid, but the range itself will not be (since the range
-        refers to the internal stack of tag names, which can change when
-        $(LREF next, EntityCursor) is called).
-
-        See_Also: $(LREF name, EntityCursor)$(BR)$(LREF path, EntityCursor)
-      +/
-    @property auto parentPath()
-    {
-        with(EntityType)
-            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_state.type));
-
-        assert(0);
+            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
+        return stripBCU!R(_name.save);
     }
 
 
@@ -710,7 +649,7 @@ public:
     @property auto attributes()
     {
         with(EntityType)
-            assert(_state.type == elementStart || _state.type == elementEmpty);
+            assert(_type == elementStart || _type == elementEmpty);
 
         // STag         ::= '<' Name (S Attribute)* S? '>'
         // Attribute    ::= Name Eq AttValue
@@ -719,7 +658,7 @@ public:
         import std.typecons : Tuple;
         alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
 
-        static struct Range
+        static struct AttributeRange
         {
             @property Attribute front()
             {
@@ -734,17 +673,16 @@ public:
                     return;
                 }
 
-                auto state = &_text;
-                auto name = stripBCU!R(state.takeName!(true, '=')());
-                stripWS(state);
-                checkNotEmpty(state);
-                if(state.input.front != '=')
-                    throw new XMLParsingException("= missing", state.pos);
-                popFrontAndIncCol(state);
-                stripWS(state);
+                auto name = stripBCU!R(_text.takeName!(true, '=')());
+                stripWS(_text);
+                checkNotEmpty(_text);
+                if(_text.input.front != '=')
+                    throw new XMLParsingException("= missing", _text.pos);
+                popFrontAndIncCol(_text);
+                stripWS(_text);
 
-                auto value = stripBCU!R(takeEnquotedText(state));
-                stripWS(state);
+                auto value = stripBCU!R(takeEnquotedText(_text));
+                stripWS(_text);
 
                 _front = Attribute(name, value);
             }
@@ -769,10 +707,10 @@ public:
 
             bool empty;
             Attribute _front;
-            typeof(_state.savedText) _text;
+            typeof(_savedText) _text;
         }
 
-        return Range(_state.savedText);
+        return AttributeRange(_savedText);
     }
 
 
@@ -795,8 +733,8 @@ public:
     @property SliceOfR text()
     {
         with(EntityType)
-            assert(only(cdata, comment, pi, text).canFind(_state.type));
-        return stripBCU!R(_state.savedText.input.save);
+            assert(only(cdata, comment, pi, text).canFind(_type));
+        return stripBCU!R(_savedText.input.save);
     }
 
     ///
@@ -870,7 +808,7 @@ public:
       +/
     @property SliceOfR contentAsText()
     {
-        assert(_state.type == EntityType.elementStart);
+        assert(_type == EntityType.elementStart);
 
         assert(0);
     }
@@ -880,10 +818,10 @@ private:
 
     void _parseDocumentStart()
     {
-        if(_state.stripStartsWith("<?xml"))
+        if(_text.stripStartsWith("<?xml"))
         {
-            _state.skipUntilAndDrop!"?>"();
-            _state.grammarPos = GrammarPos.prologMisc1;
+            _text.skipUntilAndDrop!"?>"();
+            _grammarPos = GrammarPos.prologMisc1;
             next();
         }
         else
@@ -903,7 +841,7 @@ private:
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto cursor = parseXML!config(func(xml));
                 assertNotThrown!XMLParsingException(cursor.next(), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(cursor._state.pos == pos, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(cursor._text.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -931,44 +869,44 @@ private:
         // prolog   ::= XMLDecl? Misc* (doctypedecl Misc*)?
         // Misc ::= Comment | PI | S
 
-        stripWS(_state);
-        checkNotEmpty(_state);
-        if(_state.input.front != '<')
-            throw new XMLParsingException("Expected <", _state.pos);
-        popFrontAndIncCol(_state);
-        checkNotEmpty(_state);
+        stripWS(_text);
+        checkNotEmpty(_text);
+        if(_text.input.front != '<')
+            throw new XMLParsingException("Expected <", _text.pos);
+        popFrontAndIncCol(_text);
+        checkNotEmpty(_text);
 
-        switch(_state.input.front)
+        switch(_text.input.front)
         {
             // Comment     ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
             // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
             case '!':
             {
-                popFrontAndIncCol(_state);
-                if(_state.stripStartsWith("--"))
+                popFrontAndIncCol(_text);
+                if(_text.stripStartsWith("--"))
                 {
                     _parseComment();
                     break;
                 }
                 static if(miscNum == 1)
                 {
-                    if(_state.stripStartsWith("DOCTYPE"))
+                    if(_text.stripStartsWith("DOCTYPE"))
                     {
-                        if(!_state.stripWS())
-                            throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _state.pos);
+                        if(!_text.stripWS())
+                            throw new XMLParsingException("Whitespace must follow <!DOCTYPE", _text.pos);
                         _parseDoctypeDecl();
                         break;
                     }
-                    throw new XMLParsingException("Expected DOCTYPE or --", _state.pos);
+                    throw new XMLParsingException("Expected DOCTYPE or --", _text.pos);
                 }
                 else
                 {
-                    if(_state.stripStartsWith("DOCTYPE"))
+                    if(_text.stripStartsWith("DOCTYPE"))
                     {
                         throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
-                                                      _state.pos);
+                                                      _text.pos);
                     }
-                    throw new XMLParsingException("--", _state.pos);
+                    throw new XMLParsingException("--", _text.pos);
                 }
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -994,16 +932,16 @@ private:
     void _parseComment()
     {
         static if(config.skipComments == SkipComments.yes)
-            _state.skipUntilAndDrop!"--"();
+            _text.skipUntilAndDrop!"--"();
         else
         {
-            _state.type = EntityType.comment;
-            _state.savedText.pos = _state.pos;
-            _state.savedText.input = _state.takeUntilAndDrop!"--"();
+            _type = EntityType.comment;
+            _savedText.pos = _text.pos;
+            _savedText.input = _text.takeUntilAndDrop!"--"();
         }
-        if(_state.input.empty || _state.input.front != '>')
-            throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _state.pos);
-        popFrontAndIncCol(_state);
+        if(_text.input.empty || _text.input.front != '>')
+            throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _text.pos);
+        popFrontAndIncCol(_text);
     }
 
 
@@ -1012,43 +950,43 @@ private:
     // Parses a processing instruction. < was already removed from the input.
     void _parsePI()
     {
-        assert(_state.input.front == '?');
-        popFrontAndIncCol(_state);
+        assert(_text.input.front == '?');
+        popFrontAndIncCol(_text);
         static if(config.skipPI == SkipPI.yes)
-            _state.skipUntilAndDrop!"?>"();
+            _text.skipUntilAndDrop!"?>"();
         else
         {
-            auto pos = _state.pos;
-            _state.type = EntityType.pi;
-            _state.name = takeName!(true, '?')(_state);
-            checkNotEmpty(_state);
-            if(_state.input.front != '?')
+            immutable posAtName = _text.pos;
+            _type = EntityType.pi;
+            _name = takeName!(true, '?')(_text);
+            checkNotEmpty(_text);
+            if(_text.input.front != '?')
             {
-                if(!stripWS(_state))
+                if(!stripWS(_text))
                 {
                     throw new XMLParsingException("There must be whitespace after the name if there is text before " ~
-                                                  "the terminating ?>", _state.pos);
+                                                  "the terminating ?>", _text.pos);
                 }
             }
-            _state.savedText.pos = _state.pos;
-            _state.savedText.input = _state.takeUntilAndDrop!"?>"();
-            if(walkLength(_state.name.save) == 3)
+            _savedText.pos = _text.pos;
+            _savedText.input = _text.takeUntilAndDrop!"?>"();
+            if(walkLength(_name.save) == 3)
             {
                 // FIXME icmp doesn't compile right now due to an issue with
                 // byUTF that needs to be looked into.
                 /+
                 import std.uni : icmp;
-                if(icmp(_state.name.save, "xml") == 0)
-                    throw new XMLParsingException("Processing instructions cannot be named xml", pos);
+                if(icmp(_name.save, "xml") == 0)
+                    throw new XMLParsingException("Processing instructions cannot be named xml", posAtName);
                 +/
-                if(_state.name.front == 'x' || _state.name.front == 'X')
+                if(_name.front == 'x' || _name.front == 'X')
                 {
-                    _state.name.popFront();
-                    if(_state.name.front == 'm' || _state.name.front == 'M')
+                    _name.popFront();
+                    if(_name.front == 'm' || _name.front == 'M')
                     {
-                        _state.name.popFront();
-                        if(_state.name.front == 'l' || _state.name.front == 'L')
-                            throw new XMLParsingException("Processing instructions cannot be named xml", pos);
+                        _name.popFront();
+                        if(_name.front == 'l' || _name.front == 'L')
+                            throw new XMLParsingException("Processing instructions cannot be named xml", posAtName);
                     }
                 }
             }
@@ -1063,10 +1001,10 @@ private:
     // Parses a CDATA. <!CDATA[ was already removed from the front of the input.
     void _parseCDATA()
     {
-        _state.type = EntityType.cdata;
-        _state.savedText.pos = _state.pos;
-        _state.savedText.input = _state.takeUntilAndDrop!"]]>";
-        _state.grammarPos = GrammarPos.contentCharData2;
+        _type = EntityType.cdata;
+        _savedText.pos = _text.pos;
+        _savedText.input = _text.takeUntilAndDrop!"]]>";
+        _grammarPos = GrammarPos.contentCharData2;
     }
 
 
@@ -1079,51 +1017,51 @@ private:
     // from the input.
     void _parseDoctypeDecl()
     {
-        _state.skipToOneOf!('"', '\'', '[', '>')();
-        switch(_state.input.front)
+        _text.skipToOneOf!('"', '\'', '[', '>')();
+        switch(_text.input.front)
         {
             case '"':
             {
-                _state.skipUntilAndDrop!`"`();
-                checkNotEmpty(_state);
-                _state.skipToOneOf!('[', '>')();
-                if(_state.input.front == '[')
+                _text.skipUntilAndDrop!`"`();
+                checkNotEmpty(_text);
+                _text.skipToOneOf!('[', '>')();
+                if(_text.input.front == '[')
                     goto case '[';
                 else
                     goto case '>';
             }
             case '\'':
             {
-                _state.skipUntilAndDrop!`'`();
-                checkNotEmpty(_state);
-                _state.skipToOneOf!('[', '>')();
-                if(_state.input.front == '[')
+                _text.skipUntilAndDrop!`'`();
+                checkNotEmpty(_text);
+                _text.skipToOneOf!('[', '>')();
+                if(_text.input.front == '[')
                     goto case '[';
                 else
                     goto case '>';
             }
             case '[':
             {
-                popFrontAndIncCol(_state);
+                popFrontAndIncCol(_text);
                 while(1)
                 {
-                    checkNotEmpty(_state);
-                    _state.skipToOneOf!('"', '\'', ']')();
-                    switch(_state.input.front)
+                    checkNotEmpty(_text);
+                    _text.skipToOneOf!('"', '\'', ']')();
+                    switch(_text.input.front)
                     {
                         case '"':
                         {
-                            _state.skipUntilAndDrop!`"`();
+                            _text.skipUntilAndDrop!`"`();
                             continue;
                         }
                         case '\'':
                         {
-                            _state.skipUntilAndDrop!`'`();
+                            _text.skipUntilAndDrop!`'`();
                             continue;
                         }
                         case ']':
                         {
-                            _state.skipUntilAndDrop!`>`();
+                            _text.skipUntilAndDrop!`>`();
                             _parseAtPrologMisc!2();
                             return;
                         }
@@ -1133,7 +1071,7 @@ private:
             }
             case '>':
             {
-                popFrontAndIncCol(_state);
+                popFrontAndIncCol(_text);
                 _parseAtPrologMisc!2();
                 break;
             }
@@ -1156,7 +1094,7 @@ private:
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
                 auto cursor = parseXML!config(xml.save);
                 enforceTest(cursor.next() == EntityType.elementEmpty, "unittest failure 1", line);
-                enforceTest(cursor._state.pos == pos, "unittest failure 2", line);
+                enforceTest(cursor._text.pos == pos, "unittest failure 2", line);
             }}
         }
 
@@ -1195,37 +1133,37 @@ private:
     // < was already removed from the front of the input.
     void _parseElementStart()
     {
-        _state.savedText.pos = _state.pos;
-        _state.savedText.input = _state.takeUntilAndDrop!">"();
-        auto temp = _state.savedText.input.save;
+        _savedText.pos = _text.pos;
+        _savedText.input = _text.takeUntilAndDrop!">"();
+        auto temp = _savedText.input.save;
         temp.popFrontN(temp.length - 1);
         if(temp.front == '/')
         {
-            _state.savedText.input = _state.savedText.input.takeExactly(_state.savedText.input.length - 1);
+            _savedText.input = _savedText.input.takeExactly(_savedText.input.length - 1);
 
             static if(config.splitEmpty == SplitEmpty.no)
             {
-                _state.type = EntityType.elementEmpty;
-                _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+                _type = EntityType.elementEmpty;
+                _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
             }
             else
             {
-                _state.type = EntityType.elementStart;
-                _state.grammarPos = GrammarPos.splittingEmpty;
+                _type = EntityType.elementStart;
+                _grammarPos = GrammarPos.splittingEmpty;
             }
         }
         else
         {
-            _state.type = EntityType.elementStart;
-            _state.grammarPos = GrammarPos.contentCharData1;
+            _type = EntityType.elementStart;
+            _grammarPos = GrammarPos.contentCharData1;
         }
 
-        if(_state.savedText.input.empty)
-            throw new XMLParsingException("Tag missing name", _state.savedText.pos);
-        if(_state.savedText.input.front == '/')
-            throw new XMLParsingException("Invalid end tag", _state.savedText.pos);
-        _state.name = takeName!true(&_state.savedText);
-        stripWS(&_state.savedText);
+        if(_savedText.input.empty)
+            throw new XMLParsingException("Tag missing name", _savedText.pos);
+        if(_savedText.input.front == '/')
+            throw new XMLParsingException("Invalid end tag", _savedText.pos);
+        _name = _savedText.takeName!true();
+        stripWS(_savedText);
         // The attributes should be all that's left in savedText.
     }
 
@@ -1235,19 +1173,11 @@ private:
     // </ was already removed from the front of the input.
     void _parseElementEnd()
     {
-        import std.algorithm.comparison : equal;
-        import std.format : format;
-        _state.type = EntityType.elementEnd;
-        _state.savedText.pos = _state.pos;
-        _state.name = _state.takeUntilAndDrop!">"();
-        assert(!_state.tagStack.empty);
-        if(!equal(_state.name.save, _state.tagStack.back.save))
-        {
-            enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
-            throw new XMLParsingException(format!fmt(_state.name, _state.tagStack.back), _state.savedText.pos);
-        }
-        _state.tagStack.pop();
-        _state.grammarPos = _state.tagStack.empty ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+        _type = EntityType.elementEnd;
+        immutable namePos = _text.pos;
+        _name = _text.takeUntilAndDrop!">"();
+        _tagStack.pop(_name.save, namePos);
+        _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
     }
 
 
@@ -1257,36 +1187,32 @@ private:
     // if it's not there) has been consumed.
     void _parseAtContentCharData()
     {
-        checkNotEmpty(_state);
-        auto origInput = _state.input.save;
-        auto origPos = _state.pos;
-        stripWS(_state);
-        checkNotEmpty(_state);
-        if(_state.input.front != '<')
+        checkNotEmpty(_text);
+        auto orig = _text.save;
+        stripWS(_text);
+        checkNotEmpty(_text);
+        if(_text.input.front != '<')
+            _text = orig;
+        if(_text.input.front != '<')
         {
-            _state.input = origInput;
-            _state.pos = origPos;
-        }
-        if(_state.input.front != '<')
-        {
-            _state.type = EntityType.text;
-            _state.savedText.input = _state.takeUntilAndDrop!"<"();
-            checkNotEmpty(_state);
-            if(_state.input.front == '/')
+            _type = EntityType.text;
+            _savedText.input = _text.takeUntilAndDrop!"<"();
+            checkNotEmpty(_text);
+            if(_text.input.front == '/')
             {
-                popFrontAndIncCol(_state);
-                _state.grammarPos = GrammarPos.endTag;
+                popFrontAndIncCol(_text);
+                _grammarPos = GrammarPos.endTag;
             }
             else
-                _state.grammarPos = GrammarPos.contentMid;
+                _grammarPos = GrammarPos.contentMid;
         }
         else
         {
-            popFrontAndIncCol(_state);
-            checkNotEmpty(_state);
-            if(_state.input.front == '/')
+            popFrontAndIncCol(_text);
+            checkNotEmpty(_text);
+            if(_text.input.front == '/')
             {
-                popFrontAndIncCol(_state);
+                popFrontAndIncCol(_text);
                 _parseElementEnd();
             }
             else
@@ -1305,7 +1231,7 @@ private:
         // Note that References are treated as part of the CharData and not
         // parsed out by the EntityCursor (see EntityCursor.text).
 
-        switch(_state.input.front)
+        switch(_text.input.front)
         {
             // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
             // CDSect  ::= CDStart CData CDEnd
@@ -1314,26 +1240,26 @@ private:
             // CDEnd   ::= ']]>'
             case '!':
             {
-                popFrontAndIncCol(_state);
-                if(_state.stripStartsWith("--"))
+                popFrontAndIncCol(_text);
+                if(_text.stripStartsWith("--"))
                 {
                     _parseComment();
                     static if(config.skipComments == SkipComments.yes)
                         _parseAtContentCharData();
                     else
-                        _state.grammarPos = GrammarPos.contentCharData2;
+                        _grammarPos = GrammarPos.contentCharData2;
                 }
-                else if(_state.stripStartsWith("[CDATA["))
+                else if(_text.stripStartsWith("[CDATA["))
                     _parseCDATA();
                 else
-                    throw new XMLParsingException("Not valid Comment or CData section", _state.pos);
+                    throw new XMLParsingException("Not valid Comment or CData section", _text.pos);
                 break;
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
             {
                 _parsePI();
-                _state.grammarPos = GrammarPos.contentCharData2;
+                _grammarPos = GrammarPos.contentCharData2;
                 static if(config.skipPI == SkipPI.yes)
                     next();
                 break;
@@ -1353,32 +1279,32 @@ private:
     {
         // Misc ::= Comment | PI | S
 
-        stripWS(_state);
+        stripWS(_text);
 
-        if(_state.input.empty)
+        if(_text.input.empty)
         {
-            _state.grammarPos = GrammarPos.documentEnd;
-            _state.type = EntityType.documentEnd;
+            _grammarPos = GrammarPos.documentEnd;
+            _type = EntityType.documentEnd;
             return;
         }
 
-        if(_state.input.front != '<')
-            throw new XMLParsingException("Expected <", _state.pos);
-        popFrontAndIncCol(_state);
-        checkNotEmpty(_state);
+        if(_text.input.front != '<')
+            throw new XMLParsingException("Expected <", _text.pos);
+        popFrontAndIncCol(_text);
+        checkNotEmpty(_text);
 
-        switch(_state.input.front)
+        switch(_text.input.front)
         {
             // Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
             case '!':
             {
-                popFrontAndIncCol(_state);
-                if(_state.stripStartsWith("--"))
+                popFrontAndIncCol(_text);
+                if(_text.stripStartsWith("--"))
                 {
                     _parseComment();
                     break;
                 }
-                throw new XMLParsingException("Expected --", _state.pos);
+                throw new XMLParsingException("Expected --", _text.pos);
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
@@ -1388,22 +1314,98 @@ private:
                     next();
                 break;
             }
-            default: throw new XMLParsingException("Must be a comment or PI", _state.pos);
+            default: throw new XMLParsingException("Must be a comment or PI", _text.pos);
         }
     }
 
-
-    struct ParserState
+    // Used for keeping track of the names of start tags so that end tags can be
+    // verified. We keep track of the total number of start tags and end tags
+    // which have been parsed thus far so that only whichever EntityRange is
+    // farthest along in parsing actually adds or removes tags from the
+    // TagStack. That way, the end tags get verified, but we only have one
+    // stack. If the stack were duplicated with every call to save, then there
+    // would be a lot more allocations, which we don't want. But because we only
+    // need to verify the end tags once, we can get away with having a shared
+    // tag stack. The cost is that we have to keep track of how many tags we've
+    // parsed so that we know if an EntityRange should actually be pushing or
+    // popping tags from the stack, but that's a lot cheaper than duplicating
+    // the stack, and it's a lot less annoying then making EntityRange an input
+    // range and not a forward range or making it a cursor rather than a range.
+    struct TagStack
     {
-        import std.utf : byCodeUnit;
+        void push(Taken tagName)
+        {
+            if(steps++ == state.maxSteps)
+            {
+                ++state.maxSteps;
+                state.tags ~= tagName;
+            }
+            ++depth;
+        }
 
+        void pop(Taken tagName, SourcePos pos)
+        {
+            import std.algorithm : equal;
+            import std.format : format;
+            if(steps++ == state.maxSteps)
+            {
+                assert(!state.tags.empty);
+                if(!equal(state.tags.back.save, tagName.save))
+                {
+                    enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
+                    throw new XMLParsingException(format!fmt(tagName, state.tags.back), pos);
+                }
+                ++state.maxSteps;
+                --state.tags.length;
+                state.tags.assumeSafeAppend();
+            }
+            --depth;
+        }
+
+        struct SharedState
+        {
+            Taken[] tags;
+            size_t maxSteps;
+        }
+
+        static create()
+        {
+            TagStack tagStack;
+            tagStack.state = new SharedState;
+            return tagStack;
+        }
+
+        SharedState* state;
+        size_t steps;
+        int depth;
+    }
+
+
+    this(R xmlText)
+    {
+        _text.input = byCodeUnit(xmlText);
+        _tagStack = TagStack.create();
+
+        // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
+        _savedText = typeof(_savedText).init;
+        _name = typeof(_name).init;
+    }
+
+
+    alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
+
+    auto _type = EntityType.documentStart;
+    auto _grammarPos = GrammarPos.documentStart;
+
+    Taken _name;
+    TagStack _tagStack;
+
+    struct Text(R)
+    {
         alias config = cfg;
-        alias Text = R;
-        alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
-        alias SliceOfR = EntityCursor.SliceOfR;
+        alias Input = R;
 
-        auto type = EntityType.documentStart;
-        auto grammarPos = GrammarPos.documentStart;
+        Input input;
 
         static if(config.posType == PositionType.lineAndCol)
             auto pos = SourcePos(1, 1);
@@ -1412,44 +1414,20 @@ private:
         else
             SourcePos pos;
 
-        typeof(byCodeUnit(R.init)) input;
-
-        // This mirrors the ParserState's fields so that the same parsing functions
-        // can be used to parse main text contained directly in the ParserState
-        // and the currently saved text (e.g. for the attributes of a start tag).
-        struct SavedText
-        {
-            alias config = cfg;
-            alias Text = R;
-            Taken input;
-            SourcePos pos;
-
-            @property save() { return SavedText(input.save, pos); }
-        }
-
-        SavedText savedText;
-
-        Taken name;
-        TagStack!Taken tagStack;
-
-        this(R xmlText)
-        {
-            input = byCodeUnit(xmlText);
-
-            // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
-            savedText = typeof(savedText).init;
-            name = typeof(name).init;
-        }
+        @property save() { return typeof(this)(input.save, pos); }
     }
 
+    Text!(typeof(byCodeUnit(R.init))) _text;
+    Text!Taken _savedText;
 
     this(R xmlText)
     {
-        _state = new ParserState(xmlText);
+        _text.input = byCodeUnit(xmlText);
+
+        // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
+        _savedText = typeof(_savedText).init;
+        _name = typeof(_name).init;
     }
-
-
-    ParserState* _state;
 }
 
 /// Ditto
@@ -1589,7 +1567,7 @@ version(unittest)
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
-void skipContents(EC)(EC cursor)
+void skipContents(EC)(ref EC cursor)
     if(isInstanceOf!(EntityCursor, EC))
 {
     assert(cursor.type == EntityType.elementStart);
@@ -1654,7 +1632,7 @@ unittest
              $(LREF EntityType) is not found, then
              $(LREF EntityType.documentEnd) is returned.
   +/
-auto skipToEntityType(EC)(EC cursor, EntityType[] entityTypes...)
+auto skipToEntityType(EC)(ref EC cursor, EntityType[] entityTypes...)
     if(isInstanceOf!(EntityCursor, EC))
 {
     while(true)
@@ -1705,7 +1683,7 @@ unittest
              $(LREF2 next, EntityCursor) would. If the requested path is not
              found, then $(LREF EntityType.documentEnd) is returned.
   +/
-EntityType skipToPath(EC)(EC cursor, string path)
+EntityType skipToPath(EC)(ref EC cursor, string path)
     if(isInstanceOf!(EntityCursor, EC))
 {
     with(EntityType)
@@ -1935,7 +1913,7 @@ unittest
              found (which mean that the depth was 0 when skipToParentDepth was
              called), then $(LREF EntityType.documentEnd) is returned.
   +/
-auto skipToParentDepth(EC)(EC cursor)
+auto skipToParentDepth(EC)(ref EC cursor)
     if(isInstanceOf!(EntityCursor, EC))
 {
     with(EntityType) final switch(cursor.type)
@@ -2388,14 +2366,10 @@ private:
 
 version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure nothrow @nogc
 {
-    static getPS(R xmlText) @trusted nothrow @nogc
-    {
-        static EntityCursor!(config, R).ParserState ps;
-        ps = typeof(ps)(xmlText);
-        return &ps;
-    }
-    alias FuncType = @trusted pure nothrow @nogc EntityCursor!(config, R).ParserState* function(R);
-    return (cast(FuncType)&getPS)(xmlText);
+    import std.utf : byCodeUnit;
+    typeof(EntityCursor!(config, R)._text) text;
+    text.input = byCodeUnit(xmlText);
+    return text;
 }
 
 
@@ -2462,71 +2436,55 @@ enum GrammarPos
 
 
 // Similar to startsWith except that it consumes the part of the range that
-// matches. It also deals with incrementing state.pos.col.
+// matches. It also deals with incrementing text.pos.col.
 //
 // It is assumed that there are no newlines.
-bool stripStartsWith(PS)(PS state, string text)
+bool stripStartsWith(Text)(ref Text text, string needle)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-
-    alias R = typeof(PS.input);
-
-    static if(hasLength!R)
+    static if(hasLength!(Text.Input))
     {
-        if(state.input.length < text.length)
+        if(text.input.length < needle.length)
             return false;
 
         // This branch is separate so that we can take advantage of whatever
         // speed boost comes from comparing strings directly rather than
         // comparing individual characters.
-        static if(isDynamicArray!(PS.Text) && is(Unqual!(ElementEncodingType!(PS.Text)) == char))
+        static if(isDynamicArray!(Text.Input) && is(Unqual!(ElementEncodingType!(Text.Input)) == char))
         {
-            if(state.input.source[0 .. text.length] != text)
+            if(text.input.source[0 .. needle.length] != needle)
                 return false;
-            state.input.popFrontN(text.length);
+            text.input.popFrontN(needle.length);
         }
         else
         {
-            auto origInput = state.input.save;
-            auto origPos = state.pos;
-
-            foreach(c; text)
+            auto orig = text.save;
+            foreach(c; needle)
             {
-                if(state.input.front != c)
+                if(text.input.front != c)
                 {
-                    state.input = origInput;
-                    state.pos = origPos;
+                    text = orig;
                     return false;
                 }
-                state.input.popFront();
+                text.input.popFront();
             }
         }
     }
     else
     {
-        auto origInput = state.input.save;
-        auto origPos = state.pos;
-
-        foreach(c; text)
+        auto orig = text.save;
+        foreach(c; needle)
         {
-            if(state.input.empty)
+            if(text.input.empty || text.input.front != c)
             {
-                state.input = origInput;
-                state.pos = origPos;
+                text = orig;
                 return false;
             }
-            if(state.input.front != c)
-            {
-                state.input = origInput;
-                state.pos = origPos;
-                return false;
-            }
-            state.input.popFront();
+            text.input.popFront();
         }
     }
 
-    static if(PS.config.posType == PositionType.lineAndCol)
-        state.pos.col += text.length;
+    static if(Text.config.posType == PositionType.lineAndCol)
+        text.pos.col += needle.length;
 
     return true;
 }
@@ -2542,21 +2500,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(state.stripStartsWith(needle) == startsWith, "unittest failure 1", line);
-                enforceTest(equalCU(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(text.stripStartsWith(needle) == startsWith, "unittest failure 1", line);
+                enforceTest(equalCU(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(state.stripStartsWith(needle) == startsWith, "unittest failure 4", line);
-                enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                enforceTest(text.stripStartsWith(needle) == startsWith, "unittest failure 4", line);
+                enforceTest(equalCU(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -2572,42 +2530,39 @@ unittest
 }
 
 
-// Strips whitespace while dealing with state.pos accordingly. Newlines are not
+// Strips whitespace while dealing with text.pos accordingly. Newlines are not
 // ignored.
 // Returns whether any whitespace was stripped.
-bool stripWS(PS)(PS state)
+bool stripWS(Text)(ref Text text)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-
-    alias R = typeof(PS.input);
-    enum hasLengthAndCol = hasLength!R && PS.config.posType == PositionType.lineAndCol;
+    enum hasLengthAndCol = hasLength!(Text.Input) && Text.config.posType == PositionType.lineAndCol;
 
     bool strippedSpace = false;
 
     static if(hasLengthAndCol)
-        size_t lineStart = state.input.length;
+        size_t lineStart = text.input.length;
 
-    loop: while(!state.input.empty)
+    loop: while(!text.input.empty)
     {
-        switch(state.input.front)
+        switch(text.input.front)
         {
             case ' ':
             case '\t':
             case '\r':
             {
                 strippedSpace = true;
-                state.input.popFront();
-                static if(!hasLength!R)
-                    nextCol!(PS.config)(state.pos);
+                text.input.popFront();
+                static if(!hasLength!(Text.Input))
+                    nextCol!(Text.config)(text.pos);
                 break;
             }
             case '\n':
             {
                 strippedSpace = true;
-                state.input.popFront();
+                text.input.popFront();
                 static if(hasLengthAndCol)
-                    lineStart = state.input.length;
-                nextLine!(PS.config)(state.pos);
+                    lineStart = text.input.length;
+                nextLine!(Text.config)(text.pos);
                 break;
             }
             default: break loop;
@@ -2615,7 +2570,7 @@ bool stripWS(PS)(PS state)
     }
 
     static if(hasLengthAndCol)
-        state.pos.col += lineStart - state.input.length;
+        text.pos.col += lineStart - text.input.length;
 
     return strippedSpace;
 }
@@ -2631,21 +2586,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(state.stripWS() == stripped, "unittest failure 1", line);
-                enforceTest(equalCU(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(text.stripWS() == stripped, "unittest failure 1", line);
+                enforceTest(equalCU(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(state.stripWS() == stripped, "unittest failure 4", line);
-                enforceTest(equalCU(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                enforceTest(text.stripWS() == stripped, "unittest failure 4", line);
+                enforceTest(equalCU(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -2667,12 +2622,12 @@ enum TakeUntil
     drop
 }
 
-// Returns a slice (or takeExactly) of state.input up to _and_ including the
-// given text, removing both that slice from state.input in the process. If the
-// text is not found, then an XMLParsingException is thrown.
-auto takeUntilAndKeep(string text, PS)(PS state)
+// Returns a slice (or takeExactly) of text.input up to _and_ including the
+// given needle, removing both that slice from text.input in the process. If the
+// needle is not found, then an XMLParsingException is thrown.
+auto takeUntilAndKeep(string needle, Text)(ref Text text)
 {
-    return _takeUntil!(TakeUntil.keepAndReturn, text, PS)(state);
+    return _takeUntil!(TakeUntil.keepAndReturn, needle, Text)(text);
 }
 
 unittest
@@ -2689,21 +2644,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 1", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(equal(text.takeUntilAndKeep!needle(), expected), "unittest failure 1", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(equal(state.takeUntilAndKeep!needle(), expected), "unittest failure 4", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                enforceTest(equal(text.takeUntilAndKeep!needle(), expected), "unittest failure 4", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -2713,8 +2668,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeUntilAndKeep!needle(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeUntilAndKeep!needle(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -2754,12 +2709,13 @@ unittest
 }
 
 
-// Returns a slice (or takeExactly) of state.input up to but not including the
-// given text, removing both that slice and the given text from state.input in
-// the process. If the text is not found, then an XMLParsingException is thrown.
-auto takeUntilAndDrop(string text, PS)(PS state)
+// Returns a slice (or takeExactly) of text.input up to but not including the
+// given needle, removing both that slice and the given needle from text.input
+// in the process. If the needle is not found, then an XMLParsingException is
+// thrown.
+auto takeUntilAndDrop(string needle, Text)(ref Text text)
 {
-    return _takeUntil!(TakeUntil.dropAndReturn, text, PS)(state);
+    return _takeUntil!(TakeUntil.dropAndReturn, needle, Text)(text);
 }
 
 unittest
@@ -2776,21 +2732,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 1", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(equal(text.takeUntilAndDrop!needle(), expected), "unittest failure 1", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(equal(state.takeUntilAndDrop!needle(), expected), "unittest failure 4", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                enforceTest(equal(text.takeUntilAndDrop!needle(), expected), "unittest failure 4", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -2800,8 +2756,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -2838,9 +2794,9 @@ unittest
 
 // Variant of takeUntilAndDrop which does not return a slice. It's intended for
 // when the config indicates that something should be skipped.
-void skipUntilAndDrop(string text, PS)(PS state)
+void skipUntilAndDrop(string needle, Text)(ref Text text)
 {
-    return _takeUntil!(TakeUntil.drop, text, PS)(state);
+    return _takeUntil!(TakeUntil.drop, needle, Text)(text);
 }
 
 unittest
@@ -2857,23 +2813,23 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                assertNotThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure 1",
+                auto text = testParser!config(haystack.save);
+                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 1",
                                                     __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                assertNotThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure 4",
+                    text.pos.col += 7;
+                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 4",
                                                     __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -2883,8 +2839,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -2920,46 +2876,44 @@ unittest
     }
 }
 
-auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
+auto _takeUntil(TakeUntil tu, string needle, Text)(ref Text text)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
     import std.range : takeExactly;
 
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    static assert(text.find!isWhite().empty);
+    static assert(needle.find!isWhite().empty);
 
-    enum trackTakeLen = tu != TakeUntil.drop || PS.config.posType == PositionType.lineAndCol;
+    enum trackTakeLen = tu != TakeUntil.drop || Text.config.posType == PositionType.lineAndCol;
 
-    alias R = typeof(PS.input);
-    auto orig = state.input.save;
+    auto orig = text.input.save;
     bool found = false;
 
     static if(trackTakeLen)
         size_t takeLen = 0;
 
-    static if(PS.config.posType == PositionType.lineAndCol)
+    static if(Text.config.posType == PositionType.lineAndCol)
         size_t lineStart = 0;
 
-    loop: while(!state.input.empty)
+    loop: while(!text.input.empty)
     {
-        switch(state.input.front)
+        switch(text.input.front)
         {
-            case cast(ElementType!R)text[0]:
+            case cast(ElementType!(Text.Input))needle[0]:
             {
-                static if(text.length == 1)
+                static if(needle.length == 1)
                 {
                     found = true;
-                    state.input.popFront();
+                    text.input.popFront();
                     break loop;
                 }
-                else static if(text.length == 2)
+                else static if(needle.length == 2)
                 {
-                    state.input.popFront();
-                    if(!state.input.empty && state.input.front == text[1])
+                    text.input.popFront();
+                    if(!text.input.empty && text.input.front == needle[1])
                     {
                         found = true;
-                        state.input.popFront();
+                        text.input.popFront();
                         break loop;
                     }
                     static if(trackTakeLen)
@@ -2968,37 +2922,37 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
                 }
                 else
                 {
-                    state.input.popFront();
-                    auto saved = state.input.save;
-                    foreach(i, c; text[1 .. $])
+                    text.input.popFront();
+                    auto saved = text.input.save;
+                    foreach(i, c; needle[1 .. $])
                     {
-                        if(state.input.empty)
+                        if(text.input.empty)
                         {
                             static if(trackTakeLen)
                                 takeLen += i + 1;
                             break loop;
                         }
-                        if(state.input.front != c)
+                        if(text.input.front != c)
                         {
-                            state.input = saved;
+                            text.input = saved;
                             static if(trackTakeLen)
                                 ++takeLen;
                             continue loop;
                         }
-                        state.input.popFront();
+                        text.input.popFront();
                     }
                     found = true;
                     break loop;
                 }
             }
-            static if(PS.config.posType != PositionType.none)
+            static if(Text.config.posType != PositionType.none)
             {
                 case '\n':
                 {
                     static if(trackTakeLen)
                         ++takeLen;
-                    nextLine!(PS.config)(state.pos);
-                    static if(PS.config.posType == PositionType.lineAndCol)
+                    nextLine!(Text.config)(text.pos);
+                    static if(Text.config.posType == PositionType.lineAndCol)
                         lineStart = takeLen;
                     break;
                 }
@@ -3011,16 +2965,16 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
             }
         }
 
-        state.input.popFront();
+        text.input.popFront();
     }
 
-    static if(PS.config.posType == PositionType.lineAndCol)
-        state.pos.col += takeLen - lineStart + text.length;
+    static if(Text.config.posType == PositionType.lineAndCol)
+        text.pos.col += takeLen - lineStart + needle.length;
     if(!found)
-        throw new XMLParsingException("Failed to find: " ~ text, state.pos);
+        throw new XMLParsingException("Failed to find: " ~ needle, text.pos);
 
     static if(tu == TakeUntil.keepAndReturn)
-        return takeExactly(orig, takeLen + text.length);
+        return takeExactly(orig, takeLen + needle.length);
     else static if(tu == TakeUntil.dropAndReturn)
         return takeExactly(orig, takeLen);
 }
@@ -3040,33 +2994,31 @@ template skipToOneOf(delims...)
         static assert(!isSpace(delim));
     }
 
-    void skipToOneOf(PS)(PS state)
+    void skipToOneOf(Text)(ref Text text)
     {
-        static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-
-        while(!state.input.empty)
+        while(!text.input.empty)
         {
-            switch(state.input.front)
+            switch(text.input.front)
             {
                 foreach(delim; delims)
                     case delim: return;
-                static if(PS.config.posType != PositionType.none)
+                static if(Text.config.posType != PositionType.none)
                 {
                     case '\n':
                     {
-                        nextLine!(PS.config)(state.pos);
-                        state.input.popFront();
+                        nextLine!(Text.config)(text.pos);
+                        text.input.popFront();
                         break;
                     }
                 }
                 default:
                 {
-                    popFrontAndIncCol(state);
+                    popFrontAndIncCol(text);
                     break;
                 }
             }
         }
-        throw new XMLParsingException("Prematurely reached end of document", state.pos);
+        throw new XMLParsingException("Prematurely reached end of document", text.pos);
     }
 }
 
@@ -3084,21 +3036,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                assertNotThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest 1", __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                assertNotThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest 1", __FILE__, line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                assertNotThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest 4", __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                assertNotThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest 4", __FILE__, line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -3108,8 +3060,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.skipToOneOf!delims(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -3133,11 +3085,10 @@ unittest
 // The front of the input should be text surrounded by single or double quotes.
 // This returns a slice of the input containing that text, and the input is
 // advanced to one code unit beyond the quote.
-auto takeEnquotedText(PS)(PS state)
+auto takeEnquotedText(Text)(ref Text text)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    checkNotEmpty(state);
-    immutable quote = state.input.front;
+    checkNotEmpty(text);
+    immutable quote = text.input.front;
     static foreach(quoteChar; [`"`, `'`])
     {
         // This would be a bit simpler if takeUntilAndDrop took a runtime
@@ -3145,11 +3096,11 @@ auto takeEnquotedText(PS)(PS state)
         // sense, so this seemed like a reasonable way to handle this one case.
         if(quote == quoteChar[0])
         {
-            popFrontAndIncCol(state);
-            return takeUntilAndDrop!quoteChar(state);
+            popFrontAndIncCol(text);
+            return takeUntilAndDrop!quoteChar(text);
         }
     }
-    throw new XMLParsingException("Expected quoted text", state.pos);
+    throw new XMLParsingException("Expected quoted text", text.pos);
 }
 
 unittest
@@ -3167,21 +3118,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(equal(takeEnquotedText(state), expected), "unittest failure 1", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(equal(takeEnquotedText(text), expected), "unittest failure 1", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(equal(takeEnquotedText(state), expected), "unittest failure 3", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 4", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                    text.pos.col += 7;
+                enforceTest(equal(takeEnquotedText(text), expected), "unittest failure 3", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 4", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
         }}
     }
@@ -3191,8 +3142,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeEnquotedText(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeEnquotedText(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -3219,13 +3170,12 @@ unittest
 
 // Parses
 // Eq ::= S? '=' S?
-void stripEq(PS)(PS state)
+void stripEq(Text)(ref Text text)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    stripWS(state);
-    if(!stripStartsWith(state, "="))
-        throw new XMLParsingException("Expec= missing", state.pos);
-    stripWS(state);
+    stripWS(text);
+    if(!text.stripStartsWith("="))
+        throw new XMLParsingException("= missing", text.pos);
+    stripWS(text);
 }
 
 unittest
@@ -3241,21 +3191,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                assertNotThrown!XMLParsingException(stripEq(state), "unittest failure 1", __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 1", __FILE__, line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                assertNotThrown!XMLParsingException(stripEq(state), "unittest failure 4", __FILE__, line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 4", __FILE__, line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -3265,8 +3215,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.stripEq(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.stripEq(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -3298,35 +3248,33 @@ template takeName(bool requireNameStart, delims...)
         static assert(!isSpace(delim));
     }
 
-    auto takeName(PS)(PS state)
+    auto takeName(Text)(ref Text text)
     {
-        static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-
         import std.format : format;
         import std.range : takeExactly;
         import std.utf : decodeFront, UseReplacementDchar;
 
-        assert(!state.input.empty);
+        assert(!text.input.empty);
 
-        auto orig = state.input.save;
+        auto orig = text.input.save;
         size_t takeLen;
         static if(requireNameStart)
         {{
-            auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
+            auto decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
             if(!isNameStartChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), state.pos);
+                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
 
-            if(state.input.empty)
+            if(text.input.empty)
             {
-                static if(PS.config.posType == PositionType.lineAndCol)
-                    state.pos.col += takeLen;
+                static if(Text.config.posType == PositionType.lineAndCol)
+                    text.pos.col += takeLen;
                 return takeExactly(orig, takeLen);
             }
         }}
 
         loop: while(true)
         {
-            immutable c = state.input.front;
+            immutable c = text.input.front;
             if(isSpace(c))
                 break;
             static foreach(delim; delims)
@@ -3336,20 +3284,20 @@ template takeName(bool requireNameStart, delims...)
             }
 
             size_t numCodeUnits;
-            auto decodedC = state.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+            auto decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
             if(!isNameChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), state.pos);
+                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
             takeLen += numCodeUnits;
 
-            if(state.input.empty)
+            if(text.input.empty)
                 break;
         }
 
         if(takeLen == 0)
-            throw new XMLParsingException("Name cannot be empty", state.pos);
+            throw new XMLParsingException("Name cannot be empty", text.pos);
 
-        static if(PS.config.posType == PositionType.lineAndCol)
-            state.pos.col += takeLen;
+        static if(Text.config.posType == PositionType.lineAndCol)
+            text.pos.col += takeLen;
 
         return takeExactly(orig, takeLen);
     }
@@ -3369,21 +3317,21 @@ unittest
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto state = testParser!config(haystack.save);
-                enforceTest(equal(state.takeName!(rns, delim)(), expected), "unittest failure 1", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 2", line);
-                enforceTest(state.pos == pos, "unittest failure 3", line);
+                auto text = testParser!config(haystack.save);
+                enforceTest(equal(text.takeName!(rns, delim)(), expected), "unittest failure 1", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
+                enforceTest(text.pos == pos, "unittest failure 3", line);
             }
             static if(i != 2)
             {
                 auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto state = testParser!config(haystack.save);
-                state.pos.line += 3;
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
                 static if(i == 0)
-                    state.pos.col += 7;
-                enforceTest(equal(state.takeName!(rns, delim)(), expected), "unittest failure 4", line);
-                enforceTest(equal(state.input, remainder), "unittest failure 5", line);
-                enforceTest(state.pos == pos, "unittest failure 6", line);
+                    text.pos.col += 7;
+                enforceTest(equal(text.takeName!(rns, delim)(), expected), "unittest failure 4", line);
+                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
+                enforceTest(text.pos == pos, "unittest failure 6", line);
             }
         }}
     }
@@ -3393,8 +3341,8 @@ unittest
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
-            auto state = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(state.takeName!(rns, delim)(), "unittest failure", __FILE__, line);
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeName!(rns, delim)(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -3614,11 +3562,10 @@ unittest
 }
 
 
-pragma(inline, true) void popFrontAndIncCol(PS)(PS state)
+pragma(inline, true) void popFrontAndIncCol(Text)(ref Text text)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    state.input.popFront();
-    nextCol!(PS.config)(state.pos);
+    text.input.popFront();
+    nextCol!(Text.config)(text.pos);
 }
 
 pragma(inline, true) void nextLine(Config config)(ref SourcePos pos)
@@ -3635,11 +3582,10 @@ pragma(inline, true) void nextCol(Config config)(ref SourcePos pos)
         ++pos.col;
 }
 
-pragma(inline, true) void checkNotEmpty(PS)(PS state, size_t line = __LINE__)
+pragma(inline, true) void checkNotEmpty(Text)(ref Text text, size_t line = __LINE__)
 {
-    static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
-    if(state.input.empty)
-        throw new XMLParsingException("Prematurely reached end of document", state.pos, __FILE__, line);
+    if(text.input.empty)
+        throw new XMLParsingException("Prematurely reached end of document", text.pos, __FILE__, line);
 }
 
 
