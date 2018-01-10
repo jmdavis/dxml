@@ -159,38 +159,6 @@ struct Config
     auto skipPI = SkipPI.no;
 
     /++
-        Whether $(LREF EntityType.text) entities that contain only whitespace
-        will be skipped.
-
-        With $(LREF SkipContentWS.no), XML that is formatted with indenting and
-        newlines and the like will contain lots of $(LREF EntityType.text)
-        entities which are just whitespace, but with $(LREF SkipContentWS.yes),
-        all of the formatting is lost when parsing, and if the program wants to
-        treat that whitespace as significant, then it has a problem. Which is
-        better of course depends on what the application is doing when parsing
-        the XML.
-
-        However, note that $(I some) formatting will be lost regardless,
-        because any whitespace which is not part of an $(LREF EntityType.text)
-        entity will be parsed without being communicated to the program
-        (e.g. the program using $(LREF parseXML) won't know what whitespace
-        was between $(LREF EntityType.pi) entities and won't know what kind of
-        whitespace or how much there was between the name of a start tag and
-        its attributes).
-
-        Note that XML only considers $(D ' '), $(D '\t'), $(D '\n'), and
-        $(D '\r') to be whitespace. So, those are the only character skipped
-        with $(LREF StripContentsWS.yes), and those are the characters that
-        $(LREF EntityCursor) expects at any point in the XML that is supposed
-        to contain whitespace.
-
-        Defaults to $(D SkipContentWS.yes).
-
-        See_Also: $(LREF EntityCursor.text)
-      +/
-    auto skipContentWS = SkipContentWS.yes;
-
-    /++
         Whether the parser should report empty element tags as if they were a
         start tag followed by an end tag with nothing in between.
 
@@ -269,9 +237,6 @@ alias SkipComments = Flag!"SkipComments";
 /// See_Also: $(LREF2 skipPI, Config)
 alias SkipPI = Flag!"SkipPI";
 
-/// See_Also: $(LREF2 skipContentWS, Config)
-alias SkipContentWS = Flag!"SkipContentWS";
-
 /// See_Also: $(LREF2 splitEmpty, Config)
 alias SplitEmpty = Flag!"SplitEmpty";
 
@@ -334,7 +299,6 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipPI == Config.init.skipPI);
-        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == Config.init.posType);
     }
@@ -342,7 +306,6 @@ Config makeConfig(Args...)(Args args)
         auto config = makeConfig(SkipComments.yes, PositionType.none);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipPI == Config.init.skipPI);
-        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == Config.init.splitEmpty);
         assert(config.posType == PositionType.none);
     }
@@ -351,7 +314,6 @@ Config makeConfig(Args...)(Args args)
                                  SkipComments.yes,
                                  PositionType.line);
         assert(config.skipComments == SkipComments.yes);
-        assert(config.skipContentWS == Config.init.skipContentWS);
         assert(config.splitEmpty == SplitEmpty.yes);
         assert(config.posType == PositionType.line);
     }
@@ -379,7 +341,6 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipPI.yes, SplitEmpty.yes, Positi
 {
     static assert(simpleXML.skipComments == SkipComments.yes);
     static assert(simpleXML.skipPI == SkipPI.yes);
-    static assert(simpleXML.skipContentWS == SkipContentWS.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
     static assert(simpleXML.posType == PositionType.lineAndCol);
 }
@@ -852,105 +813,46 @@ public:
                    "       something else\n" ~
                    "       here</p>\n" ~
                    "</root>";
-        {
-            auto cursor = parseXML(xml);
+        auto cursor = parseXML(xml);
 
-            // "<?instructionName?>\n" ~
-            assert(cursor.next() == EntityType.pi);
-            assert(cursor.name == "instructionName");
-            assert(cursor.text.empty);
+        // "<?instructionName?>\n" ~
+        assert(cursor.next() == EntityType.pi);
+        assert(cursor.name == "instructionName");
+        assert(cursor.text.empty);
 
-            // "<?foo here is something to say?>\n" ~
-            assert(cursor.next() == EntityType.pi);
-            assert(cursor.name == "foo");
-            assert(cursor.text == "here is something to say");
+        // "<?foo here is something to say?>\n" ~
+        assert(cursor.next() == EntityType.pi);
+        assert(cursor.name == "foo");
+        assert(cursor.text == "here is something to say");
 
-            // "<root>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
+        // "<root>\n" ~
+        assert(cursor.next() == EntityType.elementStart);
 
-            // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(cursor.next() == EntityType.cdata);
-            assert(cursor.text == " Yay! random text >> << ");
+        // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+        assert(cursor.next() == EntityType.cdata);
+        assert(cursor.text == " Yay! random text >> << ");
 
-            // "    <!-- some random comment -->\n" ~
-            assert(cursor.next() == EntityType.comment);
-            assert(cursor.text == " some random comment ");
+        // "    <!-- some random comment -->\n" ~
+        assert(cursor.next() == EntityType.comment);
+        assert(cursor.text == " some random comment ");
 
-            // "    <p>something here</p>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "something here");
-            assert(cursor.next() == EntityType.elementEnd);
+        // "    <p>something here</p>\n" ~
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.next() == EntityType.text);
+        assert(cursor.text == "something here");
+        assert(cursor.next() == EntityType.elementEnd);
 
-            // "    <p>\n" ~
-            // "       something else\n" ~
-            // "       here</p>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n       something else\n       here");
-            assert(cursor.next() == EntityType.elementEnd);
+        // "    <p>\n" ~
+        // "       something else\n" ~
+        // "       here</p>\n" ~
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.next() == EntityType.text);
+        assert(cursor.text == "\n       something else\n       here");
+        assert(cursor.next() == EntityType.elementEnd);
 
-            // "</root>"
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.next() == EntityType.documentEnd);
-        }
-        {
-            auto cursor = parseXML!(makeConfig(SkipContentWS.no))(xml);
-
-            // "<?instructionName?>\n" ~
-            assert(cursor.next() == EntityType.pi);
-            assert(cursor.name == "instructionName");
-            assert(cursor.text.empty);
-
-            // "<?foo here is something to say?>\n" ~
-            assert(cursor.next() == EntityType.pi);
-            assert(cursor.name == "foo");
-            assert(cursor.text == "here is something to say");
-
-            // "<root>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
-
-            // With SkipContentWS.no, no EntityType.text entities are skipped,
-            // even if they only contain whitespace, resulting in a number of
-            // entities of type EntityType.text which just contain whitespace
-            // if the XML has been formatted to be human readable.
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n    ");
-
-            // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-            assert(cursor.next() == EntityType.cdata);
-            assert(cursor.text == " Yay! random text >> << ");
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n    ");
-
-            // "    <!-- some random comment -->\n" ~
-            assert(cursor.next() == EntityType.comment);
-            assert(cursor.text == " some random comment ");
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n    ");
-
-            // "    <p>something here</p>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "something here");
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n    ");
-
-            // "    <p>\n" ~
-            // "       something else\n" ~
-            // "       here</p>\n" ~
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n       something else\n       here");
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.next() == EntityType.text);
-            assert(cursor.text == "\n");
-
-            // "</root>"
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.next() == EntityType.documentEnd);
-        }
+        // "</root>"
+        assert(cursor.next() == EntityType.elementEnd);
+        assert(cursor.next() == EntityType.documentEnd);
     }
 
 
@@ -1356,17 +1258,14 @@ private:
     void _parseAtContentCharData()
     {
         checkNotEmpty(_state);
-        static if(config.skipContentWS == SkipContentWS.yes)
+        auto origInput = _state.input.save;
+        auto origPos = _state.pos;
+        stripWS(_state);
+        checkNotEmpty(_state);
+        if(_state.input.front != '<')
         {
-            auto origInput = _state.input.save;
-            auto origPos = _state.pos;
-            stripWS(_state);
-            checkNotEmpty(_state);
-            if(_state.input.front != '<')
-            {
-                _state.input = origInput;
-                _state.pos = origPos;
-            }
+            _state.input = origInput;
+            _state.pos = origPos;
         }
         if(_state.input.front != '<')
         {
