@@ -170,7 +170,7 @@ struct Config
 
         The purpose of this is to simplify the code using the parser, since most
         code does not care about the difference between an empty tag and a start
-        and end tag with nothing in between. But since some code will care about
+        and end tag with nothing in between. But since some code may care about
         the difference, the behavior is configurable rather than simply always
         treating them as the same.
 
@@ -1670,6 +1670,7 @@ auto skipToEntityType(EC)(EC cursor, EntityType[] entityTypes...)
     }
 }
 
+///
 unittest
 {
     auto xml = "<root>\n" ~
@@ -1690,7 +1691,6 @@ unittest
 }
 
 
-/+
 /++
     Treats the given string like a file path except that each directory
     corresponds to the name of a start tag. Note that this does $(I not) try to
@@ -1708,105 +1708,222 @@ unittest
 EntityType skipToPath(EC)(EC cursor, string path)
     if(isInstanceOf!(EntityCursor, EC))
 {
-    with(EntityType):
-
-    import std.algorithm.comparison : equal;
-    import std.path : pathSplitter;
-
-    EntityType upLevel()
+    with(EntityType)
     {
-        if(cursor.skipToParentDepth() == documentEnd)
-            return documentEnd;
-        static if(EC.config.splitEmpty == SplitEmpty.yes)
-            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-        else
-            immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
-        return type == elementEnd ? documentEnd : type;
-    }
+        import std.algorithm.comparison : equal;
+        import std.path : pathSplitter;
 
-    auto pieces = path.pathSplitter();
-
-    static if(EC.config.splitEmpty == SplitEmpty.yes)
-        immutable atStart = cursor.type == elementStart;
-    else
-        immutable atStart = cursor.type == elementStart || cursor.type == elementEmpty;
-
-    if(!atStart)
-    {
-        immutable name = pieces.front;
-        pieces.popFront();
-
-        while(true)
+        EntityType findOnCurrLevel(string name)
         {
-            static if(EC.config.splitEmpty == SplitEmpty.yes)
-                immutable type =  cursor.skipToEntityType(elementStart, elementEnd);
-            else
-                immutable type = cursor.skipToEntityType(elementStart, e, elementEnd, lementEmpty);
-
-            if(type == elementEnd || type == documentEnd)
-                return documentEnd;
-
-            if(name == ".")
-                break;
-
-            if(name == "..")
+            while(true)
             {
-                immutable type = upLevel();
+                static if(EC.config.splitEmpty == SplitEmpty.yes)
+                    immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+                else
+                    immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+
+                if(type == elementEnd || type == documentEnd)
+                    return documentEnd;
+
+                if(equal(name, cursor.name))
+                    return type;
+
+                static if(EC.config.splitEmpty == SplitEmpty.no)
+                {
+                    if(type == elementEmpty)
+                        continue;
+                }
+                cursor.skipContents();
+            }
+        }
+
+        bool checkCurrLevel = false;
+
+        foreach(name; path.pathSplitter())
+        {
+            if(name.empty || name == ".")
+            {}
+            else if(name == "..")
+            {
+                immutable type = cursor.skipToParentDepth();
                 if(type == documentEnd)
                     return documentEnd;
-                break;
+                checkCurrLevel = true;
             }
-
-            if(equal(name, cursor.name))
+            else
             {
-                pieces.popFront();
-                break;
-            }
+                static if(EC.config.splitEmpty == SplitEmpty.no)
+                    immutable atEmpty = cursor.type == elementEmpty;
+                else
+                    immutable atEmpty = false;
 
-            static if(EC.config.splitEmpty == SplitEmpty.no)
-            {
-                if(type == elementEmpty)
-                    continue;
+                if(atEmpty || cursor.type == elementEmpty)
+                {
+                    if(checkCurrLevel)
+                    {
+                        if(equal(name, cursor.name))
+                            checkCurrLevel = false;
+                        else
+                        {
+                            immutable type = findOnCurrLevel(name);
+                            if(type == documentEnd)
+                                return documentEnd;
+                        }
+                        continue;
+                    }
+
+                    static if(EC.config.splitEmpty == SplitEmpty.no)
+                    {
+                        // elementEmpty has no children to check
+                        if(atEmpty)
+                            return documentEnd;
+                    }
+
+                    {
+                        static if(EC.config.splitEmpty == SplitEmpty.yes)
+                            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
+                        else
+                            immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+                        if(type == elementEnd || type == documentEnd)
+                            return documentEnd;
+                    }
+
+                    if(!equal(name, cursor.name))
+                    {
+                        immutable type = findOnCurrLevel(name);
+                        if(type == documentEnd)
+                            return documentEnd;
+                    }
+                }
+                else
+                {
+                    immutable type = findOnCurrLevel(name);
+                    if(type == documentEnd)
+                        return documentEnd;
+                    checkCurrLevel = false;
+                }
             }
-            cursor.skipContents();
         }
-    }
 
-    for(; !pieces.empty; pieces.popFront())
+        return cursor.type;
+    }
+}
+
+///
+unittest
+{
+    auto xml = "<carrot>\n" ~
+               "    <foo>\n" ~
+               "        <bar a='42'>\n" ~
+               "            <baz/>\n" ~
+               "        </bar>\n" ~
+               "        <foo></foo>\n" ~
+               "        <bar b='24'>\n" ~
+               "            <fuzz>\n" ~
+               "                <buzz>blah</buzz>\n" ~
+               "            </fuzz>\n" ~
+               "        </bar>\n" ~
+               "    </foo>\n" ~
+               "</carrot>";
     {
-        immutable name = pieces.front;
+        auto cursor = parseXML(xml);
+        assert(cursor.skipToPath("carrot/foo/bar") == EntityType.elementStart);
+        assert(cursor.name == "bar");
+        assert(cursor.attributes.front.name == "a");
 
-        if(name == ".")
-            continue;
-        if(name == "..")
-        {
-            if(cursor.skipToParentDepth() == documentEnd)
-                return documentEnd;
-            static if(EC.config.splitEmpty == SplitEmpty.yes)
-                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-            else
-                immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
-            if(type == elementEnd || type == documentEnd)
-                return documentEnd;
-            continue;
-        }
-        if(equal(name, cursor.name))
-        {
-            static if(EC.config.splitEmpty == SplitEmpty.yes)
-                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-            else
-                immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
-        }
-        cursor.skipToEntityType(elementStart, elementEnd);
+        assert(cursor.skipToPath("baz") == EntityType.elementEmpty);
+        assert(cursor.name == "baz");
+
+        assert(cursor.skipToPath("../bar/fuzz/buzz") == EntityType.elementStart);
+        assert(cursor.name == "buzz");
+
+        assert(cursor.skipToPath("bar") == EntityType.documentEnd);
     }
+    // The path starts with the child entities and the current start tag is
+    // not considered when following the path.
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.skipToPath("carrot/foo/bar") == EntityType.documentEnd);
+    }
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.next() == EntityType.elementStart);
+        assert(cursor.skipToPath("foo/bar") == EntityType.elementStart);
+        assert(cursor.name == "bar");
+        assert(cursor.attributes.front.name == "a");
 
-    assert(0);
+        assert(cursor.skipToPath("./baz") == EntityType.elementEmpty);
+        assert(cursor.name == "baz");
+
+        assert(cursor.skipToPath("../bar") == EntityType.elementStart);
+        assert(cursor.name == "bar");
+        assert(cursor.attributes.front.name == "b");
+
+        assert(cursor.skipToPath("buzz") == EntityType.documentEnd);
+    }
+    // If the current entity is not a start tag, then the first "directory"
+    // in the path is matched against a start tag at the same level rather
+    // than against a child tag.
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.skipToEntityType(EntityType.elementEmpty) ==
+               EntityType.elementEmpty);
+        assert(cursor.name == "baz");
+        assert(cursor.next() == EntityType.elementEnd);
+        assert(cursor.name == "bar");
+        assert(cursor.skipToPath("bar") == EntityType.elementStart);
+        assert(cursor.attributes.front.name == "b");
+    }
+    // The first matching start tag is always taken, so even though there is
+    // a bar/fuzz under foo, because fuzz is under the second bar, not the
+    // first, it's not found.
+    {
+        auto cursor = parseXML(xml);
+        assert(cursor.skipToPath("carrot/foo/bar/fuzz") == EntityType.documentEnd);
+    }
 }
 
 unittest
 {
+    auto xml = "<!-- and so it begins -->\n" ~
+               "<potato>\n" ~
+               "    <foo a='whatever'/>\n" ~
+               "    <foo b='whatever'>\n" ~
+               "        <bar>text<i>more</i>text</bar>\n" ~
+               "        <!-- no comment -->\n" ~
+               "        <bar>\n" ~
+               "            <bar/>\n" ~
+               "            <baz/>\n" ~
+               "        </bar>\n" ~
+               "    </foo>\n" ~
+               "    <!-- comment -->\n" ~
+               "</potato>";
+    static foreach(i, config; [Config.init, simpleXML])
+    {{
+        static if(i == 0)
+            enum empty = EntityType.elementEmpty;
+        else
+            enum empty = EntityType.elementStart;
+        foreach(str; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
+        {
+            auto cursor = parseXML!config(xml);
+            enforceTest(cursor.skipToPath("potato/foo") == empty);
+            enforceTest(cursor.name == "foo");
+            enforceTest(cursor.attributes.front.name == "a");
+            enforceTest(cursor.skipToPath("bar") == EntityType.documentEnd);
+        }
+        {
+            auto cursor = parseXML!config(xml);
+            enforceTest(cursor.skipToPath("./potato/foo") == empty);
+            enforceTest(cursor.skipToEntityType(EntityType.elementStart) == EntityType.elementStart);
+            enforceTest(cursor.name == "foo");
+            enforceTest(cursor.attributes.front.name == "b");
+            enforceTest(cursor.skipToPath("bar/baz") == EntityType.documentEnd);
+            //FIXME more testing needed
+        }
+    }}
 }
-+/
 
 
 /++
@@ -1854,13 +1971,7 @@ auto skipToParentDepth(EC)(EC cursor)
         }
         case elementEnd: goto case comment;
         case elementEmpty: goto case comment;
-        case pi:
-        {
-            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-            if(type == documentEnd || type == elementEnd)
-                return type;
-            goto case elementStart;
-        }
+        case pi: goto case comment;
         case text: goto case comment;
     }
 }
