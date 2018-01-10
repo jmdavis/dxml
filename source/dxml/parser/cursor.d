@@ -1,20 +1,54 @@
 // Written in the D programming language
 
 /++
-    This implements a STaX parser for XML 1.0 (which will work with XML 1.1
-    documents assuming that they don't use any 1.1-specific features). For the
-    sake of simplicity, sanity, and efficiency, the DTD section is not
-    supported beyond what is required to parse past it.
+    This implements a $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX parser)
+    for XML 1.0 (which will work with XML 1.1 documents assuming that they
+    don't use any 1.1-specific features). For the sake of simplicity, sanity,
+    and efficiency, the
+    $(LINK2 https://en.wikipedia.org/wiki/Document_type_definition, DTD) section
+    is not supported beyond what is required to parse past it. As such, the
+    parser parses "well-formed" XML but is not what the
+    $(LINK2 http://www.w3.org/TR/REC-xml, XML spec) calls a "validating parser."
+
+    Start tags, end tags, comments, cdata sections, and processing instructions
+    are all supported and reported to the application. Anything in the DTD is
+    skipped (though it's parsed enough to parse past it correctly, and that
+    $(I can) result in an $(LREF XMLParsingException) if that XML isn't valid
+    enough to be correctly skipped), and the
+    $(LINK2 http://www.w3.org/TR/REC-xml/#NT-XMLDecl, XML declaration) at the
+    top is skipped if present (XML 1.1 requires that it be there, XML 1.0 does
+    not).
+
+    Regardless of what the XML declaration says (if present), any range of
+    $(D char) will be treated as being encoded in UTF-8, any range of $(D wchar)
+    will be treated as being encoded in UTF-16, and any range of $(D dchar) will
+    be treated as having been encoded in UTF-32. Strings will be treated as
+    ranges of their code units, not code points.
+
+    Since the DTD section is skipped, all XML documents will be treated as
+    $(LINK2 http://www.w3.org/TR/REC-xml/#sec-rmd, standalone) regardless of
+    what the XML declaration says (so no references will be pulled in from the
+    DTD or other XML documents, and no references will be replaced with
+    whatever they refer to).
+
+    $(LREF parseXML) is the function used to initiate the parsing of an XML
+    document, and it returns an $(LREF EntityCursor), which is a StAX parser.
+    $(LREF Config) can be used to configure some of the parser's behavior (e.g.
+    $(LREF SkipComments.yes) would tell it to not report comments to the
+    application). $(LREF makeConfig) is a helper function to create custom
+    $(LREF Config)s more easily, and $(LREF simpleXML) is a $(LREF Config) which
+    provides simpler defaults than $(D $(LREF Config).init).
 
     Copyright: Copyright 2017 - 2018
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
     Source:    $(LINK_TO_SRC dxml/parser/_cursor.d)
+
+    See_Also: $(LINK2 http://www.w3.org/TR/REC-xml/, Official Specification for XML 1.0)
   +/
 module dxml.parser.cursor;
 
 import std.range.primitives;
-import std.range : takeExactly;
 import std.traits;
 import std.typecons : Flag;
 
@@ -441,13 +475,15 @@ enum EntityType
     to differ from other implementations.
 
     The resulting EntityCursor is similar to an input range with how it's
-    iterated until it's consumed, and its state cannot be saved (since
-    unfortunately, saving would essentially require duplicating the entire
-    parser, including all of the memory that it's allocated), but because there
-    are essentially multiple ways to pop the front (e.g. choosing to skip all of
-    the contents between a start tag and end tag instead of processing it), the
-    input range API didn't seem to appropriate, even if the result functions
-    similarly.
+    iterated until it's consumed, and its state cannot be saved. Unfortunately,
+    in order to support providing the path to an XML entity or to validate that
+    end tags are named correctly, a stack of tag names must be allocated, and
+    implementing that as a range wolud have required duplicating that memory if
+    $(D save) were called and potentially even to return an $(D Entity) object
+    from $(D front). Also, because there are essentially multiple ways to pop
+    the front (e.g. choosing to skip all of the contents between a start tag and
+    end tag instead of processing it), the input range API didn't seem to
+    appropriate, even if the result functions similarly.
 
     Also, unlike a range the, "front" is integrated into the EntityCursor rather
     than being a value that can be extracted. So, while an entity can be queried
@@ -468,28 +504,21 @@ enum EntityType
     $(LREF skipContents) is called) will only be validated enough to correctly
     determine where those portions terminated. Similarly, if the functions to
     process the value of an entity are not called (e.g.
-    $(LREF2 attributes, _EntityCursor) for $(LREF EntityType.elementStart) and
-    $(LREF2 xmlSpec, _EntityCursor) for $(LREF EntityType.xmlSpec)), then those
-    portions of the XML will not be validated beyond what is required to iterate
-    to the next entity.
-
-    A possible enhancement would be to add a $(D validateXML) function that
-    corresponds to parseXML and fully validates the XML, but for now, no such
-    function exists.
-
-    EntityCursor is a reference type.
+    $(LREF2 attributes, _EntityCursor) for $(LREF EntityType.elementStart), then
+    those portions of the XML will not be validated beyond what is required to
+    iterate to the next entity.
 
     Note that while EntityCursor is not $(D @nogc), it is designed to allocate
     very miminally. The parser state is allocated on the heap so that it is a
     reference type, and it has to allocate on the heap to retain a stack of the
     names of element tags so that it can validate the XML properly as well as
-    provide the full path for a given entity, but it does no allocation
+    provide the full path for a given entity, but it does no allocations
     whatsoever with the text that it's given. It operates entirely on slices
     (or the result of $(PHOBOS_REF takeExactly, std, range)), and that's what
     it returns from any function that returns a portion of the XML. Helper
-    functions (such as $(LREF cleanText)) may allocate, but if so, their
-    documentation makes that clear. The only other case where it may allocate
-    is when throwing an $(LREF XMLException).
+    functions (such as $(LREF normalize)) may allocate, but if so, their
+    documentation makes that clear. The only other case where EntityCursor may
+    allocate is when throwing an $(LREF XMLException).
 
     See_Also: $(MREF dxml, parser, dom)
   +/
@@ -499,7 +528,7 @@ struct EntityCursor(Config cfg, R)
 public:
 
     import std.algorithm : canFind;
-    import std.range : only;
+    import std.range : only, takeExactly;
     import std.typecons : Nullable;
 
     private enum compileInTests = is(R == EntityCompileTests);
@@ -2885,6 +2914,7 @@ auto _takeUntil(TakeUntil tu, string text, PS)(PS state)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
+    import std.range : takeExactly;
 
     static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
     static assert(text.find!isWhite().empty);
@@ -3263,6 +3293,7 @@ template takeName(bool requireNameStart, delims...)
         static assert(isPointer!PS, "_state.savedText was probably passed rather than &_state.savedText");
 
         import std.format : format;
+        import std.range : takeExactly;
         import std.utf : decodeFront, UseReplacementDchar;
 
         assert(!state.input.empty);
