@@ -1154,8 +1154,9 @@ private:
 
     static if(compileInTests) unittest
     {
+        import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown;
+        import std.exception : assertNotThrown, assertThrown, enforce;
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
@@ -1166,8 +1167,8 @@ private:
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                enforceTest(range.front.type == EntityType.elementEmpty, "unittest failure 1", line);
-                enforceTest(range._text.pos == pos, "unittest failure 2", line);
+                enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -2145,38 +2146,38 @@ unittest
         for(int i = 0; true; ++i)
         {
             auto range = parseXML(xml);
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.cdata);
+            assert(range.front.type == EntityType.cdata);
             if(i == 0)
             {
-                enforceTest(range.front.text == " cdata run ");
+                assert(range.front.text == " cdata run ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEmpty);
+            assert(range.front.type == EntityType.elementEmpty);
             range.popFront();
-            enforceTest(range.front.type == EntityType.cdata);
+            assert(range.front.type == EntityType.cdata);
             if(i == 1)
             {
-                enforceTest(range.front.text == " cdata have its bits flipped ");
+                assert(range.front.text == " cdata have its bits flipped ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            enforceTest(range.front.type == EntityType.cdata);
-            enforceTest(range.front.text == " cdata play violin ");
+            assert(range.front.type == EntityType.cdata);
+            assert(range.front.text == " cdata play violin ");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             break;
         }
     }
@@ -2194,66 +2195,66 @@ unittest
                    "<!-- end -->";
         {
             auto range = parseXML(xml);
-            enforceTest(range.skipToParentDepth().empty);
+            assert(range.skipToParentDepth().empty);
         }
         for(int i = 0; true; ++i)
         {
             auto range = parseXML(xml);
-            enforceTest(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.comment);
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.comment);
             if(i == 0)
             {
-                enforceTest(range.front.text == " comment 1 ");
+                assert(range.front.text == " comment 1 ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEmpty);
+            assert(range.front.type == EntityType.elementEmpty);
             range.popFront();
-            enforceTest(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.comment);
             if(i == 1)
             {
-                enforceTest(range.front.text == " comment 2 ");
+                assert(range.front.text == " comment 2 ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            enforceTest(range.front.type == EntityType.comment);
-            enforceTest(range.front.text == " comment 3 ");
+            assert(range.front.type == EntityType.comment);
+            assert(range.front.text == " comment 3 ");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             break;
         }
         for(int i = 0; true; ++i)
         {
             auto range = parseXML(xml);
-            enforceTest(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.comment);
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            enforceTest(range.front.type == EntityType.comment);
-            enforceTest(range.front.text == " after ");
+            assert(range.front.type == EntityType.comment);
+            assert(range.front.text == " after ");
             if(i == 0)
             {
-                enforceTest(range.skipToParentDepth().empty);
+                assert(range.skipToParentDepth().empty);
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.comment);
-            enforceTest(range.front.text == " end ");
-            enforceTest(range.skipToParentDepth().empty);
+            assert(range.front.type == EntityType.comment);
+            assert(range.front.text == " end ");
+            assert(range.skipToParentDepth().empty);
             break;
         }
     }
@@ -2266,47 +2267,47 @@ unittest
                    "    <c></c>\n" ~
                    "</root>";
         auto range = parseXML(xml);
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         if(i == 0)
         {
-            enforceTest(range.front.name == "root");
-            enforceTest(range.skipToParentDepth().empty);
+            assert(range.front.name == "root");
+            assert(range.skipToParentDepth().empty);
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         if(i == 1)
         {
-            enforceTest(range.front.name == "a");
+            assert(range.front.name == "a");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         if(i == 2)
         {
-            enforceTest(range.front.name == "b");
+            assert(range.front.name == "b");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "a");
+            assert(range.front.name == "a");
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.text);
+        assert(range.front.type == EntityType.text);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
+        assert(range.front.type == EntityType.elementEnd);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
+        assert(range.front.type == EntityType.elementEnd);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEmpty);
+        assert(range.front.type == EntityType.elementEmpty);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
-        enforceTest(range.front.name == "c");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "c");
         range = range.skipToParentDepth();
         assert(range._type == EntityType.elementEnd);
-        enforceTest(range.front.name == "root");
+        assert(range.front.name == "root");
         break;
     }
     // elementEnd
@@ -2318,57 +2319,57 @@ unittest
                    "    <c></c>\n" ~
                    "</root>";
         auto range = parseXML(xml);
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range.popFront();
-        enforceTest(range.front.type == EntityType.text);
+        assert(range.front.type == EntityType.text);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
+        assert(range.front.type == EntityType.elementEnd);
         if(i == 0)
         {
-            enforceTest(range.front.name == "b");
+            assert(range.front.name == "b");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "a");
+            assert(range.front.name == "a");
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
+        assert(range.front.type == EntityType.elementEnd);
         if(i == 1)
         {
-            enforceTest(range.front.name == "a");
+            assert(range.front.name == "a");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEmpty);
+        assert(range.front.type == EntityType.elementEmpty);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
+        assert(range.front.type == EntityType.elementEnd);
         if(i == 2)
         {
-            enforceTest(range.front.name == "c");
+            assert(range.front.name == "c");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             continue;
         }
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEnd);
-        enforceTest(range.skipToParentDepth().empty);
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.skipToParentDepth().empty);
         break;
     }
     // elementEmpty
     {
         auto range = parseXML("<root/>");
-        enforceTest(range.front.type == EntityType.elementEmpty);
-        enforceTest(range.skipToParentDepth().empty);
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.skipToParentDepth().empty);
     }
     foreach(i; 0 .. 2)
     {
@@ -2379,27 +2380,27 @@ unittest
                    "    <whatever/>\n" ~
                    "</root>";
         auto range = parseXML(xml);
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementStart);
+        assert(range.front.type == EntityType.elementStart);
         range = range.skipContents();
         range.popFront();
-        enforceTest(range.front.type == EntityType.elementEmpty);
+        assert(range.front.type == EntityType.elementEmpty);
         if(i == 0)
-            enforceTest(range.front.name == "nothing");
+            assert(range.front.name == "nothing");
         else
         {
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEnd);
+            assert(range.front.type == EntityType.elementEnd);
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEmpty);
-            enforceTest(range.front.name == "whatever");
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(range.front.name == "whatever");
         }
         range = range.skipToParentDepth();
         assert(range._type == EntityType.elementEnd);
-        enforceTest(range.front.name == "root");
+        assert(range.front.name == "root");
     }
     // pi
     {
@@ -2416,59 +2417,59 @@ unittest
         for(int i = 0; true; ++i)
         {
             auto range = parseXML(xml);
-            enforceTest(range.front.type == EntityType.pi);
+            assert(range.front.type == EntityType.pi);
             if(i == 0)
             {
-                enforceTest(range.front.name == "Sherlock");
-                enforceTest(range.skipToParentDepth().empty);
+                assert(range.front.name == "Sherlock");
+                assert(range.skipToParentDepth().empty);
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.pi);
+            assert(range.front.type == EntityType.pi);
             if(i == 1)
             {
-                enforceTest(range.front.name == "Foo");
+                assert(range.front.name == "Foo");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEmpty);
+            assert(range.front.type == EntityType.elementEmpty);
             range.popFront();
-            enforceTest(range.front.type == EntityType.pi);
+            assert(range.front.type == EntityType.pi);
             if(i == 2)
             {
-                enforceTest(range.front.name == "Bar");
+                assert(range.front.name == "Bar");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEnd);
+            assert(range.front.type == EntityType.elementEnd);
             range.popFront();
-            enforceTest(range.front.type == EntityType.pi);
-            enforceTest(range.front.name == "Baz");
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "Baz");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             range.popFront();
-            enforceTest(range.front.type == EntityType.pi);
+            assert(range.front.type == EntityType.pi);
             if(i == 3)
             {
-                enforceTest(range.front.name == "Poirot");
-                enforceTest(range.skipToParentDepth().empty);
+                assert(range.front.name == "Poirot");
+                assert(range.skipToParentDepth().empty);
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.pi);
-            enforceTest(range.front.name == "Conan");
-            enforceTest(range.skipToParentDepth().empty);
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "Conan");
+            assert(range.skipToParentDepth().empty);
             break;
         }
     }
@@ -2484,38 +2485,38 @@ unittest
         for(int i = 0; true; ++i)
         {
             auto range = parseXML(xml);
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            enforceTest(range.front.type == EntityType.text);
+            assert(range.front.type == EntityType.text);
             if(i == 0)
             {
-                enforceTest(range.front.text == "\n    nothing to say\n    ");
+                assert(range.front.text == "\n    nothing to say\n    ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementEmpty);
+            assert(range.front.type == EntityType.elementEmpty);
             range.popFront();
-            enforceTest(range.front.type == EntityType.text);
+            assert(range.front.type == EntityType.text);
             if(i == 1)
             {
-                enforceTest(range.front.text == "\n    nothing whatsoever\n    ");
+                assert(range.front.text == "\n    nothing whatsoever\n    ");
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
-                enforceTest(range.front.name == "root");
+                assert(range.front.name == "root");
                 continue;
             }
             range.popFront();
-            enforceTest(range.front.type == EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            enforceTest(range.front.type == EntityType.text);
-            enforceTest(range.front.text == "\n    but he keeps talking\n");
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "\n    but he keeps talking\n");
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            enforceTest(range.front.name == "root");
+            assert(range.front.name == "root");
             break;
         }
     }
@@ -2655,6 +2656,9 @@ bool stripStartsWith(Text)(ref Text text, string needle)
 
 unittest
 {
+    import core.exception : AssertError;
+    import std.exception : enforce;
+
     static void test(alias func)(string origHaystack, string needle, string remainder, bool startsWith,
                                  int row, int col, size_t line = __LINE__)
     {
@@ -2665,9 +2669,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(text.stripStartsWith(needle) == startsWith, "unittest failure 1", line);
-                enforceTest(equalCU(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(text.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equalCU(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -2676,9 +2680,9 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(text.stripStartsWith(needle) == startsWith, "unittest failure 4", line);
-                enforceTest(equalCU(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(text.stripStartsWith(needle) == startsWith, "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equalCU(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -2741,6 +2745,9 @@ bool stripWS(Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
+    import std.exception : enforce;
+
     static void test(alias func)(string origHaystack, string remainder, bool stripped,
                                  int row, int col, size_t line = __LINE__)
     {
@@ -2751,9 +2758,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(text.stripWS() == stripped, "unittest failure 1", line);
-                enforceTest(equalCU(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(text.stripWS() == stripped, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equalCU(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -2762,9 +2769,9 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(text.stripWS() == stripped, "unittest failure 4", line);
-                enforceTest(equalCU(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(text.stripWS() == stripped, "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equalCU(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -2796,8 +2803,9 @@ auto takeUntilAndKeep(string needle, Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown;
+    import std.exception : assertThrown, enforce;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -2809,9 +2817,10 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(equal(text.takeUntilAndKeep!needle(), expected), "unittest failure 1", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.takeUntilAndKeep!needle(), expected),
+                                    "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -2820,9 +2829,10 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(equal(text.takeUntilAndKeep!needle(), expected), "unittest failure 4", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.takeUntilAndKeep!needle(), expected),
+                                    "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -2884,8 +2894,9 @@ auto takeUntilAndDrop(string needle, Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown;
+    import std.exception : assertThrown, enforce;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -2897,9 +2908,10 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(equal(text.takeUntilAndDrop!needle(), expected), "unittest failure 1", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.takeUntilAndDrop!needle(), expected),
+                                    "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -2908,9 +2920,10 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(equal(text.takeUntilAndDrop!needle(), expected), "unittest failure 4", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.takeUntilAndDrop!needle(), expected),
+                                    "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -2965,8 +2978,9 @@ void skipUntilAndDrop(string needle, Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown;
+    import std.exception : assertNotThrown, assertThrown, enforce;
 
     static void test(alias func, string needle)(string origHaystack, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -2980,8 +2994,8 @@ unittest
                 auto text = testParser!config(haystack.save);
                 assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 1",
                                                     __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -2992,8 +3006,8 @@ unittest
                     text.pos.col += 7;
                 assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 4",
                                                     __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -3188,8 +3202,9 @@ template skipToOneOf(delims...)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown;
+    import std.exception : assertNotThrown, assertThrown, enforce;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
                                             int row, int col, size_t line = __LINE__)
@@ -3202,8 +3217,8 @@ unittest
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
                 assertNotThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest 1", __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -3213,8 +3228,8 @@ unittest
                 static if(i == 0)
                     text.pos.col += 7;
                 assertNotThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest 4", __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -3269,8 +3284,9 @@ auto takeEnquotedText(Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown;
+    import std.exception : assertThrown, enforce;
     import std.range : only;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
@@ -3283,9 +3299,9 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(equal(takeEnquotedText(text), expected), "unittest failure 1", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -3294,9 +3310,9 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(equal(takeEnquotedText(text), expected), "unittest failure 3", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 4", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
         }}
     }
@@ -3344,8 +3360,9 @@ void stripEq(Text)(ref Text text)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown;
+    import std.exception : assertNotThrown, assertThrown, enforce;
 
     static void test(alias func)(string origHaystack, string remainder, int row, int col, size_t line = __LINE__)
     {
@@ -3357,8 +3374,8 @@ unittest
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
                 assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 1", __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -3368,8 +3385,8 @@ unittest
                 static if(i == 0)
                     text.pos.col += 7;
                 assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 4", __FILE__, line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -3469,8 +3486,9 @@ template takeName(bool requireNameStart, delims...)
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown;
+    import std.exception : assertThrown, enforce;
 
     static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
                                                      int row, int col, size_t line = __LINE__)
@@ -3482,9 +3500,10 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforceTest(equal(text.takeName!(rns, delim)(), expected), "unittest failure 1", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 2", line);
-                enforceTest(text.pos == pos, "unittest failure 3", line);
+                enforce!AssertError(equal(text.takeName!(rns, delim)(), expected),
+                                    "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
             }
             static if(i != 2)
             {
@@ -3493,9 +3512,10 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforceTest(equal(text.takeName!(rns, delim)(), expected), "unittest failure 4", line);
-                enforceTest(equal(text.input, remainder), "unittest failure 5", line);
-                enforceTest(text.pos == pos, "unittest failure 6", line);
+                enforce!AssertError(equal(text.takeName!(rns, delim)(), expected),
+                                    "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
             }
         }}
     }
@@ -3771,25 +3791,4 @@ version(unittest)
     }
 
     enum testConfigs = [ Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none) ];
-
-    // The main reason for using this over assert is because of how frequently a
-    // mistake in the code results in an XMLParsingException being thrown, and
-    // it's more of a pain to track down than an assertion failure, because you
-    // have to dig throught the stack trace to figure out which line failed.
-    // This way, it tells you like it would with an assertion failure.
-    void enforceTest(T)(lazy T value, lazy const(char)[] msg = "unittest failed", size_t line = __LINE__)
-    {
-        import core.exception : AssertError;
-        import std.exception : enforce;
-        import std.format : format;
-        import std.stdio : writeln;
-
-        try
-            enforce!AssertError(value, msg, __FILE__, line);
-        catch(XMLParsingException e)
-        {
-            writeln(e);
-            throw new AssertError(format("XMLParsingException thrown: %s", msg), __FILE__, line);
-        }
-    }
 }
