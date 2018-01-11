@@ -424,57 +424,52 @@ enum EntityType
 
     EntityRange is essentially a
     $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX) parser, though it evolved
-    into that rather than being based on what Java did, so its API is likely
-    to differ from other implementations.
+    into that rather than being based on what Java did, and it's range-based
+    rather than iterator-based, so its API is likely to differ from other
+    implementations. The basic concept should be the same though.
 
-    The resulting EntityRange is similar to an input range with how it's
-    iterated until it's consumed, and its state cannot be saved. Unfortunately,
-    in order to support providing the path to an XML entity or to validate that
-    end tags are named correctly, a stack of tag names must be allocated, and
-    implementing that as a range wolud have required duplicating that memory if
-    $(D save) were called and potentially even to return an $(D Entity) object
-    from $(D front). Also, because there are essentially multiple ways to pop
-    the front (e.g. choosing to skip all of the contents between a start tag and
-    end tag instead of processing it), the input range API didn't seem to
-    appropriate, even if the result functions similarly.
+    One of the core design goals of this parser is to slice the original input
+    rather than having to allocate strings for the output or wrap it in a range
+    that produces a mutated version of the data. So, all of the text that the
+    parser provides is either a slice or $(PHOBOS_REF takeExactly, std, range)
+    of the input. However, in some cases, for the parser to be fully compliant,
+    $(LREF normalize) must be called on the text to mutate certain constructs
+    (e.g. removing any $(D '\r') in the text or converting $(D "&lt") to
+    $(D '<')). But that's left up to the application.
 
-    Also, unlike a range the, "front" is integrated into the EntityRange rather
-    than being a value that can be extracted. So, while an entity can be queried
-    while it is the "front", it can't be kept around after the EntityRange has
-    moved to the next entity. Only the information that has been queried for
-    that entity can be retained (e.g. its $(LREF2 name, _EntityRange),
-    $(LREF2 attributes, _EntityRange), or $(LREF2 text, _EntityRange)ual value).
-    While that does place some restrictions on how an algorithm operating on an
-    EntityRange can operate, it does allow for more efficient processing.
+    The parser is not @nogc, but it allocates memory very minimally. It
+    allocates some of its state on the heap so that it can retain a stack of
+    tag names so that end tags can be validated, but that stack is shared among
+    all ranges that came from the same call to parseXML (only the range
+    farthest along in parsing validates the end tags), so $(LREF save) does not
+    allocate memory. The stack itself is currently implemented using a dynamic
+    array and may be reallocated a few times as the stack grows to its maximum,
+    but for most documents, it probably won't need to reallocate more than once
+    or twice, if that. The only other time that the parser would allocate would
+    be if an exception were thrown.
 
     If invalid XML is encountered at any point during the parsing process, an
-    $(LREF XMLParsingException) will be thrown.
+    $(LREF XMLParsingException) will be thrown. If an exception has been thrown,
+    then the parser is in an invalid state, and it is an error to call any
+    functions on it.
 
     However, note that EntityRange does not generally care about XML validation
     beyond what is required to correctly parse what it has been told to parse.
     In particular, any portions that are skipped (either due to the values in
-    the $(LREF Config) or because a function such as
-    $(LREF skipContents) is called) will only be validated enough to correctly
-    determine where those portions terminated. Similarly, if the functions to
-    process the value of an entity are not called (e.g.
-    $(LREF2 attributes, _EntityRange) for $(LREF EntityType.elementStart), then
-    those portions of the XML will not be validated beyond what is required to
-    iterate to the next entity.
+    its $(LREF Config) or because a function such as $(LREF skipContents) is
+    called) will only be validated enough to correctly determine where those
+    portions terminated. Similarly, if the functions to process the value of an
+    entity are not called (e.g. $(LREF2 attributes, _EntityRange) for
+    $(LREF EntityType.elementStart), then those portions of the XML will not be
+    validated beyond what is required to iterate to the next entity.
 
-    Note that while EntityRange is not $(D @nogc), it is designed to allocate
-    very miminally. The parser state is allocated on the heap so that it is a
-    reference type, and it has to allocate on the heap to retain a stack of the
-    names of element tags so that it can validate the XML properly as well as
-    provide the full path for a given entity, but it does no allocations
-    whatsoever with the text that it's given. It operates entirely on slices
-    (or the result of $(PHOBOS_REF takeExactly, std, range)), and that's what
-    it returns from any function that returns a portion of the XML. Helper
-    functions (such as $(LREF normalize)) may allocate, but if so, their
-    documentation makes that clear. The only other case where EntityRange may
-    allocate is when throwing an $(LREF XMLException).
-
-    Also, note that once an $(LREF XMLParsingException) has been thrown, the
-    parser is in invalid state, and it is an error to call any functions on it.
+    And as the module documentation says, this parser does not provide any DTD
+    support. It's not possible to properly support the DTD section while
+    returning slices of the original input, and the DTD portion of the spec
+    makes parsing XML exponentially more complicated. Support for that may or
+    may not be added in the future with a separate parser (possibly one that
+    parses the DTD section to create an object to then validate an EntityRange),
+    but for now at least, dxml isn't getting involved in that mess.
 
     See_Also: $(MREF dxml, parser, dom)
   +/
@@ -494,10 +489,10 @@ public:
     alias config = cfg;
 
     /++
-        The type used when any slice of the original text is used. If $(D R)
+        The type used when any slice of the original input is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
         otherwise, it's the result of calling
-        $(PHOBOS_REF takeExactly, std, range) on the text.
+        $(PHOBOS_REF takeExactly, std, range) on the input.
       +/
     static if(isDynamicArray!R || hasSlicing!R)
         alias SliceOfR = R;
@@ -753,6 +748,10 @@ public:
         this(EntityType type)
         {
             _type = type;
+
+            // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
+            _name = typeof(_name).init;
+            _savedText = typeof(_savedText).init;
         }
 
         EntityType _type;
@@ -1442,6 +1441,7 @@ private:
         {
             TagStack tagStack;
             tagStack.state = new SharedState;
+            tagStack.state.tags.reserve(10);
             return tagStack;
         }
 
