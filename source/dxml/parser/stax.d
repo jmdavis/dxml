@@ -46,7 +46,7 @@
 
     See_Also: $(LINK2 http://www.w3.org/TR/REC-xml/, Official Specification for XML 1.0)
   +/
-module dxml.parser.cursor;
+module dxml.parser.stax;
 
 import std.range.primitives;
 import std.traits;
@@ -1651,29 +1651,29 @@ version(unittest)
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
-R skipContents(R)(R range)
+R skipContents(R)(R entityRange)
     if(isInstanceOf!(EntityRange, R))
 {
-    assert(range._type == EntityType.elementStart);
+    assert(entityRange._type == EntityType.elementStart);
 
     // FIXME Rather than parsing exactly the same as normal, this should
     // skip as much parsing as possible.
 
-    // We don't bother calling empty, because the only way for the range to be
+    // We don't bother calling empty, because the only way for the entityRange to be
     // empty would be for it to reach the end of the document, and an
     // XMLParsingException would be thrown if the end of the document were
     // reached before we reached the corresponding end tag.
     for(int tagDepth = 1; tagDepth != 0;)
     {
-        range.popFront();
-        immutable type = range._type;
+        entityRange.popFront();
+        immutable type = entityRange._type;
         if(type == EntityType.elementStart)
             ++tagDepth;
         else if(type == EntityType.elementEnd)
             --tagDepth;
     }
 
-    return range;
+    return entityRange;
 }
 
 ///
@@ -1729,22 +1729,22 @@ unittest
              one of the given $(LREF EntityType)s or an empty range if none were
              found.
   +/
-R skipToEntityType(R)(R range, EntityType[] entityTypes...)
+R skipToEntityType(R)(R entityRange, EntityType[] entityTypes...)
     if(isInstanceOf!(EntityRange, R))
 {
-    if(range.empty)
-        return range;
-    range.popFront();
-    for(; !range.empty; range.popFront())
+    if(entityRange.empty)
+        return entityRange;
+    entityRange.popFront();
+    for(; !entityRange.empty; entityRange.popFront())
     {
-        immutable type = range._type;
+        immutable type = entityRange._type;
         foreach(entityType; entityTypes)
         {
             if(type == entityType)
-                return range;
+                return entityRange;
         }
     }
-    return range;
+    return entityRange;
 }
 
 ///
@@ -1781,7 +1781,7 @@ unittest
     Returns: The given range with front now at the requested entity if the path
              is valid; otherwise, an empty range is returned.
   +/
-R skipToPath(R)(R range, string path)
+R skipToPath(R)(R entityRange, string path)
     if(isInstanceOf!(EntityRange, R))
 {
     import std.algorithm.comparison : equal;
@@ -1796,25 +1796,25 @@ R skipToPath(R)(R range, string path)
 
         R findOnCurrLevel(string name)
         {
-            if(range._type == elementStart)
-                range = range.skipContents();
+            if(entityRange._type == elementStart)
+                entityRange = entityRange.skipContents();
             while(true)
             {
-                range = range.skipToEntityType(startOrEnd[]);
-                if(range.empty)
-                    return range;
-                if(range._type == elementEnd)
-                    return range.takeNone();
+                entityRange = entityRange.skipToEntityType(startOrEnd[]);
+                if(entityRange.empty)
+                    return entityRange;
+                if(entityRange._type == elementEnd)
+                    return entityRange.takeNone();
 
-                if(equal(name, range._name.save))
-                    return range;
+                if(equal(name, entityRange._name.save))
+                    return entityRange;
 
                 static if(R.config.splitEmpty == SplitEmpty.no)
                 {
-                    if(range._type == elementEmpty)
+                    if(entityRange._type == elementEmpty)
                         continue;
                 }
-                range = range.skipContents();
+                entityRange = entityRange.skipContents();
             }
         }
 
@@ -1826,23 +1826,23 @@ R skipToPath(R)(R range, string path)
                 continue;
             if(name == "..")
             {
-                range = range.skipToParentDepth();
-                if(range.empty)
-                    return range;
+                entityRange = entityRange.skipToParentDepth();
+                if(entityRange.empty)
+                    return entityRange;
                 checkCurrLevel = true;
                 continue;
             }
 
             static if(R.config.splitEmpty == SplitEmpty.yes)
-                immutable atStart = range._type == elementStart;
+                immutable atStart = entityRange._type == elementStart;
             else
-                immutable atStart = range._type == elementStart || range._type == elementEmpty;
+                immutable atStart = entityRange._type == elementStart || entityRange._type == elementEmpty;
 
             if(!atStart)
             {
-                range = findOnCurrLevel(name);
-                if(range.empty)
-                    return range;
+                entityRange = findOnCurrLevel(name);
+                if(entityRange.empty)
+                    return entityRange;
                 checkCurrLevel = false;
                 continue;
             }
@@ -1850,11 +1850,11 @@ R skipToPath(R)(R range, string path)
             if(checkCurrLevel)
             {
                 checkCurrLevel = false;
-                if(!equal(name, range._name.save))
+                if(!equal(name, entityRange._name.save))
                 {
-                    range = findOnCurrLevel(name);
-                    if(range.empty)
-                        return range;
+                    entityRange = findOnCurrLevel(name);
+                    if(entityRange.empty)
+                        return entityRange;
                 }
                 continue;
             }
@@ -1862,24 +1862,24 @@ R skipToPath(R)(R range, string path)
             static if(R.config.splitEmpty == SplitEmpty.no)
             {
                 // elementEmpty has no children to check
-                if(range._type == elementEmpty)
-                    return range.takeNone();
+                if(entityRange._type == elementEmpty)
+                    return entityRange.takeNone();
             }
 
-            range = range.skipToEntityType(startOrEnd[]);
-            assert(!range.empty);
-            if(range._type == elementEnd)
-                return range.takeNone();
+            entityRange = entityRange.skipToEntityType(startOrEnd[]);
+            assert(!entityRange.empty);
+            if(entityRange._type == elementEnd)
+                return entityRange.takeNone();
 
-            if(!equal(name, range._name.save))
+            if(!equal(name, entityRange._name.save))
             {
-                range = findOnCurrLevel(name);
-                if(range.empty)
-                    return range;
+                entityRange = findOnCurrLevel(name);
+                if(entityRange.empty)
+                    return entityRange;
             }
         }
 
-        return range;
+        return entityRange;
     }
 }
 
@@ -2015,28 +2015,28 @@ unittest
              (which means that the depth was 0 when skipToParentDepth was
              called), then an empty range is returned.
   +/
-R skipToParentDepth(R)(R range)
+R skipToParentDepth(R)(R entityRange)
     if(isInstanceOf!(EntityRange, R))
 {
-    with(EntityType) final switch(range._type)
+    with(EntityType) final switch(entityRange._type)
     {
         case cdata:
         case comment:
         {
-            range = range.skipToEntityType(elementStart, elementEnd);
-            if(range.empty || range._type == elementEnd)
-                return range;
+            entityRange = entityRange.skipToEntityType(elementStart, elementEnd);
+            if(entityRange.empty || entityRange._type == elementEnd)
+                return entityRange;
             goto case elementStart;
         }
         case elementStart:
         {
             while(true)
             {
-                range = range.skipContents();
-                range.popFront();
-                if(range.empty || range._type == elementEnd)
-                    return range;
-                if(range._type == elementStart)
+                entityRange = entityRange.skipContents();
+                entityRange.popFront();
+                if(entityRange.empty || entityRange._type == elementEnd)
+                    return entityRange;
+                if(entityRange._type == elementStart)
                     continue;
                 goto case comment;
             }
