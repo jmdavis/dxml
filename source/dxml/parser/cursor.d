@@ -32,7 +32,7 @@
     whatever they refer to).
 
     $(LREF parseXML) is the function used to initiate the parsing of an XML
-    document, and it returns an $(LREF EntityCursor), which is a StAX parser.
+    document, and it returns an $(LREF EntityRange), which is a StAX parser.
     $(LREF Config) can be used to configure some of the parser's behavior (e.g.
     $(LREF SkipComments.yes) would tell it to not report comments to the
     application). $(LREF makeConfig) is a helper function to create custom
@@ -184,37 +184,44 @@ struct Config
         enum configSplitYes = makeConfig(SplitEmpty.yes);
 
         {
-            auto cursor = parseXML("<root></root>");
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.documentEnd);
+            auto range = parseXML("<root></root>");
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.empty);
         }
         {
             // No difference if the tags are already split.
-            auto cursor = parseXML!configSplitYes("<root></root>");
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.documentEnd);
+            auto range = parseXML!configSplitYes("<root></root>");
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.empty);
         }
         {
             // This treats <root></root> and <root/> as distinct.
-            auto cursor = parseXML("<root/>");
-            assert(cursor.next() == EntityType.elementEmpty);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.documentEnd);
+            auto range = parseXML("<root/>");
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.empty);
         }
         {
             // This is parsed as if it were <root></root> insead of <root/>.
-            auto cursor = parseXML!configSplitYes("<root/>");
-            assert(cursor.next() == EntityType.elementStart);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.elementEnd);
-            assert(cursor.name == "root");
-            assert(cursor.next() == EntityType.documentEnd);
+            auto range = parseXML!configSplitYes("<root/>");
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "root");
+            range.popFront();
+            assert(range.empty);
         }
     }
 
@@ -347,7 +354,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipPI.yes, SplitEmpty.yes, Positi
 
 
 /++
-    Represents the type of an XML entity. Used by EntityCursor.
+    Represents the type of an XML entity. Used by EntityRange.
   +/
 enum EntityType
 {
@@ -364,21 +371,6 @@ enum EntityType
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-comments)
       +/
     comment,
-
-    /++
-        parseXML has been called to create the $(LREF EntityCursor), but no
-        parsing has been done.
-      +/
-    documentStart,
-
-    /++
-        The end of the document has been reached. There are no more entities to
-        parse. Calling any functions of $(LREF EntityCursor) after this has been
-        reached is an error, and no node of $(REF EntityTree, dxml, parser, dom)
-        will have $(LREF EntityType._documentEnd) as its
-        $(type, EntityTree.type, dxml, parser, dom).
-      +/
-    documentEnd,
 
     /++
         The start tag for an element. e.g. `<foo name="value">`.
@@ -430,12 +422,12 @@ enum EntityType
 /++
     Lazily parses the given XML.
 
-    EntityCursor is essentially a
+    EntityRange is essentially a
     $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX) parser, though it evolved
     into that rather than being based on what Java did, so its API is likely
     to differ from other implementations.
 
-    The resulting EntityCursor is similar to an input range with how it's
+    The resulting EntityRange is similar to an input range with how it's
     iterated until it's consumed, and its state cannot be saved. Unfortunately,
     in order to support providing the path to an XML entity or to validate that
     end tags are named correctly, a stack of tag names must be allocated, and
@@ -446,30 +438,30 @@ enum EntityType
     end tag instead of processing it), the input range API didn't seem to
     appropriate, even if the result functions similarly.
 
-    Also, unlike a range the, "front" is integrated into the EntityCursor rather
+    Also, unlike a range the, "front" is integrated into the EntityRange rather
     than being a value that can be extracted. So, while an entity can be queried
-    while it is the "front", it can't be kept around after the EntityCursor has
+    while it is the "front", it can't be kept around after the EntityRange has
     moved to the next entity. Only the information that has been queried for
-    that entity can be retained (e.g. its $(LREF2 name, _EntityCursor),
-    $(LREF2 attributes, _EntityCursor), or $(LREF2 text, _EntityCursor)ual value).
+    that entity can be retained (e.g. its $(LREF2 name, _EntityRange),
+    $(LREF2 attributes, _EntityRange), or $(LREF2 text, _EntityRange)ual value).
     While that does place some restrictions on how an algorithm operating on an
-    EntityCursor can operate, it does allow for more efficient processing.
+    EntityRange can operate, it does allow for more efficient processing.
 
     If invalid XML is encountered at any point during the parsing process, an
     $(LREF XMLParsingException) will be thrown.
 
-    However, note that EntityCursor does not generally care about XML validation
+    However, note that EntityRange does not generally care about XML validation
     beyond what is required to correctly parse what it has been told to parse.
     In particular, any portions that are skipped (either due to the values in
     the $(LREF Config) or because a function such as
     $(LREF skipContents) is called) will only be validated enough to correctly
     determine where those portions terminated. Similarly, if the functions to
     process the value of an entity are not called (e.g.
-    $(LREF2 attributes, _EntityCursor) for $(LREF EntityType.elementStart), then
+    $(LREF2 attributes, _EntityRange) for $(LREF EntityType.elementStart), then
     those portions of the XML will not be validated beyond what is required to
     iterate to the next entity.
 
-    Note that while EntityCursor is not $(D @nogc), it is designed to allocate
+    Note that while EntityRange is not $(D @nogc), it is designed to allocate
     very miminally. The parser state is allocated on the heap so that it is a
     reference type, and it has to allocate on the heap to retain a stack of the
     names of element tags so that it can validate the XML properly as well as
@@ -478,12 +470,15 @@ enum EntityType
     (or the result of $(PHOBOS_REF takeExactly, std, range)), and that's what
     it returns from any function that returns a portion of the XML. Helper
     functions (such as $(LREF normalize)) may allocate, but if so, their
-    documentation makes that clear. The only other case where EntityCursor may
+    documentation makes that clear. The only other case where EntityRange may
     allocate is when throwing an $(LREF XMLException).
+
+    Also, note that once an $(LREF XMLParsingException) has been thrown, the
+    parser is in invalid state, and it is an error to call any functions on it.
 
     See_Also: $(MREF dxml, parser, dom)
   +/
-struct EntityCursor(Config cfg, R)
+struct EntityRange(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
 public:
@@ -509,7 +504,7 @@ public:
     else
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
-    // TODO re-enable these. Whenever EntityCursor doesn't compile correctly due
+    // TODO re-enable these. Whenever EntityRange doesn't compile correctly due
     // to a change, these static assertions fail, and the actual errors are masked.
     // So, rather than continuing to deal with that whenever I change somethnig,
     // I'm leaving these commented out for now.
@@ -523,14 +518,268 @@ public:
         import std.algorithm : filter;
         import std.range : takeExactly;
 
-        static assert(is(EntityCursor!(Config.init, string).SliceOfR == string));
+        static assert(is(EntityRange!(Config.init, string).SliceOfR == string));
 
         auto range = filter!(a => true)("some xml");
 
-        static assert(is(EntityCursor!(Config.init, typeof(range)).SliceOfR ==
+        static assert(is(EntityRange!(Config.init, typeof(range)).SliceOfR ==
                          typeof(takeExactly(range, 4))));
     }
     +/
+
+
+    /++
+        Represents an entity in the XML document.
+
+        Note that the $(LREF2 type, EntityRange.Entity.type) determines which
+        properties can be used, and it can determine whether functions which
+        an Entity or EntityRange is passed to are allowed to be called. Each
+        function lists which $(LREF EntityType)s are allowed, and it is an error
+        to call them with any other $(LREF EntityType).
+      +/
+    struct Entity
+    {
+    public:
+
+        /++
+            The $(LREF EntityType) for this Entity.
+          +/
+        @property EntityType type() @safe const pure nothrow @nogc
+        {
+            return _type;
+        }
+
+
+        /++
+            Gives the name of this Entity.
+
+            Note that this is the direct name in the XML for this entity and
+            does not contain any of the names of any of the parent entities that
+            this entity has.
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF EntityType)s:))
+                $(TR $(TD $(LREF2 elementStart, EntityType)))
+                $(TR $(TD $(LREF2 elementEnd, EntityType)))
+                $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+                $(TR $(TD $(LREF2 pi, EntityType)))
+            )
+          +/
+        @property SliceOfR name()
+        {
+            with(EntityType)
+                assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
+            return stripBCU!R(_name.save);
+        }
+
+
+        /++
+            Returns a lazy range of attributes for a start tag where each
+            attribute is represented as a
+            $(D Tuple!($(LREF2 SliceOfR, EntityRange), "name", $(LREF2 SliceOfR, EntityRange), "value")).
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF EntityType)s:))
+                $(TR $(TD $(LREF2 elementStart, EntityType)))
+                $(TR $(TD $(LREF2 elementEmpty, EntityType)))
+            )
+
+            Throws: $(LREF XMLParsingException) on invalid XML.
+          +/
+        @property auto attributes()
+        {
+            with(EntityType)
+                assert(_type == elementStart || _type == elementEmpty);
+
+            // STag         ::= '<' Name (S Attribute)* S? '>'
+            // Attribute    ::= Name Eq AttValue
+            // EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
+
+            import std.typecons : Tuple;
+            alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
+
+            static struct AttributeRange
+            {
+                @property Attribute front()
+                {
+                    return _front;
+                }
+
+                void popFront()
+                {
+                    if(_text.input.empty)
+                    {
+                        empty = true;
+                        return;
+                    }
+
+                    auto name = stripBCU!R(_text.takeName!(true, '=')());
+                    stripWS(_text);
+                    checkNotEmpty(_text);
+                    if(_text.input.front != '=')
+                        throw new XMLParsingException("= missing", _text.pos);
+                    popFrontAndIncCol(_text);
+                    stripWS(_text);
+
+                    auto value = stripBCU!R(takeEnquotedText(_text));
+                    stripWS(_text);
+
+                    _front = Attribute(name, value);
+                }
+
+                @property auto save()
+                {
+                    auto retval = this;
+                    retval._front = Attribute(_front[0].save, _front[1].save);
+                    retval._text.input = retval._text.input.save;
+                    return retval;
+                }
+
+                this(typeof(_text) text)
+                {
+                    _front = Attribute.init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
+                    _text = text;
+                    if(_text.input.empty)
+                        empty = true;
+                    else
+                        popFront();
+                }
+
+                bool empty;
+                Attribute _front;
+                typeof(_savedText) _text;
+            }
+
+            return AttributeRange(_savedText);
+        }
+
+
+        /++
+            Returns the textual value of this Entity.
+
+            In the case of $(LREF EntityType.pi), this is the
+            text that follows the name, whereas in the other cases, the text is
+            the entire contents of the entity (save for the delimeters on the
+            ends if that entity has them).
+
+            $(TABLE
+                $(TR $(TH Supported $(LREF EntityType)s:))
+                $(TR $(TD $(LREF2 cdata, EntityType)))
+                $(TR $(TD $(LREF2 comment, EntityType)))
+                $(TR $(TD $(LREF2 pi, EntityType)))
+                $(TR $(TD $(LREF2 _text, EntityType)))
+            )
+          +/
+        @property SliceOfR text()
+        {
+            with(EntityType)
+                assert(only(cdata, comment, pi, text).canFind(_type));
+            return stripBCU!R(_savedText.input.save);
+        }
+
+        ///
+        static if(compileInTests) unittest
+        {
+            auto xml = "<?xml version='1.0'?>\n" ~
+                       "<?instructionName?>\n" ~
+                       "<?foo here is something to say?>\n" ~
+                       "<root>\n" ~
+                       "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+                       "    <!-- some random comment -->\n" ~
+                       "    <p>something here</p>\n" ~
+                       "    <p>\n" ~
+                       "       something else\n" ~
+                       "       here</p>\n" ~
+                       "</root>";
+            auto range = parseXML(xml);
+
+            // "<?instructionName?>\n" ~
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "instructionName");
+            assert(range.front.text.empty);
+
+            // "<?foo here is something to say?>\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "foo");
+            assert(range.front.text == "here is something to say");
+
+            // "<root>\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+
+            // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.cdata);
+            assert(range.front.text == " Yay! random text >> << ");
+
+            // "    <!-- some random comment -->\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.comment);
+            assert(range.front.text == " some random comment ");
+
+            // "    <p>something here</p>\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "p");
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "something here");
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "p");
+
+            // "    <p>\n" ~
+            // "       something else\n" ~
+            // "       here</p>\n" ~
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "\n       something else\n       here");
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+
+            // "</root>"
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            range.popFront();
+            assert(range.empty);
+        }
+
+
+    private:
+
+        this(EntityType type)
+        {
+            _type = type;
+        }
+
+        EntityType _type;
+        Taken _name;
+        typeof(EntityRange._savedText) _savedText;
+    }
+
+
+    /++
+        Returns the $(LREF Entity) representing the entity in the XML document
+        which was most recently parsed.
+      +/
+    @property Entity front()
+    {
+        auto retval = Entity(_type);
+        with(EntityType) final switch(_type)
+        {
+            case cdata: retval._savedText = _savedText.save; break;
+            case comment: goto case cdata;
+            case elementStart: retval._name = _name.save; retval._savedText = _savedText.save; break;
+            case elementEnd: retval._name = _name.save; break;
+            case elementEmpty: goto case elementStart;
+            case text: goto case cdata;
+            case pi: goto case elementStart;
+        }
+        return retval;
+    }
 
 
     /++
@@ -541,22 +790,9 @@ public:
         the child entity, whereas if it has no child entities, it will be the
         next entity at the same level.
 
-        Returns:
-            The $(LREF EntityType) of the entity that just became the
-            current entity.
-
-            The return value determines which member functions and properties
-            are allowed to be called, since some are only appropriate for
-            specific entity types (e.g. $(LREF2 attributes, EntityCursor) would
-            not be appropriate for $(LREF EntityType.elementEnd)).
-
-            If the return type is $(LREF EntityType.documentEnd), then the
-            parser has reached the end of the document, and it is an error to
-            call any functions of $(LREF EntityCursor).
-
         Throws: $(LREF XMLParsingException) on invalid XML.
       +/
-    EntityType next()
+    void popFront()
     {
         final switch(_grammarPos) with(GrammarPos)
         {
@@ -581,223 +817,64 @@ public:
             case endTag: _parseElementEnd(); break;
             case endMisc: _parseAtEndMisc(); break;
             case documentEnd:
-                assert(0, "It's invalid to call next when the EntityCursor has reached EntityType.documentEnd");
+                assert(0, "It's illegal to call popFront() on an empty EntityRange.");
         }
-        return _type;
     }
 
 
     /++
-        Returns the $(LREF EntityType) for the current entity. It's the exact
-        same value that was last returned by $(LREF2 next, EntityCursor), but
-        it allows for the value to be queried again if need be.
-      +/
-    @property EntityType type() @safe const pure nothrow @nogc
-    {
-        return _type;
-    }
+        Whether the end of the XML document has been reached.
 
+        Note that because an $(LREF XMLParsingException) will be thrown an
+        invalid XML, it's actually possible to call
+        $(LREF2 front, EntityRange.front) and
+        $(LREF2 popFront, EntityRange.popFront) without checking empty if the
+        only way that empty would be $(D true) is if the XML were invalid (e.g.
+        if at a start tag, it's a given that there's at least one end tag left
+        in the document unless it's invalid XML).
 
-    /++
-        Convenience function equivalent to
-        $(D cursor.type == EntityType.documentEnd).
+        However, of course, caution should be used to ensure that incorrect
+        assumptions are not made that allow the document to reach its end
+        earlier than predicted without throwing an $(LREF XMLParsingException),
+        since it's still illegal to call $(LREF2 front, EntityRange.front) or
+        $(LREF2 popFront, EntityRange.popFront) if empty would return
+        $(D false).
       +/
     @property bool empty() @safe const pure nothrow @nogc
     {
-        return _type == EntityType.documentEnd;
+        return _grammarPos == GrammarPos.documentEnd;
     }
 
 
     /++
-        Gives the name of the current entity.
-
-        Note that this is the direct name in the XML for this entity and does
-        not contain any of the names of any of the parent entities that this
-        entity has.
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 elementStart, EntityType)))
-            $(TR $(TD $(LREF2 elementEnd, EntityType)))
-            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
-            $(TR $(TD $(LREF2 pi, EntityType)))
-        )
-
-        See_Also: $(LREF path, EntityCursor)$(BR)$(LREF parentPath, EntityCursor)
+        Forward range function for obtaining a copy of the range which can then
+        be iterated independently of the original.
       +/
-    @property SliceOfR name()
+    @property auto save()
     {
-        with(EntityType)
-            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
-        return stripBCU!R(_name.save);
+        return this;
     }
 
 
     /++
-        Returns a lazy range of attributes for a start tag where each attribute
-        is represented as a
-        $(D Tuple!($(LREF2 SliceOfR, EntityCursor), "name", $(LREF2 SliceOfR, EntityCursor), "value")).
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 elementStart, EntityType)))
-            $(TR $(TD $(LREF2 elementEmpty, EntityType)))
-        )
-
-        Throws: $(LREF XMLParsingException) on invalid XML.
+        Returns an empty range. This corresponds to
+        $(PHOBOS_REF takeNone, std, range) except that it doesn't create a
+        wrapper type.
       +/
-    @property auto attributes()
+    auto takeNone()
     {
-        with(EntityType)
-            assert(_type == elementStart || _type == elementEmpty);
-
-        // STag         ::= '<' Name (S Attribute)* S? '>'
-        // Attribute    ::= Name Eq AttValue
-        // EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
-
-        import std.typecons : Tuple;
-        alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
-
-        static struct AttributeRange
-        {
-            @property Attribute front()
-            {
-                return _front;
-            }
-
-            void popFront()
-            {
-                if(_text.input.empty)
-                {
-                    empty = true;
-                    return;
-                }
-
-                auto name = stripBCU!R(_text.takeName!(true, '=')());
-                stripWS(_text);
-                checkNotEmpty(_text);
-                if(_text.input.front != '=')
-                    throw new XMLParsingException("= missing", _text.pos);
-                popFrontAndIncCol(_text);
-                stripWS(_text);
-
-                auto value = stripBCU!R(takeEnquotedText(_text));
-                stripWS(_text);
-
-                _front = Attribute(name, value);
-            }
-
-            @property auto save()
-            {
-                auto retval = this;
-                retval._front = Attribute(_front[0].save, _front[1].save);
-                retval._text.input = retval._text.input.save;
-                return retval;
-            }
-
-            this(typeof(_text) text)
-            {
-                _front = Attribute.init; // This is utterly stupid. https://issues.dlang.org/show_bug.cgi?id=13945
-                _text = text;
-                if(_text.input.empty)
-                    empty = true;
-                else
-                    popFront();
-            }
-
-            bool empty;
-            Attribute _front;
-            typeof(_savedText) _text;
-        }
-
-        return AttributeRange(_savedText);
+        auto retval = save;
+        retval._grammarPos = GrammarPos.documentEnd;
+        return retval;
     }
 
 
     /++
-        Returns the value of the current entity.
-
-        In the case of $(LREF EntityType.pi), this is the
-        text that follows the name, whereas in the other cases, the text is
-        the entire contents of the entity (save for the delimeters on the ends
-        if that entity has them).
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 cdata, EntityType)))
-            $(TR $(TD $(LREF2 comment, EntityType)))
-            $(TR $(TD $(LREF2 pi, EntityType)))
-            $(TR $(TD $(LREF2 _text, EntityType)))
-        )
-      +/
-    @property SliceOfR text()
-    {
-        with(EntityType)
-            assert(only(cdata, comment, pi, text).canFind(_type));
-        return stripBCU!R(_savedText.input.save);
-    }
-
-    ///
-    static if(compileInTests) unittest
-    {
-        auto xml = "<?xml version='1.0'?>\n" ~
-                   "<?instructionName?>\n" ~
-                   "<?foo here is something to say?>\n" ~
-                   "<root>\n" ~
-                   "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-                   "    <!-- some random comment -->\n" ~
-                   "    <p>something here</p>\n" ~
-                   "    <p>\n" ~
-                   "       something else\n" ~
-                   "       here</p>\n" ~
-                   "</root>";
-        auto cursor = parseXML(xml);
-
-        // "<?instructionName?>\n" ~
-        assert(cursor.next() == EntityType.pi);
-        assert(cursor.name == "instructionName");
-        assert(cursor.text.empty);
-
-        // "<?foo here is something to say?>\n" ~
-        assert(cursor.next() == EntityType.pi);
-        assert(cursor.name == "foo");
-        assert(cursor.text == "here is something to say");
-
-        // "<root>\n" ~
-        assert(cursor.next() == EntityType.elementStart);
-
-        // "    <![CDATA[ Yay! random text >> << ]]>\n" ~
-        assert(cursor.next() == EntityType.cdata);
-        assert(cursor.text == " Yay! random text >> << ");
-
-        // "    <!-- some random comment -->\n" ~
-        assert(cursor.next() == EntityType.comment);
-        assert(cursor.text == " some random comment ");
-
-        // "    <p>something here</p>\n" ~
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.next() == EntityType.text);
-        assert(cursor.text == "something here");
-        assert(cursor.next() == EntityType.elementEnd);
-
-        // "    <p>\n" ~
-        // "       something else\n" ~
-        // "       here</p>\n" ~
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.next() == EntityType.text);
-        assert(cursor.text == "\n       something else\n       here");
-        assert(cursor.next() == EntityType.elementEnd);
-
-        // "</root>"
-        assert(cursor.next() == EntityType.elementEnd);
-        assert(cursor.next() == EntityType.documentEnd);
-    }
-
-
-    /++
-        When at a start tag, moves the cursor to the entity after the
-        corresponding end tag tag and returns the contents between the two tags
-        as text, leaving any markup in between as unprocessed text.
+        When $(LREF2 front, EntityRange.front) is at a start tag, this can be
+        used instead of $(LREF2 popFront, EntityRange.popFront) to parse over
+        the entities between the start tag and its corresponding end tag and
+        return the content between them as text, leaving any markup in between
+        as unprocessed text.
 
         $(TABLE
             $(TR $(TH Supported $(LREF EntityType)s:))
@@ -819,13 +896,9 @@ private:
     void _parseDocumentStart()
     {
         if(_text.stripStartsWith("<?xml"))
-        {
             _text.skipUntilAndDrop!"?>"();
-            _grammarPos = GrammarPos.prologMisc1;
-            next();
-        }
-        else
-            _parseAtPrologMisc!1();
+        _grammarPos = GrammarPos.prologMisc1;
+        _parseAtPrologMisc!1();
     }
 
     static if(compileInTests) unittest
@@ -839,9 +912,9 @@ private:
             static foreach(i, config; testConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto cursor = parseXML!config(func(xml));
-                assertNotThrown!XMLParsingException(cursor.next(), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(cursor._text.pos == pos, "unittest failure 2", __FILE__, line);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(func(xml)));
+                enforce!AssertError(range._type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -914,7 +987,7 @@ private:
             {
                 _parsePI();
                 static if(config.skipPI == SkipPI.yes)
-                    next();
+                    popFront();
                 break;
             }
             // element ::= EmptyElemTag | STag content ETag
@@ -1082,7 +1155,7 @@ private:
     static if(compileInTests) unittest
     {
         import std.algorithm.comparison : equal;
-        import std.exception : assertThrown;
+        import std.exception : assertNotThrown, assertThrown;
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
@@ -1092,9 +1165,9 @@ private:
             static foreach(i, config; testConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
-                auto cursor = parseXML!config(xml.save);
-                enforceTest(cursor.next() == EntityType.elementEmpty, "unittest failure 1", line);
-                enforceTest(cursor._text.pos == pos, "unittest failure 2", line);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                enforceTest(range.front.type == EntityType.elementEmpty, "unittest failure 1", line);
+                enforceTest(range._text.pos == pos, "unittest failure 2", line);
             }}
         }
 
@@ -1103,10 +1176,7 @@ private:
             auto xml = func(text);
 
             static foreach(i, config; testConfigs)
-            {{
-                auto cursor = parseXML!config(xml.save);
-                assertThrown!XMLParsingException(cursor.next(), "unittest failure", __FILE__, line);
-            }}
+                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -1229,7 +1299,7 @@ private:
     void _parseAtContentMid()
     {
         // Note that References are treated as part of the CharData and not
-        // parsed out by the EntityCursor (see EntityCursor.text).
+        // parsed out by the EntityRange (see EntityRange.text).
 
         switch(_text.input.front)
         {
@@ -1261,7 +1331,7 @@ private:
                 _parsePI();
                 _grammarPos = GrammarPos.contentCharData2;
                 static if(config.skipPI == SkipPI.yes)
-                    next();
+                    popFront();
                 break;
             }
             // element ::= EmptyElemTag | STag content ETag
@@ -1284,7 +1354,6 @@ private:
         if(_text.input.empty)
         {
             _grammarPos = GrammarPos.documentEnd;
-            _type = EntityType.documentEnd;
             return;
         }
 
@@ -1311,7 +1380,7 @@ private:
             {
                 _parsePI();
                 static if(config.skipPI == SkipPI.yes)
-                    next();
+                    popFront();
                 break;
             }
             default: throw new XMLParsingException("Must be a comment or PI", _text.pos);
@@ -1381,25 +1450,6 @@ private:
     }
 
 
-    this(R xmlText)
-    {
-        _text.input = byCodeUnit(xmlText);
-        _tagStack = TagStack.create();
-
-        // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
-        _savedText = typeof(_savedText).init;
-        _name = typeof(_name).init;
-    }
-
-
-    alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
-
-    auto _type = EntityType.documentStart;
-    auto _grammarPos = GrammarPos.documentStart;
-
-    Taken _name;
-    TagStack _tagStack;
-
     struct Text(R)
     {
         alias config = cfg;
@@ -1417,24 +1467,38 @@ private:
         @property save() { return typeof(this)(input.save, pos); }
     }
 
+
+    alias Taken = typeof(takeExactly(byCodeUnit(R.init), 42));
+
+
+    EntityType _type;
+    auto _grammarPos = GrammarPos.documentStart;
+
+    Taken _name;
+    TagStack _tagStack;
+
     Text!(typeof(byCodeUnit(R.init))) _text;
     Text!Taken _savedText;
 
+
     this(R xmlText)
     {
+        _tagStack = TagStack.create();
         _text.input = byCodeUnit(xmlText);
 
         // None of these initializations should be required. https://issues.dlang.org/show_bug.cgi?id=13945
         _savedText = typeof(_savedText).init;
         _name = typeof(_name).init;
+
+        popFront();
     }
 }
 
 /// Ditto
-EntityCursor!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
+EntityRange!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
-    return EntityCursor!(config, R)(xmlText);
+    return EntityRange!(config, R)(xmlText);
 }
 
 ///
@@ -1453,60 +1517,69 @@ unittest
                "<?some foo?>";
 
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.pi);
-        assert(cursor.name == "instruction");
-        assert(cursor.text == "start");
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.pi);
+        assert(range.front.name == "instruction");
+        assert(range.front.text == "start");
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "foo");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
 
         {
-            auto attrs = cursor.attributes;
+            auto attrs = range.front.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "attr");
             assert(attrs.front.value == "42");
         }
 
-        assert(cursor.next() == EntityType.elementEmpty);
-        assert(cursor.name == "bar");
+        range.popFront();
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "bar");
 
-        assert(cursor.next() == EntityType.comment);
-        assert(cursor.text == " no comment ");
+        range.popFront();
+        assert(range.front.type == EntityType.comment);
+        assert(range.front.text == " no comment ");
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "baz");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "baz");
 
         {
-            auto attrs = cursor.attributes;
+            auto attrs = range.front.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "hello");
             assert(attrs.front.value == "world");
         }
 
-        assert(cursor.next() == EntityType.text);
-        assert(cursor.text ==
+        range.popFront();
+        assert(range.front.type == EntityType.text);
+        assert(range.front.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        assert(cursor.next() == EntityType.elementEnd); // </baz>
-        assert(cursor.next() == EntityType.elementEnd); // </foo>
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd); // </baz>
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd); // </foo>
 
-        assert(cursor.next() == EntityType.pi);
-        assert(cursor.name == "some");
-        assert(cursor.text == "foo");
+        range.popFront();
+        assert(range.front.type == EntityType.pi);
+        assert(range.front.name == "some");
+        assert(range.front.text == "foo");
 
-        assert(cursor.next() == EntityType.documentEnd);
+        range.popFront();
+        assert(range.empty);
     }
     {
-        auto cursor = parseXML!simpleXML(xml);
+        auto range = parseXML!simpleXML(xml);
 
         // simpleXML is set to skip processing instructions.
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "foo");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
 
         {
-            auto attrs = cursor.attributes;
+            auto attrs = range.front.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "attr");
             assert(attrs.front.value == "42");
@@ -1515,29 +1588,37 @@ unittest
         // simpleXML is set to split empty tags so that <bar/> is treated
         // as the same as <bar></bar> so that code does not have to
         // explicitly handle empty tags.
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "bar");
-        assert(cursor.next() == EntityType.elementEnd);
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "bar");
 
         // simpleXML is set to skip comments.
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "baz");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "baz");
 
         {
-            auto attrs = cursor.attributes;
+            auto attrs = range.front.attributes;
             assert(walkLength(attrs.save) == 1);
             assert(attrs.front.name == "hello");
             assert(attrs.front.value == "world");
         }
 
-        assert(cursor.next() == EntityType.text);
-        assert(cursor.text ==
+        range.popFront();
+        assert(range.front.type == EntityType.text);
+        assert(range.front.text ==
                "\n    nothing to say.\n    nothing at all...\n    ");
 
-        assert(cursor.next() == EntityType.elementEnd); // </baz>
-        assert(cursor.next() == EntityType.elementEnd); // </foo>
-        assert(cursor.next() == EntityType.documentEnd);
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd); // </baz>
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd); // </foo>
+        range.popFront();
+        assert(range.empty);
     }
 }
 
@@ -1552,37 +1633,47 @@ private struct EntityCompileTests
 }
 
 version(unittest)
-    EntityCursor!(Config.init, EntityCompileTests) _entityCursorTests;
+    EntityRange!(Config.init, EntityCompileTests) _entityRangeTests;
 
 
 /++
-    When at a start tag, moves the cursor to the corresponding end tag. It is
-    an error to call skipContents when the current entity is not
-    $(LREF EntityType.elementStart).
+    Takes an $(LREF EntityRange) which is at a start tag and iterates it until
+    it is at its corresponding end tag. It is an error to call skipContents when
+    the current entity is not $(LREF EntityType.elementStart).
 
     $(TABLE
         $(TR $(TH Supported $(LREF EntityType)s:))
         $(TR $(TD $(LREF2 elementStart, EntityType)))
     )
 
+    Returns: The range with front now at the end tag corresponding to the start
+             tag that was front when the function was called.
+
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
-void skipContents(EC)(ref EC cursor)
-    if(isInstanceOf!(EntityCursor, EC))
+R skipContents(R)(R range)
+    if(isInstanceOf!(EntityRange, R))
 {
-    assert(cursor.type == EntityType.elementStart);
+    assert(range._type == EntityType.elementStart);
 
     // FIXME Rather than parsing exactly the same as normal, this should
     // skip as much parsing as possible.
 
+    // We don't bother calling empty, because the only way for the range to be
+    // empty would be for it to reach the end of the document, and an
+    // XMLParsingException would be thrown if the end of the document were
+    // reached before we reached the corresponding end tag.
     for(int tagDepth = 1; tagDepth != 0;)
     {
-        immutable type = cursor.next();
+        range.popFront();
+        immutable type = range._type;
         if(type == EntityType.elementStart)
             ++tagDepth;
         else if(type == EntityType.elementEnd)
             --tagDepth;
     }
+
+    return range;
 }
 
 ///
@@ -1597,24 +1688,28 @@ unittest
                "    <!-- no comment -->\n" ~
                "</root>";
 
-    auto cursor = parseXML(xml);
-    assert(cursor.next() == EntityType.elementStart);
-    assert(cursor.name == "root");
+    auto range = parseXML(xml);
+    assert(range.front.type == EntityType.elementStart);
+    assert(range.front.name == "root");
 
-    assert(cursor.next() == EntityType.elementStart);
-    assert(cursor.name == "foo");
+    range.popFront();
+    assert(range.front.type == EntityType.elementStart);
+    assert(range.front.name == "foo");
 
-    cursor.skipContents();
-    assert(cursor.type == EntityType.elementEnd);
-    assert(cursor.name == "foo");
+    range = range.skipContents();
+    assert(range.front.type == EntityType.elementEnd);
+    assert(range.front.name == "foo");
 
-    assert(cursor.next() == EntityType.comment);
-    assert(cursor.text == " no comment ");
+    range.popFront();
+    assert(range.front.type == EntityType.comment);
+    assert(range.front.text == " no comment ");
 
-    assert(cursor.next() == EntityType.elementEnd);
-    assert(cursor.name == "root");
+    range.popFront();
+    assert(range.front.type == EntityType.elementEnd);
+    assert(range.front.name == "root");
 
-    assert(cursor.next() == EntityType.documentEnd);
+    range.popFront();
+    assert(range.empty);
 }
 
 
@@ -1627,25 +1722,29 @@ unittest
     The current entity is skipped regardless of whether it is the given
     $(LREF EntityType).
 
-    Returns: The $(LREF EntityType) of the now-current entity just like
-             $(LREF2 next, EntityCursor) would. If the requested
-             $(LREF EntityType) is not found, then
-             $(LREF EntityType.documentEnd) is returned.
+    This is essentially a slightly optimized equivalent to
+    $(D range.find!((a, b) => a.type == b.type)(entityTypes)).
+
+    Returns: The given range with front now at the first entity which matched
+             one of the given $(LREF EntityType)s or an empty range if none were
+             found.
   +/
-auto skipToEntityType(EC)(ref EC cursor, EntityType[] entityTypes...)
-    if(isInstanceOf!(EntityCursor, EC))
+R skipToEntityType(R)(R range, EntityType[] entityTypes...)
+    if(isInstanceOf!(EntityRange, R))
 {
-    while(true)
+    if(range.empty)
+        return range;
+    range.popFront();
+    for(; !range.empty; range.popFront())
     {
-        auto type = cursor.next();
+        immutable type = range._type;
         foreach(entityType; entityTypes)
         {
             if(type == entityType)
-                return type;
+                return range;
         }
-        if(type == EntityType.documentEnd)
-            return EntityType.documentEnd;
     }
+    return range;
 }
 
 ///
@@ -1656,16 +1755,16 @@ unittest
                "    <foo>nothing to say</foo>\n" ~
                "</root>";
 
-    auto cursor = parseXML(xml);
-    assert(cursor.next() == EntityType.elementStart);
-    assert(cursor.name == "root");
+    auto range = parseXML(xml);
+    assert(range.front.type == EntityType.elementStart);
+    assert(range.front.name == "root");
 
-    assert(cursor.skipToEntityType(EntityType.elementStart, EntityType.elementEmpty) ==
-           EntityType.elementStart);
-    assert(cursor.name == "foo");
+    range = range.skipToEntityType(EntityType.elementStart,
+                                   EntityType.elementEmpty);
+    assert(range.front.type == EntityType.elementStart);
+    assert(range.front.name == "foo");
 
-    assert(cursor.skipToEntityType(EntityType.comment) ==
-           EntityType.documentEnd);
+    assert(range.skipToEntityType(EntityType.comment).empty);
 }
 
 
@@ -1675,43 +1774,47 @@ unittest
     implement XPath as that would be quite complicated, but it does try to be
     compatible with it for the small subset of the syntax that it supports.
 
-    All paths should be relative. $(LREF EntityCursor) can only move forward
+    All paths should be relative. $(LREF EntityRange) can only move forward
     through the document, so using an absolute path would only make sense at
     the beginning of the document.
 
-    Returns: The $(LREF EntityType) of the now-current entity just like
-             $(LREF2 next, EntityCursor) would. If the requested path is not
-             found, then $(LREF EntityType.documentEnd) is returned.
+    Returns: The given range with front now at the requested entity if the path
+             is valid; otherwise, an empty range is returned.
   +/
-EntityType skipToPath(EC)(ref EC cursor, string path)
-    if(isInstanceOf!(EntityCursor, EC))
+R skipToPath(R)(R range, string path)
+    if(isInstanceOf!(EntityRange, R))
 {
+    import std.algorithm.comparison : equal;
+    import std.path : pathSplitter;
+
     with(EntityType)
     {
-        import std.algorithm.comparison : equal;
-        import std.path : pathSplitter;
+        static if(R.config.splitEmpty == SplitEmpty.yes)
+            EntityType[2] startOrEnd = [elementStart, elementEnd];
+        else
+            EntityType[3] startOrEnd = [elementStart, elementEnd, elementEmpty];
 
-        EntityType findOnCurrLevel(string name)
+        R findOnCurrLevel(string name)
         {
+            if(range._type == elementStart)
+                range = range.skipContents();
             while(true)
             {
-                static if(EC.config.splitEmpty == SplitEmpty.yes)
-                    immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-                else
-                    immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
+                range = range.skipToEntityType(startOrEnd[]);
+                if(range.empty)
+                    return range;
+                if(range._type == elementEnd)
+                    return range.takeNone();
 
-                if(type == elementEnd || type == documentEnd)
-                    return documentEnd;
+                if(equal(name, range._name.save))
+                    return range;
 
-                if(equal(name, cursor.name))
-                    return type;
-
-                static if(EC.config.splitEmpty == SplitEmpty.no)
+                static if(R.config.splitEmpty == SplitEmpty.no)
                 {
-                    if(type == elementEmpty)
+                    if(range._type == elementEmpty)
                         continue;
                 }
-                cursor.skipContents();
+                range = range.skipContents();
             }
         }
 
@@ -1720,70 +1823,63 @@ EntityType skipToPath(EC)(ref EC cursor, string path)
         foreach(name; path.pathSplitter())
         {
             if(name.empty || name == ".")
-            {}
-            else if(name == "..")
+                continue;
+            if(name == "..")
             {
-                immutable type = cursor.skipToParentDepth();
-                if(type == documentEnd)
-                    return documentEnd;
+                range = range.skipToParentDepth();
+                if(range.empty)
+                    return range;
                 checkCurrLevel = true;
+                continue;
             }
+
+            static if(R.config.splitEmpty == SplitEmpty.yes)
+                immutable atStart = range._type == elementStart;
             else
+                immutable atStart = range._type == elementStart || range._type == elementEmpty;
+
+            if(!atStart)
             {
-                static if(EC.config.splitEmpty == SplitEmpty.no)
-                    immutable atEmpty = cursor.type == elementEmpty;
-                else
-                    immutable atEmpty = false;
+                range = findOnCurrLevel(name);
+                if(range.empty)
+                    return range;
+                checkCurrLevel = false;
+                continue;
+            }
 
-                if(atEmpty || cursor.type == elementEmpty)
+            if(checkCurrLevel)
+            {
+                checkCurrLevel = false;
+                if(!equal(name, range._name.save))
                 {
-                    if(checkCurrLevel)
-                    {
-                        if(equal(name, cursor.name))
-                            checkCurrLevel = false;
-                        else
-                        {
-                            immutable type = findOnCurrLevel(name);
-                            if(type == documentEnd)
-                                return documentEnd;
-                        }
-                        continue;
-                    }
-
-                    static if(EC.config.splitEmpty == SplitEmpty.no)
-                    {
-                        // elementEmpty has no children to check
-                        if(atEmpty)
-                            return documentEnd;
-                    }
-
-                    {
-                        static if(EC.config.splitEmpty == SplitEmpty.yes)
-                            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-                        else
-                            immutable type = cursor.skipToEntityType(elementStart, elementEnd, elementEmpty);
-                        if(type == elementEnd || type == documentEnd)
-                            return documentEnd;
-                    }
-
-                    if(!equal(name, cursor.name))
-                    {
-                        immutable type = findOnCurrLevel(name);
-                        if(type == documentEnd)
-                            return documentEnd;
-                    }
+                    range = findOnCurrLevel(name);
+                    if(range.empty)
+                        return range;
                 }
-                else
-                {
-                    immutable type = findOnCurrLevel(name);
-                    if(type == documentEnd)
-                        return documentEnd;
-                    checkCurrLevel = false;
-                }
+                continue;
+            }
+
+            static if(R.config.splitEmpty == SplitEmpty.no)
+            {
+                // elementEmpty has no children to check
+                if(range._type == elementEmpty)
+                    return range.takeNone();
+            }
+
+            range = range.skipToEntityType(startOrEnd[]);
+            assert(!range.empty);
+            if(range._type == elementEnd)
+                return range.takeNone();
+
+            if(!equal(name, range._name.save))
+            {
+                range = findOnCurrLevel(name);
+                if(range.empty)
+                    return range;
             }
         }
 
-        return cursor.type;
+        return range;
     }
 }
 
@@ -1804,61 +1900,65 @@ unittest
                "    </foo>\n" ~
                "</carrot>";
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.skipToPath("carrot/foo/bar") == EntityType.elementStart);
-        assert(cursor.name == "bar");
-        assert(cursor.attributes.front.name == "a");
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "carrot");
 
-        assert(cursor.skipToPath("baz") == EntityType.elementEmpty);
-        assert(cursor.name == "baz");
+        range = range.skipToPath("foo/bar");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+        assert(range.front.attributes.front.name == "a");
 
-        assert(cursor.skipToPath("../bar/fuzz/buzz") == EntityType.elementStart);
-        assert(cursor.name == "buzz");
+        range = range.skipToPath("baz");
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "baz");
 
-        assert(cursor.skipToPath("bar") == EntityType.documentEnd);
+        range = range.skipToPath("../bar/fuzz/buzz");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "buzz");
+
+        assert(range.skipToPath("bar").empty);
     }
-    // The path starts with the child entities and the current start tag is
-    // not considered when following the path.
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.skipToPath("carrot/foo/bar") == EntityType.documentEnd);
-    }
-    {
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.skipToPath("foo/bar") == EntityType.elementStart);
-        assert(cursor.name == "bar");
-        assert(cursor.attributes.front.name == "a");
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementStart);
+        range = range.skipToPath("foo/bar");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+        assert(range.front.attributes.front.name == "a");
 
-        assert(cursor.skipToPath("./baz") == EntityType.elementEmpty);
-        assert(cursor.name == "baz");
+        range = range.skipToPath("./baz");
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "baz");
 
-        assert(cursor.skipToPath("../bar") == EntityType.elementStart);
-        assert(cursor.name == "bar");
-        assert(cursor.attributes.front.name == "b");
+        range = range.skipToPath("../bar");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+        assert(range.front.attributes.front.name == "b");
 
-        assert(cursor.skipToPath("buzz") == EntityType.documentEnd);
+        assert(range.skipToPath("buzz").empty);
     }
     // If the current entity is not a start tag, then the first "directory"
     // in the path is matched against a start tag at the same level rather
     // than against a child tag.
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.skipToEntityType(EntityType.elementEmpty) ==
-               EntityType.elementEmpty);
-        assert(cursor.name == "baz");
-        assert(cursor.next() == EntityType.elementEnd);
-        assert(cursor.name == "bar");
-        assert(cursor.skipToPath("bar") == EntityType.elementStart);
-        assert(cursor.attributes.front.name == "b");
+        auto range = parseXML(xml);
+        range = range.skipToEntityType(EntityType.elementEmpty);
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "baz");
+        range.popFront();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "bar");
+        range = range.skipToPath("bar");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.attributes.front.name == "b");
     }
     // The first matching start tag is always taken, so even though there is
     // a bar/fuzz under foo, because fuzz is under the second bar, not the
     // first, it's not found.
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.skipToPath("carrot/foo/bar/fuzz") == EntityType.documentEnd);
+        auto range = parseXML(xml);
+        assert(range.skipToPath("carrot/foo/bar/fuzz").empty);
     }
 }
 
@@ -1885,19 +1985,20 @@ unittest
             enum empty = EntityType.elementStart;
         foreach(str; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
         {
-            auto cursor = parseXML!config(xml);
-            enforceTest(cursor.skipToPath("potato/foo") == empty);
-            enforceTest(cursor.name == "foo");
-            enforceTest(cursor.attributes.front.name == "a");
-            enforceTest(cursor.skipToPath("bar") == EntityType.documentEnd);
+            auto range = parseXML!config(xml).skipToPath("potato/foo");
+            assert(range.front.type == empty);
+            assert(range.front.name == "foo");
+            assert(range.front.attributes.front.name == "a");
+            assert(range.skipToPath("bar").empty);
         }
         {
-            auto cursor = parseXML!config(xml);
-            enforceTest(cursor.skipToPath("./potato/foo") == empty);
-            enforceTest(cursor.skipToEntityType(EntityType.elementStart) == EntityType.elementStart);
-            enforceTest(cursor.name == "foo");
-            enforceTest(cursor.attributes.front.name == "b");
-            enforceTest(cursor.skipToPath("bar/baz") == EntityType.documentEnd);
+            auto range = parseXML!config(xml).skipToPath("./potato/foo");
+            assert(range.front.type == empty);
+            range = range.skipToEntityType(EntityType.elementStart);
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "foo");
+            assert(range.front.attributes.front.name == "b");
+            assert(range.skipToPath("bar/baz").empty);
             //FIXME more testing needed
         }
     }}
@@ -1908,48 +2009,42 @@ unittest
     Skips entities until an entity is reached that is at the same depth as the
     parent of the current entity.
 
-    Returns: The $(LREF EntityType) of the now-current entity just like
-             $(LREF2 next, EntityCursor) would. If the requested depth is not
-             found (which mean that the depth was 0 when skipToParentDepth was
-             called), then $(LREF EntityType.documentEnd) is returned.
+    Returns: The given range with front now at the first entity found which is
+             at the same depth as the entity which was front when
+             skipToParentDepth was called. If the requested depth is not found
+             (which means that the depth was 0 when skipToParentDepth was
+             called), then an empty range is returned.
   +/
-auto skipToParentDepth(EC)(ref EC cursor)
-    if(isInstanceOf!(EntityCursor, EC))
+R skipToParentDepth(R)(R range)
+    if(isInstanceOf!(EntityRange, R))
 {
-    with(EntityType) final switch(cursor.type)
+    with(EntityType) final switch(range._type)
     {
         case cdata:
         case comment:
         {
-            immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-            if(type == documentEnd || type == elementEnd)
-                return type;
+            range = range.skipToEntityType(elementStart, elementEnd);
+            if(range.empty || range._type == elementEnd)
+                return range;
             goto case elementStart;
         }
-        case documentEnd: return cursor.next(); // will assert(0), but we don't have to duplicate the message this way
-        case documentStart: return documentEnd;
         case elementStart:
         {
             while(true)
             {
-                {
-                    cursor.skipContents();
-                    immutable type = cursor.next();
-                    if(type == elementEnd || type == documentEnd)
-                        return type;
-                    if(type == elementStart)
-                        continue;
-                }
-                immutable type = cursor.skipToEntityType(elementStart, elementEnd);
-                if(type == elementEnd)
-                    return elementEnd;
-                if(type == documentEnd)
-                    return type;
+                range = range.skipContents();
+                range.popFront();
+                if(range.empty || range._type == elementEnd)
+                    return range;
+                if(range._type == elementStart)
+                    continue;
+                goto case comment;
             }
+            assert(0); // the compiler isn't smart enough to see that this is unreachable.
         }
-        case elementEnd: goto case comment;
-        case elementEmpty: goto case comment;
-        case pi: goto case comment;
+        case elementEnd:
+        case elementEmpty:
+        case pi:
         case text: goto case comment;
     }
 }
@@ -1965,60 +2060,73 @@ unittest
                "    <!-- another comment -->\n" ~
                "</root>";
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "root");
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "foo");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
 
-        assert(cursor.next() == EntityType.comment);
-        assert(cursor.text == " comment ");
+        range.popFront();
+        assert(range.front.type == EntityType.comment);
+        assert(range.front.text == " comment ");
 
-        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
-        assert(cursor.name == "foo");
+        range = range.skipToParentDepth();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "foo");
 
-        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
-        assert(cursor.name == "root");
+        range = range.skipToParentDepth();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "root");
 
-        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+        range = range.skipToParentDepth();
+        assert(range.empty);
     }
     {
-        auto cursor = parseXML(xml);
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "root");
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "foo");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
 
-        assert(cursor.next() == EntityType.comment);
-        assert(cursor.text == " comment ");
+        range.popFront();
+        assert(range.front.type == EntityType.comment);
+        assert(range.front.text == " comment ");
 
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "bar");
+        range.popFront();
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
 
-        assert(cursor.next() == EntityType.text);
-        assert(cursor.text == "exam");
+        range.popFront();
+        assert(range.front.type == EntityType.text);
+        assert(range.front.text == "exam");
 
-        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
-        assert(cursor.name == "bar");
+        range = range.skipToParentDepth();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "bar");
 
-        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
-        assert(cursor.name == "foo");
+        range = range.skipToParentDepth();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "foo");
 
-        assert(cursor.next() == EntityType.comment);
-        assert(cursor.text == " another comment ");
+        range.popFront();
+        assert(range.front.type == EntityType.comment);
+        assert(range.front.text == " another comment ");
 
-        assert(cursor.skipToParentDepth() == EntityType.elementEnd);
-        assert(cursor.name == "root");
+        range = range.skipToParentDepth();
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "root");
 
-        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+        assert(range.skipToParentDepth().empty);
     }
     {
-        auto cursor = parseXML("<root><foo>bar</foo></root>");
-        assert(cursor.next() == EntityType.elementStart);
-        assert(cursor.name == "root");
-        assert(cursor.skipToParentDepth() == EntityType.documentEnd);
+        auto range = parseXML("<root><foo>bar</foo></root>");
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
+        assert(range.skipToParentDepth().empty);
     }
 }
 
@@ -2036,31 +2144,39 @@ unittest
                    "</root>";
         for(int i = 0; true; ++i)
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.cdata);
+            auto range = parseXML(xml);
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.cdata);
             if(i == 0)
             {
-                enforceTest(cursor.text == " cdata run ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == " cdata run ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementEmpty);
-            enforceTest(cursor.next() == EntityType.cdata);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.cdata);
             if(i == 1)
             {
-                enforceTest(cursor.text == " cdata have its bits flipped ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == " cdata have its bits flipped ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementStart);
-            assertNotThrown!XMLParsingException(cursor.skipContents());
-            enforceTest(cursor.next() == EntityType.cdata);
-            enforceTest(cursor.text == " cdata play violin ");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range = range.skipContents();
+            range.popFront();
+            enforceTest(range.front.type == EntityType.cdata);
+            enforceTest(range.front.text == " cdata play violin ");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             break;
         }
     }
@@ -2077,69 +2193,69 @@ unittest
                    "<!-- after -->" ~
                    "<!-- end -->";
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            auto range = parseXML(xml);
+            enforceTest(range.skipToParentDepth().empty);
         }
         for(int i = 0; true; ++i)
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.next() == EntityType.comment);
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.comment);
+            auto range = parseXML(xml);
+            enforceTest(range.front.type == EntityType.comment);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.comment);
             if(i == 0)
             {
-                enforceTest(cursor.text == " comment 1 ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == " comment 1 ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementEmpty);
-            enforceTest(cursor.next() == EntityType.comment);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.comment);
             if(i == 1)
             {
-                enforceTest(cursor.text == " comment 2 ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == " comment 2 ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementStart);
-            assertNotThrown!XMLParsingException(cursor.skipContents());
-            enforceTest(cursor.next() == EntityType.comment);
-            enforceTest(cursor.text == " comment 3 ");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range = range.skipContents();
+            range.popFront();
+            enforceTest(range.front.type == EntityType.comment);
+            enforceTest(range.front.text == " comment 3 ");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             break;
         }
         for(int i = 0; true; ++i)
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.next() == EntityType.comment);
-            enforceTest(cursor.next() == EntityType.elementStart);
-            assertNotThrown!XMLParsingException(cursor.skipContents());
-            enforceTest(cursor.next() == EntityType.comment);
-            enforceTest(cursor.text == " after ");
+            auto range = parseXML(xml);
+            enforceTest(range.front.type == EntityType.comment);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range = range.skipContents();
+            range.popFront();
+            enforceTest(range.front.type == EntityType.comment);
+            enforceTest(range.front.text == " after ");
             if(i == 0)
             {
-                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                enforceTest(range.skipToParentDepth().empty);
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.comment);
-            enforceTest(cursor.text == " end ");
-            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.comment);
+            enforceTest(range.front.text == " end ");
+            enforceTest(range.skipToParentDepth().empty);
             break;
         }
-    }
-    // documentStart
-    {
-        auto xml = "<?xml version='1.0'?>\n" ~
-                   "<root></root>";
-        auto cursor = parseXML(xml);
-        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
-    }
-    {
-        auto xml = "<root></root>";
-        auto cursor = parseXML(xml);
-        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
     }
     // elementStart
     for(int i = 0; true; ++i)
@@ -2149,38 +2265,48 @@ unittest
                    "    <nothing/>\n" ~
                    "    <c></c>\n" ~
                    "</root>";
-        auto cursor = parseXML(xml);
-        enforceTest(cursor.next() == EntityType.elementStart);
+        auto range = parseXML(xml);
+        enforceTest(range.front.type == EntityType.elementStart);
         if(i == 0)
         {
-            enforceTest(cursor.name == "root");
-            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            enforceTest(range.front.name == "root");
+            enforceTest(range.skipToParentDepth().empty);
             continue;
         }
-        enforceTest(cursor.next() == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
         if(i == 1)
         {
-            enforceTest(cursor.name == "a");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            enforceTest(range.front.name == "a");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             continue;
         }
-        enforceTest(cursor.next() == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
         if(i == 2)
         {
-            enforceTest(cursor.name == "b");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "a");
+            enforceTest(range.front.name == "b");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "a");
             continue;
         }
-        enforceTest(cursor.next() == EntityType.text);
-        enforceTest(cursor.next() == EntityType.elementEnd);
-        enforceTest(cursor.next() == EntityType.elementEnd);
-        enforceTest(cursor.next() == EntityType.elementEmpty);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.name == "c");
-        enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-        enforceTest(cursor.name == "root");
+        range.popFront();
+        enforceTest(range.front.type == EntityType.text);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEmpty);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
+        enforceTest(range.front.name == "c");
+        range = range.skipToParentDepth();
+        assert(range._type == EntityType.elementEnd);
+        enforceTest(range.front.name == "root");
         break;
     }
     // elementEnd
@@ -2191,46 +2317,58 @@ unittest
                    "    <nothing/>\n" ~
                    "    <c></c>\n" ~
                    "</root>";
-        auto cursor = parseXML(xml);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.next() == EntityType.text);
-        enforceTest(cursor.next() == EntityType.elementEnd);
+        auto range = parseXML(xml);
+        enforceTest(range.front.type == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.text);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
         if(i == 0)
         {
-            enforceTest(cursor.name == "b");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "a");
+            enforceTest(range.front.name == "b");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "a");
             continue;
         }
-        enforceTest(cursor.next() == EntityType.elementEnd);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
         if(i == 1)
         {
-            enforceTest(cursor.name == "a");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            enforceTest(range.front.name == "a");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             continue;
         }
-        enforceTest(cursor.next() == EntityType.elementEmpty);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.next() == EntityType.elementEnd);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEmpty);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
         if(i == 2)
         {
-            enforceTest(cursor.name == "c");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            enforceTest(range.front.name == "c");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             continue;
         }
-        enforceTest(cursor.next() == EntityType.elementEnd);
-        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEnd);
+        enforceTest(range.skipToParentDepth().empty);
         break;
     }
     // elementEmpty
     {
-        auto cursor = parseXML("<root/>");
-        enforceTest(cursor.next() == EntityType.elementEmpty);
-        enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+        auto range = parseXML("<root/>");
+        enforceTest(range.front.type == EntityType.elementEmpty);
+        enforceTest(range.skipToParentDepth().empty);
     }
     foreach(i; 0 .. 2)
     {
@@ -2240,22 +2378,28 @@ unittest
                    "    <c></c>\n" ~
                    "    <whatever/>\n" ~
                    "</root>";
-        auto cursor = parseXML(xml);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        enforceTest(cursor.next() == EntityType.elementStart);
-        assertNotThrown!XMLParsingException(cursor.skipContents());
-        enforceTest(cursor.next() == EntityType.elementEmpty);
+        auto range = parseXML(xml);
+        enforceTest(range.front.type == EntityType.elementStart);
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementStart);
+        range = range.skipContents();
+        range.popFront();
+        enforceTest(range.front.type == EntityType.elementEmpty);
         if(i == 0)
-            enforceTest(cursor.name == "nothing");
+            enforceTest(range.front.name == "nothing");
         else
         {
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.elementEnd);
-            enforceTest(cursor.next() == EntityType.elementEmpty);
-            enforceTest(cursor.name == "whatever");
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEnd);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEmpty);
+            enforceTest(range.front.name == "whatever");
         }
-        enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-        enforceTest(cursor.name == "root");
+        range = range.skipToParentDepth();
+        assert(range._type == EntityType.elementEnd);
+        enforceTest(range.front.name == "root");
     }
     // pi
     {
@@ -2271,48 +2415,60 @@ unittest
                    "<?Conan?>";
         for(int i = 0; true; ++i)
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.next() == EntityType.pi);
+            auto range = parseXML(xml);
+            enforceTest(range.front.type == EntityType.pi);
             if(i == 0)
             {
-                enforceTest(cursor.name == "Sherlock");
-                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                enforceTest(range.front.name == "Sherlock");
+                enforceTest(range.skipToParentDepth().empty);
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.pi);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.pi);
             if(i == 1)
             {
-                enforceTest(cursor.name == "Foo");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.name == "Foo");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementEmpty);
-            enforceTest(cursor.next() == EntityType.pi);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.pi);
             if(i == 2)
             {
-                enforceTest(cursor.name == "Bar");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.name == "Bar");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.elementEnd);
-            enforceTest(cursor.next() == EntityType.pi);
-            enforceTest(cursor.name == "Baz");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
-            enforceTest(cursor.next() == EntityType.pi);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEnd);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.pi);
+            enforceTest(range.front.name == "Baz");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
+            range.popFront();
+            enforceTest(range.front.type == EntityType.pi);
             if(i == 3)
             {
-                enforceTest(cursor.name == "Poirot");
-                enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+                enforceTest(range.front.name == "Poirot");
+                enforceTest(range.skipToParentDepth().empty);
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.pi);
-            enforceTest(cursor.name == "Conan");
-            enforceTest(cursor.skipToParentDepth() == EntityType.documentEnd);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.pi);
+            enforceTest(range.front.name == "Conan");
+            enforceTest(range.skipToParentDepth().empty);
             break;
         }
     }
@@ -2327,31 +2483,39 @@ unittest
                    "</root>";
         for(int i = 0; true; ++i)
         {
-            auto cursor = parseXML(xml);
-            enforceTest(cursor.next() == EntityType.elementStart);
-            enforceTest(cursor.next() == EntityType.text);
+            auto range = parseXML(xml);
+            enforceTest(range.front.type == EntityType.elementStart);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.text);
             if(i == 0)
             {
-                enforceTest(cursor.text == "\n    nothing to say\n    ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == "\n    nothing to say\n    ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementEmpty);
-            enforceTest(cursor.next() == EntityType.text);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            enforceTest(range.front.type == EntityType.text);
             if(i == 1)
             {
-                enforceTest(cursor.text == "\n    nothing whatsoever\n    ");
-                enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-                enforceTest(cursor.name == "root");
+                enforceTest(range.front.text == "\n    nothing whatsoever\n    ");
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                enforceTest(range.front.name == "root");
                 continue;
             }
-            enforceTest(cursor.next() == EntityType.elementStart);
-            assertNotThrown!XMLParsingException(cursor.skipContents());
-            enforceTest(cursor.next() == EntityType.text);
-            enforceTest(cursor.text == "\n    but he keeps talking\n");
-            enforceTest(cursor.skipToParentDepth() == EntityType.elementEnd);
-            enforceTest(cursor.name == "root");
+            range.popFront();
+            enforceTest(range.front.type == EntityType.elementStart);
+            range = range.skipContents();
+            range.popFront();
+            enforceTest(range.front.type == EntityType.text);
+            enforceTest(range.front.text == "\n    but he keeps talking\n");
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            enforceTest(range.front.name == "root");
             break;
         }
     }
@@ -2367,7 +2531,7 @@ private:
 version(unittest) auto testParser(Config config, R)(R xmlText) @trusted pure nothrow @nogc
 {
     import std.utf : byCodeUnit;
-    typeof(EntityCursor!(config, R)._text) text;
+    typeof(EntityRange!(config, R)._text) text;
     text.input = byCodeUnit(xmlText);
     return text;
 }
@@ -2401,7 +2565,7 @@ enum GrammarPos
     // This is at the beginning of content at the first CharData?. The next
     // thing to parse will be a CharData, element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityCursor (see EntityCursor.text).
+    // EntityRange (see EntityRange.Entity.text).
     contentCharData1,
 
     // element  ::= EmptyElemTag | STag content ETag
@@ -2409,7 +2573,7 @@ enum GrammarPos
     // This is after the first CharData?. The next thing to parse will be a
     // element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityCursor (see EntityCursor.text).
+    // EntityRange (see EntityRange.Entity.text).
     contentMid,
 
     // element  ::= EmptyElemTag | STag content ETag
@@ -2417,7 +2581,7 @@ enum GrammarPos
     // This is at the second CharData?. The next thing to parse will be a
     // CharData, element, CDSect, PI, Comment, or ETag.
     // References are treated as part of the CharData and not parsed out by the
-    // EntityCursor (see EntityCursor.text).
+    // EntityRange (see EntityRange.Entity.text).
     contentCharData2,
 
     // element  ::= EmptyElemTag | STag content ETag
