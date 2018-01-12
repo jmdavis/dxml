@@ -1016,6 +1016,52 @@ private:
         popFrontAndIncCol(_text);
     }
 
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, enforce;
+
+        static void test(alias func)(string text, string comment, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(text ~ "<root/>");
+
+            static foreach(i, config; testConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(range.front.type == EntityType.comment, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, comment), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+
+            static foreach(i, config; testConfigs)
+                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<!--foo-->", "foo", 1, 11);
+            test!func("<!-- foo -->", " foo ", 1, 13);
+            test!func("<!-- -->", " ", 1, 9);
+            test!func("<!---->", "", 1, 8);
+            test!func("<!--- comment -->", "- comment ", 1, 18);
+            test!func("<!-- \n foo \n -->", " \n foo \n ", 3, 5);
+
+            testFail!func("<!- comment -->");
+            testFail!func("<!-- comment ->");
+            testFail!func("<!-- comment --->");
+            testFail!func("<!---- comment -->");
+            testFail!func("<!-- comment -- comment -->");
+            testFail!func("<!----->");
+        }
+    }
+
 
     // PI       ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
     // PITarget ::= Name - (('X' | 'x') ('M' | 'm') ('L' | 'l'))
