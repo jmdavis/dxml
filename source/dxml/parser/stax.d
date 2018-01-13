@@ -1107,7 +1107,7 @@ private:
                         throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
                                                       _text.pos);
                     }
-                    throw new XMLParsingException("--", _text.pos);
+                    throw new XMLParsingException("Expected --", _text.pos);
                 }
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -1185,7 +1185,51 @@ private:
             testFail!func("<!-- comment --->");
             testFail!func("<!---- comment -->");
             testFail!func("<!-- comment -- comment -->");
+            testFail!func("<!->");
+            testFail!func("<!-->");
+            testFail!func("<!--->");
             testFail!func("<!----->");
+            testFail!func("<!blah>");
+            testFail!func("<! blah>");
+
+            {
+                auto xml = func("<!DOCTYPE foo><!-- comment --><root/>");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " comment "));
+            }
+            {
+                auto xml = func("<root><!-- comment --></root>");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " comment "));
+            }
+            {
+                auto xml = func("<root/><!-- comment -->");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " comment "));
+            }
+
+            static foreach(comment; ["<!foo>", "<! foo>", "<!->", "<!-->", "<!--->"])
+            {
+                {
+                    auto xml = func("<!DOCTYPE foo>" ~ comment ~ "<root/>");
+                    assertThrown!XMLParsingException(parseXML(xml));
+                }
+                {
+                    auto xml = func("<root>" ~ comment ~ "<root>");
+                    auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                    assertThrown!XMLParsingException(range.popFront());
+                }
+                {
+                    auto xml = func("<root/>" ~ comment);
+                    auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                    assertThrown!XMLParsingException(range.popFront());
+                }
+            }
         }
     }
 
