@@ -608,7 +608,7 @@ public:
                         return;
                     }
 
-                    auto name = stripBCU!R(_text.takeName!(true, '=')());
+                    auto name = stripBCU!R(_text.takeName!'='());
                     stripWS(_text);
                     checkNotEmpty(_text);
                     if(_text.input.front != '=')
@@ -1076,7 +1076,7 @@ private:
         {
             immutable posAtName = _text.pos;
             _type = EntityType.pi;
-            _name = takeName!(true, '?')(_text);
+            _name = takeName!'?'(_text);
             checkNotEmpty(_text);
             if(_text.input.front != '?')
             {
@@ -1278,7 +1278,7 @@ private:
             throw new XMLParsingException("Tag missing name", _savedText.pos);
         if(_savedText.input.front == '/')
             throw new XMLParsingException("Invalid end tag", _savedText.pos);
-        _name = _savedText.takeName!true();
+        _name = _savedText.takeName();
         stripWS(_savedText);
         // The attributes should be all that's left in savedText.
     }
@@ -2798,110 +2798,13 @@ unittest
 }
 
 
-enum TakeUntil
-{
-    keepAndReturn,
-    dropAndReturn,
-    drop
-}
-
-// Returns a slice (or takeExactly) of text.input up to _and_ including the
-// given needle, removing both that slice from text.input in the process. If the
-// needle is not found, then an XMLParsingException is thrown.
-auto takeUntilAndKeep(string needle, Text)(ref Text text)
-{
-    return _takeUntil!(TakeUntil.keepAndReturn, needle, Text)(text);
-}
-
-unittest
-{
-    import core.exception : AssertError;
-    import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, enforce;
-
-    static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
-                                                int row, int col, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-
-        static foreach(i, config; testConfigs)
-        {{
-            {
-                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto text = testParser!config(haystack.save);
-                enforce!AssertError(equal(text.takeUntilAndKeep!needle(), expected),
-                                    "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
-            }
-            static if(i != 2)
-            {
-                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto text = testParser!config(haystack.save);
-                text.pos.line += 3;
-                static if(i == 0)
-                    text.pos.col += 7;
-                enforce!AssertError(equal(text.takeUntilAndKeep!needle(), expected),
-                                    "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
-            }
-        }}
-    }
-
-    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
-        {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeUntilAndKeep!needle(), "unittest failure", __FILE__, line);
-        }}
-    }
-
-    static foreach(func; testRangeFuncs)
-    {
-        {
-            auto haystack = "hello world";
-            enum needle = "world";
-
-            static foreach(i; 1 .. needle.length)
-                test!(func, needle[0 .. i])(haystack, haystack[0 .. $ - (needle.length - i)], needle[i .. $], 1, 7 + i);
-        }
-        test!(func, "l")("lello world", "l", "ello world", 1, 2);
-        test!(func, "ll")("lello world", "lell", "o world", 1, 5);
-        test!(func, "le")("llello world", "lle", "llo world", 1, 4);
-        {
-            import std.utf : codeLength;
-            auto haystack = "プログラミング in D is great indeed";
-            auto found = "プログラミング in D is great";
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
-            enum needle = "great";
-            enum remainder = "great indeed";
-
-            static foreach(i; 1 .. needle.length)
-            {
-                test!(func, needle[0 .. i])(haystack, found[0 .. $ - (needle.length - i)],
-                                            remainder[i .. $], 1, len + i + 1);
-            }
-        }
-        static foreach(haystack; ["", "a", "hello"])
-            testFail!(func, "x")(haystack);
-        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
-            testFail!(func, "le")(haystack);
-        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
-            testFail!(func, "web")(haystack);
-    }
-}
-
-
 // Returns a slice (or takeExactly) of text.input up to but not including the
 // given needle, removing both that slice and the given needle from text.input
 // in the process. If the needle is not found, then an XMLParsingException is
 // thrown.
 auto takeUntilAndDrop(string needle, Text)(ref Text text)
 {
-    return _takeUntil!(TakeUntil.dropAndReturn, needle, Text)(text);
+    return _takeUntil!(true, needle, Text)(text);
 }
 
 unittest
@@ -2985,7 +2888,7 @@ unittest
 // when the config indicates that something should be skipped.
 void skipUntilAndDrop(string needle, Text)(ref Text text)
 {
-    return _takeUntil!(TakeUntil.drop, needle, Text)(text);
+    _takeUntil!(false, needle, Text)(text);
 }
 
 unittest
@@ -3066,7 +2969,7 @@ unittest
     }
 }
 
-auto _takeUntil(TakeUntil tu, string needle, Text)(ref Text text)
+auto _takeUntil(bool retSlice, string needle, Text)(ref Text text)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
@@ -3074,7 +2977,7 @@ auto _takeUntil(TakeUntil tu, string needle, Text)(ref Text text)
 
     static assert(needle.find!isWhite().empty);
 
-    enum trackTakeLen = tu != TakeUntil.drop || Text.config.posType == PositionType.lineAndCol;
+    enum trackTakeLen = retSlice || Text.config.posType == PositionType.lineAndCol;
 
     auto orig = text.input.save;
     bool found = false;
@@ -3163,9 +3066,7 @@ auto _takeUntil(TakeUntil tu, string needle, Text)(ref Text text)
     if(!found)
         throw new XMLParsingException("Failed to find: " ~ needle, text.pos);
 
-    static if(tu == TakeUntil.keepAndReturn)
-        return takeExactly(orig, takeLen + needle.length);
-    else static if(tu == TakeUntil.dropAndReturn)
+    static if(retSlice)
         return takeExactly(orig, takeLen);
 }
 
@@ -3360,80 +3261,12 @@ unittest
 }
 
 
-// Parses
-// Eq ::= S? '=' S?
-void stripEq(Text)(ref Text text)
-{
-    stripWS(text);
-    if(!text.stripStartsWith("="))
-        throw new XMLParsingException("= missing", text.pos);
-    stripWS(text);
-}
-
-unittest
-{
-    import core.exception : AssertError;
-    import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown, enforce;
-
-    static void test(alias func)(string origHaystack, string remainder, int row, int col, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-
-        static foreach(i, config; testConfigs)
-        {{
-            {
-                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto text = testParser!config(haystack.save);
-                assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
-            }
-            static if(i != 2)
-            {
-                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto text = testParser!config(haystack.save);
-                text.pos.line += 3;
-                static if(i == 0)
-                    text.pos.col += 7;
-                assertNotThrown!XMLParsingException(stripEq(text), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
-            }
-        }}
-    }
-
-    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
-        {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.stripEq(), "unittest failure", __FILE__, line);
-        }}
-    }
-
-    static foreach(func; testRangeFuncs)
-    {
-        test!func("=", "", 1, 2);
-        test!func("=hello", "hello", 1, 2);
-        test!func(" \n\n =hello", "hello", 3, 3);
-        test!func("=\n\n\nhello", "hello", 4, 1);
-        testFail!func("hello");
-        testFail!func("hello=");
-    }
-}
-
-
-// If requireNameStart is true, then this removes a name per the Name grammar
-// rule from the front of the input and returns it. If requireNameStart is
-// false, then this removes a name per the Nmtoken grammar rule and returns it
-// (the difference being whether the first character must be a NameStartChar
-// rather than a NameChar like the other characters).
+// This removes a name per the Name grammar rule from the front of the input and
+// returns it.
 // The parsing continues until either one of the given delimiters or an XML
 // whitespace character is encountered. The delimiter/whitespace is not returned
 // as part of the name and is left at the front of the input.
-template takeName(bool requireNameStart, delims...)
+template takeName(delims...)
 {
     static foreach(delim; delims)
     {
@@ -3451,19 +3284,18 @@ template takeName(bool requireNameStart, delims...)
 
         auto orig = text.input.save;
         size_t takeLen;
-        static if(requireNameStart)
-        {{
-            auto decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
+        {
+            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
             if(!isNameStartChar(decodedC))
                 throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
+        }
 
-            if(text.input.empty)
-            {
-                static if(Text.config.posType == PositionType.lineAndCol)
-                    text.pos.col += takeLen;
-                return takeExactly(orig, takeLen);
-            }
-        }}
+        if(text.input.empty)
+        {
+            static if(Text.config.posType == PositionType.lineAndCol)
+                text.pos.col += takeLen;
+            return takeExactly(orig, takeLen);
+        }
 
         loop: while(true)
         {
@@ -3477,7 +3309,7 @@ template takeName(bool requireNameStart, delims...)
             }
 
             size_t numCodeUnits;
-            auto decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
             if(!isNameChar(decodedC))
                 throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
             takeLen += numCodeUnits;
@@ -3502,8 +3334,8 @@ unittest
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown, enforce;
 
-    static void test(alias func, bool rns, delim...)(string origHaystack, string expected, string remainder,
-                                                     int row, int col, size_t line = __LINE__)
+    static void test(alias func, delim...)(string origHaystack, string expected, string remainder,
+                                           int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
 
@@ -3512,7 +3344,7 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforce!AssertError(equal(text.takeName!(rns, delim)(), expected),
+                enforce!AssertError(equal(text.takeName!delim(), expected),
                                     "unittest failure 1", __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
@@ -3524,7 +3356,7 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforce!AssertError(equal(text.takeName!(rns, delim)(), expected),
+                enforce!AssertError(equal(text.takeName!delim(), expected),
                                     "unittest failure 4", __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
@@ -3532,13 +3364,13 @@ unittest
         }}
     }
 
-    static void testFail(alias func, bool rns, delim...)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, delim...)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; testConfigs)
         {{
             auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeName!(rns, delim)(), "unittest failure", __FILE__, line);
+            assertThrown!XMLParsingException(text.takeName!delim(), "unittest failure", __FILE__, line);
         }}
     }
 
@@ -3554,37 +3386,28 @@ unittest
                 enum strRem = str ~ remainder;
                 enum delimRem = '>' ~ remainder;
                 enum hay = str ~ delimRem;
-                static foreach(bool rns; [true, false])
-                {
-                    test!(func, rns)(strRem, str, remainder, 1, len + 1);
-                    test!(func, rns, '=')(strRem, str, remainder, 1, len + 1);
-                    test!(func, rns, '>', '|')(hay, str, delimRem, 1, len + 1);
-                    test!(func, rns, '|', '>')(hay, str, delimRem, 1, len + 1);
-                }
+                test!func(strRem, str, remainder, 1, len + 1);
+                test!(func, '=')(strRem, str, remainder, 1, len + 1);
+                test!(func, '>', '|')(hay, str, delimRem, 1, len + 1);
+                test!(func, '|', '>')(hay, str, delimRem, 1, len + 1);
             }}
         }}
 
-        static foreach(bool rns; [true, false])
+        static foreach(haystack; [" ", "<", "foo!", "foo!<"])
         {
-            static foreach(haystack; [" ", "<", "foo!", "foo!<"])
-            {
-                testFail!(func, rns)(haystack);
-                testFail!(func, rns)(haystack ~ '>');
-                testFail!(func, rns, '?')(haystack);
-                testFail!(func, rns, '=')(haystack ~ '=');
-            }
-
-            testFail!(func, rns, '>')(">");
-            testFail!(func, rns, '?')("?");
+            testFail!func(haystack);
+            testFail!func(haystack ~ '>');
+            testFail!(func, '?')(haystack);
+            testFail!(func, '=')(haystack ~ '=');
         }
+
+        testFail!(func, '>')(">");
+        testFail!(func, '?')("?");
 
         static foreach(haystack; ["42", ".", ".a"])
         {
-            testFail!(func, true)(haystack);
-            test!(func, false)(haystack, haystack, "", 1, haystack.length + 1);
-            testFail!(func, true, '>')(haystack);
-            test!(func, false, '?')(haystack, haystack, "", 1, haystack.length + 1);
-            test!(func, false, '=')(haystack ~ '=', haystack, "=", 1, haystack.length + 1);
+            testFail!func(haystack);
+            testFail!(func, '>')(haystack);
         }
     }
 }
