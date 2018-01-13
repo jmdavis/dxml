@@ -602,24 +602,25 @@ public:
 
                 void popFront()
                 {
+                    immutable wasWS = stripWS(_text);
                     if(_text.input.empty)
                     {
                         empty = true;
                         return;
                     }
+                    if(!wasWS)
+                        throw new XMLParsingException("Whitespace missing before attribute name", _text.pos);
 
                     auto name = stripBCU!R(_text.takeName!'='());
                     stripWS(_text);
+
                     checkNotEmpty(_text);
                     if(_text.input.front != '=')
                         throw new XMLParsingException("= missing", _text.pos);
                     popFrontAndIncCol(_text);
-                    stripWS(_text);
 
-                    auto value = stripBCU!R(takeEnquotedText(_text));
                     stripWS(_text);
-
-                    _front = Attribute(name, value);
+                    _front = Attribute(name, stripBCU!R(takeEnquotedText(_text)));
                 }
 
                 @property auto save()
@@ -646,6 +647,134 @@ public:
             }
 
             return AttributeRange(_savedText);
+        }
+
+        ///
+        static if(compileInTests) unittest
+        {
+            import std.algorithm.comparison : equal;
+            import std.algorithm.iteration : filter;
+            {
+                auto xml = "<root/>";
+                auto range = parseXML(xml);
+                assert(range.front.type == EntityType.elementEmpty);
+                assert(range.front.attributes.empty);
+            }
+            {
+                auto xml = "<root a='42' q='29' w='hello'/>";
+                auto range = parseXML(xml);
+                assert(range.front.type == EntityType.elementEmpty);
+                auto attrs = range.front.attributes;
+                assert(attrs.front.name == "a");
+                assert(attrs.front.value == "42");
+                attrs.popFront();
+                assert(attrs.front.name == "q");
+                assert(attrs.front.value == "29");
+                attrs.popFront();
+                assert(attrs.front.name == "w");
+                assert(attrs.front.value == "hello");
+                attrs.popFront();
+                assert(attrs.empty);
+            }
+            // Because the type of name and value is SliceOfR, == with a string
+            // only works if the range passed to parseXML was string.
+            {
+                auto xml = filter!(a => true)("<root a='42' q='29' w='hello'/>");
+                auto range = parseXML(xml);
+                assert(range.front.type == EntityType.elementEmpty);
+                auto attrs = range.front.attributes;
+                assert(equal(attrs.front.name, "a"));
+                assert(equal(attrs.front.value, "42"));
+                attrs.popFront();
+                assert(equal(attrs.front.name, "q"));
+                assert(equal(attrs.front.value, "29"));
+                attrs.popFront();
+                assert(equal(attrs.front.name, "w"));
+                assert(equal(attrs.front.value, "hello"));
+                attrs.popFront();
+                assert(attrs.empty);
+            }
+        }
+
+        static if(compileInTests) unittest
+        {
+            import core.exception : AssertError;
+            import std.algorithm.comparison : equal;
+            import std.exception : assertNotThrown, assertThrown, enforce;
+            import std.typecons : Tuple, tuple;
+
+            static void test(alias func)(string text, EntityType type, Tuple!(string, string)[] expected,
+                                         int row, int col, size_t line = __LINE__)
+            {
+                auto xml = func(text);
+                static foreach(i, config; testConfigs)
+                {{
+                    auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                    auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                    enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
+                    enforce!AssertError(equal!((a, b) => equal(a[0], b[0]) && equal(a[1], b[1]))
+                                              (range.front.attributes, expected), "unittest failure 2", __FILE__, line);
+                    enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
+                }}
+            }
+
+            static void testFail(alias func)(string text, size_t line = __LINE__)
+            {
+                auto xml = func(text);
+                static foreach(i, config; testConfigs)
+                {{
+                    auto range = parseXML!config(xml.save);
+                    assertThrown!XMLParsingException(walkLength(range.front.attributes),
+                                                     "unittest failure", __FILE__, line);
+                }}
+            }
+
+            static foreach(func; testRangeFuncs)
+            {
+                test!func("<root a='b'/>", EntityType.elementEmpty, [tuple("a", "b")], 1, 14);
+                test!func("<root a = 'b' />", EntityType.elementEmpty, [tuple("a", "b")], 1, 17);
+                test!func("<root \n\n a \n\n = \n\n 'b' \n\n />", EntityType.elementEmpty, [tuple("a", "b")], 9, 4);
+                test!func("<root a='b'></root>", EntityType.elementStart, [tuple("a", "b")], 1, 13);
+                test!func("<root a = 'b' ></root>", EntityType.elementStart, [tuple("a", "b")], 1, 16);
+                test!func("<root \n a \n = \n 'b' \n ></root>", EntityType.elementStart, [tuple("a", "b")], 5, 3);
+
+                test!func("<root foo='\n\n\n'/>", EntityType.elementEmpty, [tuple("foo", "\n\n\n")], 4, 4);
+                test!func(`<root foo='"""'/>`, EntityType.elementEmpty, [tuple("foo", `"""`)], 1, 18);
+                test!func(`<root foo="'''"/>`, EntityType.elementEmpty, [tuple("foo", `'''`)], 1, 18);
+                test!func(`<root foo.=""/>`, EntityType.elementEmpty, [tuple("foo.", "")], 1, 16);
+
+                test!func("<root foo='bar' a='b' hello='world'/>", EntityType.elementEmpty,
+                          [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
+                test!func(`<root foo="bar" a='b' hello="world"/>`, EntityType.elementEmpty,
+                          [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
+
+                testFail!func(`<root a=""">`);
+                testFail!func(`<root a='''>`);
+                testFail!func("<root a=>");
+                testFail!func("<root a='>");
+                testFail!func("<root a='>");
+                testFail!func("<root =''>");
+                testFail!func(`<root a "">`);
+                testFail!func(`<root a"">`);
+                testFail!func(`<root a>`);
+                testFail!func("<root foo='bar' a=>");
+                testFail!func("<root foo='bar' a='>");
+                testFail!func("<root foo='bar' a='>");
+                testFail!func("<root foo='bar' =''>");
+                testFail!func("<root foo='bar' a= hello='world'>");
+                testFail!func("<root foo='bar' a=' hello='world'>");
+                testFail!func("<root foo='bar' a=' hello='world'>");
+                testFail!func("<root foo='bar' ='' hello='world'>");
+                testFail!func("<root foo='bar'a='b'>");
+                testFail!func(`<root .foo="bar">`);
+
+                // FIXME The contents of the attribute value aren't currently
+                // validated at all. Validation does get a bit involved though
+                // thanks to the fact that & is legal if the attribute is a
+                // reference and illegal otherwise, and full validation would
+                // also involve validating that the reference is well-formed
+                // as well.
+            }
         }
 
 
@@ -1025,21 +1154,19 @@ private:
         static void test(alias func)(string text, string comment, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-
             static foreach(i, config; testConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 enforce!AssertError(range.front.type == EntityType.comment, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(equal(range.front.text, comment), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
             }}
         }
 
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
-            auto xml = func(text);
-
+            auto xml = func(text ~ "<root/>");
             static foreach(i, config; testConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
@@ -1207,7 +1334,6 @@ private:
         {
             enum int tagLen = "<root/>".length;
             auto xml = func(text ~ "<root/>");
-
             static foreach(i, config; testConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
@@ -1220,7 +1346,6 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-
             static foreach(i, config; testConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
@@ -1279,7 +1404,6 @@ private:
         if(_savedText.input.front == '/')
             throw new XMLParsingException("Invalid end tag", _savedText.pos);
         _name = _savedText.takeName();
-        stripWS(_savedText);
         // The attributes should be all that's left in savedText.
     }
 
@@ -2675,7 +2799,6 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -2764,7 +2887,6 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -2817,7 +2939,6 @@ unittest
                                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -2901,7 +3022,6 @@ unittest
                                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -3123,7 +3243,6 @@ unittest
                                             int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -3206,7 +3325,6 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -3338,7 +3456,6 @@ unittest
                                            int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-
         static foreach(i, config; testConfigs)
         {{
             {
@@ -3612,7 +3729,7 @@ version(unittest)
 {
     // Wrapping it like this rather than assigning testRangeFuncs directly
     // allows us to avoid having the imports be at module-level, which is
-    // generally not esirable with version(unittest).
+    // generally not desirable with version(unittest).
     alias testRangeFuncs = _testRangeFuncs!();
     template _testRangeFuncs()
     {
@@ -3621,7 +3738,8 @@ version(unittest)
         import std.meta : AliasSeq;
         import std.utf : byCodeUnit;
         alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
-                                          a => filter!"true"(a), a => fwdCharRange(a), a => rasRefCharRange(a),
+                                          a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
+                                          a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
                                           a => byCodeUnit(a));
     }
 
