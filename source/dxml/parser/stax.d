@@ -1616,7 +1616,6 @@ private:
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
-        import std.typecons : Tuple, tuple;
 
         static void test(alias func)(string text, EntityType type, string name,
                                      int row, int col, size_t line = __LINE__)
@@ -1656,6 +1655,7 @@ private:
             testFail!func(`<.foo/>`);
             testFail!func(`<>`);
             testFail!func(`</>`);
+            testFail!func(`</foo>`);
 
             {
                 auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func("<root/>")));
@@ -1881,6 +1881,117 @@ private:
         SharedState* state;
         size_t steps;
         int depth;
+    }
+
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, enforce;
+
+        static void test(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+            static foreach(i, config; [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)])
+            {{
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                assertNotThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+            static foreach(i, config; [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)])
+            {{
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                assertThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
+            }}
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<root></root>");
+            test!func("<root><a></a></root>");
+            test!func("<root><a><b></b></a></root>");
+            test!func("<root><a><b></b></a></root>");
+            test!func("<root><a><b></b></a><foo><bar></bar></foo></root>");
+            test!func("<a>\n" ~
+                      "    <b>\n" ~
+                      "        <c>\n" ~
+                      "            <d>\n" ~
+                      "                <e>\n" ~
+                      "                    <f>\n" ~
+                      "                        <g>\n" ~
+                      "                            <h>\n" ~
+                      "                                 <i><i><i><i>\n" ~
+                      "                                 </i></i></i></i>\n" ~
+                      "                                 <i>\n" ~
+                      "                                     <j>\n" ~
+                      "                                         <k>\n" ~
+                      "                                             <l>\n" ~
+                      "                                                 <m>\n" ~
+                      "                                                     <n>\n" ~
+                      "                                                         <o>\n" ~
+                      "                                                             <p>\n" ~
+                      "                                                                 <q>\n" ~
+                      "                                                                     <r>\n" ~
+                      "                                                                         <s>\n" ~
+                      "          <!-- comment --> <?pi?> <t><u><v></v></u></t>\n" ~
+                      "                                                                         </s>\n" ~
+                      "                                                                     </r>\n" ~
+                      "                                                                 </q>\n" ~
+                      "                                                </p></o></n></m>\n" ~
+                      "                                                               </l>\n" ~
+                      "                    </k>\n" ~
+                      "           </j>\n" ~
+                      "</i></h>" ~
+                      "                        </g>\n" ~
+                      "                    </f>\n" ~
+                      "                </e>\n" ~
+                      "            </d>\n" ~
+                      "        </c>\n" ~
+                      "    </b>\n" ~
+                      "</a>");
+
+            testFail!func(`<a>`);
+            testFail!func(`<foo></foobar>`);
+            testFail!func(`<foobar></foo>`);
+            testFail!func(`<a><\a>`);
+            testFail!func(`<a><a/>`);
+            testFail!func(`<a><b>`);
+            testFail!func(`<a><b><c>`);
+            testFail!func(`<a></a><b>`);
+            testFail!func(`<a></a><b></b>`);
+            testFail!func(`<a><b></a></b>`);
+            testFail!func(`<a><b><c></c><b></a>`);
+            testFail!func(`<a><b></c><c></b></a>`);
+            testFail!func(`<a><b></c></b></a>`);
+            testFail!func("<a>\n" ~
+                          "    <b>\n" ~
+                          "        <c>\n" ~
+                          "            <d>\n" ~
+                          "                <e>\n" ~
+                          "                    <f>\n" ~
+                          "                    </f>\n" ~
+                          "                </e>\n" ~
+                          "            </d>\n" ~
+                          "        </c>\n" ~
+                          "    </b>\n" ~
+                          "<a>");
+            testFail!func("<a>\n" ~
+                          "    <b>\n" ~
+                          "        <c>\n" ~
+                          "            <d>\n" ~
+                          "                <e>\n" ~
+                          "                    <f>\n" ~
+                          "                    </f>\n" ~
+                          "                </e>\n" ~
+                          "            </d>\n" ~
+                          "        </c>\n" ~
+                          "    </b>\n" ~
+                          "</q>");
+        }
     }
 
 
