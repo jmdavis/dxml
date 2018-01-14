@@ -1382,6 +1382,25 @@ private:
                     assertThrown!XMLParsingException(range.popFront());
                 }
             }
+
+            {
+                auto xml = "<?foo?>\n" ~
+                           "<root>\n" ~
+                           "    <?pi?>\n" ~
+                           "</root>\n" ~
+                           "<?bar?>";
+                auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func(xml)));
+                assert(range.front.type == EntityType.elementStart);
+                assert(equal(range.front.name, "root"));
+                assert(range._text.pos == SourcePos(2, 7));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(range.front.type == EntityType.elementEnd);
+                assert(equal(range.front.name, "root"));
+                assert(range._text.pos == SourcePos(4, 8));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(range.empty);
+                assert(range._text.pos == SourcePos(5, 8));
+            }
         }
     }
 
