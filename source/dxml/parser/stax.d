@@ -1507,6 +1507,35 @@ private:
             test!func("<!DOCTYPE \n\n\n name []>", 4, 10);
             test!func("<!DOCTYPE name \n\n\n []>", 4, 5);
 
+            test!func(`<!DOCTYPE name PUBLIC "'''" '"""'>`, 1, 35);
+            test!func(`<!DOCTYPE name PUBLIC "'''" '"""' []>`, 1, 38);
+            test!func(`<!DOCTYPE name PUBLIC 'foo' "'''">`, 1, 35);
+            test!func(`<!DOCTYPE name PUBLIC 'foo' '"""' []>`, 1, 38);
+
+            test!func("<!DOCTYPE name [ <!ELEMENT foo EMPTY > ]>", 1, 42);
+            test!func("<!DOCTYPE name [ <!ELEMENT bar ANY > ]>", 1, 40);
+            test!func("<!DOCTYPE name [ <!ELEMENT mixed (#PCDATA) > ]>", 1, 48);
+            test!func("<!DOCTYPE name [ <!ELEMENT mixed (#PCDATA | foo)> ]>", 1, 53);
+            test!func("<!DOCTYPE name [ <!ELEMENT kids (foo) > ]>", 1, 43);
+            test!func("<!DOCTYPE name [ <!ELEMENT kids (foo | bar)> ]>", 1, 48);
+
+            test!func("<!DOCTYPE name [ <!ATTLIST foo> ]>", 1, 35);
+            test!func("<!DOCTYPE name [ <!ATTLIST foo def CDATA #REQUIRED> ]>", 1, 55);
+
+            test!func(`<!DOCTYPE name [ <!ENTITY foo "bar"> ]>`, 1, 40);
+            test!func(`<!DOCTYPE name [ <!ENTITY foo 'bar'> ]>`, 1, 40);
+            test!func(`<!DOCTYPE name [ <!ENTITY foo SYSTEM 'sys'> ]>`, 1, 47);
+            test!func(`<!DOCTYPE name [ <!ENTITY foo PUBLIC "'''" 'sys'> ]>`, 1, 53);
+
+            test!func(`<!DOCTYPE name [ <!NOTATION note PUBLIC 'blah'> ]>`, 1, 51);
+
+            test!func("<!DOCTYPE name [ <?pi> ]>", 1, 26);
+
+            test!func("<!DOCTYPE name [ <!-- coment --> ]>", 1, 36);
+
+            test!func("<!DOCTYPE name [ <?pi> <!----> <!ELEMENT blah EMPTY> ]>", 1, 56);
+            test!func("<!DOCTYPE \nname\n[\n<?pi> \n <!---->\n<!ENTITY foo '\n\n'\n>\n]>", 10, 3);
+
             testFail!func("<!DOCTYP name>");
             testFail!func("<!DOCTYPEname>");
             testFail!func("<!DOCTYPE >");
