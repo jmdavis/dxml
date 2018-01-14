@@ -1611,64 +1611,64 @@ private:
         // The attributes should be all that's left in savedText.
     }
 
-        static if(compileInTests) unittest
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.typecons : Tuple, tuple;
+
+        static void test(alias func)(string text, EntityType type, string name,
+                                     int row, int col, size_t line = __LINE__)
         {
-            import core.exception : AssertError;
-            import std.algorithm.comparison : equal;
-            import std.exception : assertNotThrown, assertThrown, enforce;
-            import std.typecons : Tuple, tuple;
+            auto xml = func(text);
+            static foreach(i, config; testConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
+            }}
+        }
 
-            static void test(alias func)(string text, EntityType type, string name,
-                                         int row, int col, size_t line = __LINE__)
+        static void testFail(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+            static foreach(i, config; testConfigs)
+                assertThrown!XMLParsingException(parseXML!config(xml.save));
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<a/>", EntityType.elementEmpty, "a", 1, 5);
+            test!func("<a></a>", EntityType.elementStart, "a", 1, 4);
+            test!func("<root/>", EntityType.elementEmpty, "root", 1, 8);
+            test!func("<root></root>", EntityType.elementStart, "root", 1, 7);
+            test!func("<foo/>", EntityType.elementEmpty, "foo", 1, 7);
+            test!func("<foo></foo>", EntityType.elementStart, "foo", 1, 6);
+            test!func("<foo       />", EntityType.elementEmpty, "foo", 1, 14);
+            test!func("<foo       ></foo>", EntityType.elementStart, "foo", 1, 13);
+            test!func("<foo  \n\n\n />", EntityType.elementEmpty, "foo", 4, 4);
+            test!func("<foo  \n\n\n ></foo>", EntityType.elementStart, "foo", 4, 3);
+            test!func("<foo.></foo.>", EntityType.elementStart, "foo.", 1, 7);
+
+            testFail!func(`<.foo/>`);
+            testFail!func(`<>`);
+            testFail!func(`</>`);
+
             {
-                auto xml = func(text);
-                static foreach(i, config; testConfigs)
-                {{
-                    auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                    auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                    enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
-                    enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
-                    enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
-                }}
-            }
-
-            static void testFail(alias func)(string text, size_t line = __LINE__)
-            {
-                auto xml = func(text);
-                static foreach(i, config; testConfigs)
-                    assertThrown!XMLParsingException(parseXML!config(xml.save));
-            }
-
-            static foreach(func; testRangeFuncs)
-            {
-                test!func("<a/>", EntityType.elementEmpty, "a", 1, 5);
-                test!func("<a></a>", EntityType.elementStart, "a", 1, 4);
-                test!func("<root/>", EntityType.elementEmpty, "root", 1, 8);
-                test!func("<root></root>", EntityType.elementStart, "root", 1, 7);
-                test!func("<foo/>", EntityType.elementEmpty, "foo", 1, 7);
-                test!func("<foo></foo>", EntityType.elementStart, "foo", 1, 6);
-                test!func("<foo       />", EntityType.elementEmpty, "foo", 1, 14);
-                test!func("<foo       ></foo>", EntityType.elementStart, "foo", 1, 13);
-                test!func("<foo  \n\n\n />", EntityType.elementEmpty, "foo", 4, 4);
-                test!func("<foo  \n\n\n ></foo>", EntityType.elementStart, "foo", 4, 3);
-                test!func("<foo.></foo.>", EntityType.elementStart, "foo.", 1, 7);
-
-                testFail!func(`<.foo/>`);
-                testFail!func(`<>`);
-                testFail!func(`</>`);
-
-                {
-                    auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func("<root/>")));
-                    assert(range.front.type == EntityType.elementStart);
-                    assert(equal(range.front.name, "root"));
-                    assert(range._text.pos == SourcePos(1, 8));
-                    assertNotThrown!XMLParsingException(range.popFront());
-                    assert(range.front.type == EntityType.elementEnd);
-                    assert(equal(range.front.name, "root"));
-                    assert(range._text.pos == SourcePos(1, 8));
-                }
+                auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func("<root/>")));
+                assert(range.front.type == EntityType.elementStart);
+                assert(equal(range.front.name, "root"));
+                assert(range._text.pos == SourcePos(1, 8));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(range.front.type == EntityType.elementEnd);
+                assert(equal(range.front.name, "root"));
+                assert(range._text.pos == SourcePos(1, 8));
             }
         }
+    }
 
 
     // Parse an end tag. It could be the root element, or it could be a
