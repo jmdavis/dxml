@@ -1023,8 +1023,15 @@ private:
 
     void _parseDocumentStart()
     {
+        auto orig = _text.save;
         if(_text.stripStartsWith("<?xml"))
-            _text.skipUntilAndDrop!"?>"();
+        {
+            checkNotEmpty(_text);
+            if(_text.input.front == '?' || isSpace(_text.input.front))
+                _text.skipUntilAndDrop!"?>"();
+            else
+                _text = orig;
+        }
         _grammarPos = GrammarPos.prologMisc1;
         _parseAtPrologMisc!1();
     }
@@ -1248,15 +1255,17 @@ private:
             immutable posAtName = _text.pos;
             _type = EntityType.pi;
             _name = takeName!'?'(_text);
-            checkNotEmpty(_text);
-            if(_text.input.front != '?')
+            if(stripWS(_text))
             {
-                if(!stripWS(_text))
+                checkNotEmpty(_text);
+                if(_text.input.front == '?')
                 {
-                    throw new XMLParsingException("There must be whitespace after the name if there is text before " ~
-                                                  "the terminating ?>", _text.pos);
+                    throw new XMLParsingException("There cannot be whitespace after the name if there is no text " ~
+                                                  "before the terminating ?>", _text.pos);
                 }
             }
+            else
+                checkNotEmpty(_text);
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"?>"();
             if(walkLength(_name.save) == 3)
@@ -1268,15 +1277,109 @@ private:
                 if(icmp(_name.save, "xml") == 0)
                     throw new XMLParsingException("Processing instructions cannot be named xml", posAtName);
                 +/
-                if(_name.front == 'x' || _name.front == 'X')
+                auto temp = _name.save;
+                if(temp.front == 'x' || temp.front == 'X')
                 {
-                    _name.popFront();
-                    if(_name.front == 'm' || _name.front == 'M')
+                    temp.popFront();
+                    if(temp.front == 'm' || temp.front == 'M')
                     {
-                        _name.popFront();
-                        if(_name.front == 'l' || _name.front == 'L')
+                        temp.popFront();
+                        if(temp.front == 'l' || temp.front == 'L')
                             throw new XMLParsingException("Processing instructions cannot be named xml", posAtName);
                     }
+                }
+            }
+        }
+    }
+
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, enforce;
+
+        static void test(alias func)(string text, string name, string expected,
+                                     int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(text ~ "<root/>");
+            static foreach(i, config; testConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(range.front.type == EntityType.pi, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, expected), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 4", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, size_t line = __LINE__)
+        {
+            auto xml = func(text ~ "<root/>");
+            static foreach(i, config; testConfigs)
+                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<?a?>", "a", "", 1, 6);
+            test!func("<?foo?>", "foo", "", 1, 8);
+            test!func("<?foo.?>", "foo.", "", 1, 9);
+            test!func("<?foo bar?>", "foo", "bar", 1, 12);
+            test!func("<?xmf bar?>", "xmf", "bar", 1, 12);
+            test!func("<?xmlfoo bar?>", "xmlfoo", "bar", 1, 15);
+            test!func("<?dlang is awesome?>", "dlang", "is awesome", 1, 21);
+            test!func("<?dlang is awesome! ?>", "dlang", "is awesome! ", 1, 23);
+            test!func("<?dlang\n\nis\n\nawesome\n\n?>", "dlang", "is\n\nawesome\n\n", 7, 3);
+
+            testFail!func("<?xml?><?xml?>");
+            testFail!func("<?XML?>");
+            testFail!func("<?xMl?>");
+            testFail!func("<?foo>");
+            testFail!func("<? foo?>");
+            testFail!func("<?\nfoo?>");
+            testFail!func("<?foo ?>");
+            testFail!func("<?foo ??>");
+            testFail!func("<??foo?>");
+            testFail!func("<?.foo?>");
+
+            {
+                auto xml = func("<!DOCTYPE foo><?foo bar?><root/>");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assert(range.front.type == EntityType.pi);
+                assert(equal(range.front.name, "foo"));
+                assert(equal(range.front.text, "bar"));
+            }
+            {
+                auto xml = func("<root><?foo bar?></root>");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(equal(range.front.name, "foo"));
+                assert(equal(range.front.text, "bar"));
+            }
+            {
+                auto xml = func("<root/><?foo bar?>");
+                auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                assertNotThrown!XMLParsingException(range.popFront());
+                assert(equal(range.front.name, "foo"));
+                assert(equal(range.front.text, "bar"));
+            }
+
+            static foreach(pi; ["<?foo>", "<foo?>", "<? foo>"])
+            {
+                {
+                    auto xml = func("<!DOCTYPE foo>" ~ pi ~ "<root/>");
+                    assertThrown!XMLParsingException(parseXML(xml));
+                }
+                {
+                    auto xml = func("<root>" ~ pi ~ "<root>");
+                    auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                    assertThrown!XMLParsingException(range.popFront());
+                }
+                {
+                    auto xml = func("<root/>" ~ pi);
+                    auto range = assertNotThrown!XMLParsingException(parseXML(xml));
+                    assertThrown!XMLParsingException(range.popFront());
                 }
             }
         }
