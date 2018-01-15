@@ -646,7 +646,7 @@ public:
                 typeof(_savedText) _text;
             }
 
-            return AttributeRange(_savedText);
+            return AttributeRange(_savedText.save);
         }
 
         ///
@@ -703,6 +703,12 @@ public:
             import std.exception : assertNotThrown, assertThrown, enforce;
             import std.typecons : Tuple, tuple;
 
+            static bool cmpAttr(T, U)(T lhs, U rhs)
+            {
+                return equal(lhs[0].save, rhs[0].save) &&
+                       equal(lhs[1].save, rhs[1].save);
+            }
+
             static void test(alias func)(string text, EntityType type, Tuple!(string, string)[] expected,
                                          int row, int col, size_t line = __LINE__)
             {
@@ -712,8 +718,8 @@ public:
                     auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                     auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                     enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
-                    enforce!AssertError(equal!((a, b) => equal(a[0], b[0]) && equal(a[1], b[1]))
-                                              (range.front.attributes, expected), "unittest failure 2", __FILE__, line);
+                    enforce!AssertError(equal!cmpAttr(range.front.attributes, expected),
+                                        "unittest failure 2", __FILE__, line);
                     enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
                 }}
             }
@@ -872,31 +878,19 @@ public:
         }
 
 
-        // Reduce the chance of bugs if reference-type ranges are involved.
-        static if(!isDynamicArray!R) this(this)
-        {
-            _name = _name.save;
-            _savedText = _savedText.save;
-        }
-
-
         /++
             Overloads opEquals so that
             $(PHOBOS_REF equals, std, algorithm, comparison) is used to compare
             the text (since even with the same range types where the values are
             the same, sometimes, comparing them with $(D ==) doesn't return
             $(D true)).
-
-            Note that different entities in different places in the document
-            will be considered to be unequal if
-            $(Config.posType != PositionType.none), even if all of their other
-            properties are the same.
           +/
         bool opEquals()(auto ref Entity rhs)
         {
             import std.algorithm.comparison : equal;
 
-            if(_savedText.pos != rhs._savedText.pos || _type != rhs._type)
+            if(_type != rhs._type)
+                return false;
 
             with(EntityType) final switch(_type)
             {
@@ -915,6 +909,207 @@ public:
             }
 
             return _type == EntityType.elementEnd || equal(_savedText.input.save, rhs._savedText.input.save);
+        }
+
+        static if(compileInTests) unittest
+        {
+            import core.exception : AssertError;
+            import std.algorithm.comparison : equal;
+            import std.array : replace;
+            import std.exception : enforce;
+            import std.stdio : writefln;
+
+            static void test(alias func)(string xml, size_t line = __LINE__)
+            {
+                auto range = parseXML(func(xml));
+                auto orig = range.save;
+                for(int i = 0; !range.empty; ++i, range.popFront())
+                {
+                    // End tags are equal too easily for this test to work with
+                    // them, so we'll test them separately.
+                    if(range.front.type == EntityType.elementEnd)
+                        continue;
+                    auto other = orig.save;
+                    for(int j = 0; !other.empty; ++j, other.popFront())
+                    {
+                        scope(failure) writefln("i: %s, j: %s", i, j);
+                        if(i == j)
+                            enforce!AssertError(range.front == other.front, "unittest failure 1", __FILE__, line);
+                        else
+                            enforce!AssertError(range.front != other.front, "unittest failure 2", __FILE__, line);
+                    }
+                }
+            }
+
+            static foreach(func; testRangeFuncs)
+            {
+                 test!func("<root>\n" ~
+                           "    <![CDATA[here is some data]]>\n" ~
+                           "    <![CDATA[here is some other data]]>\n" ~
+                           "</root>");
+                 test!func("<root>\n" ~
+                           "    <!-- comment -->\n" ~
+                           "    <!-- other comment -->\n" ~
+                           "</root>");
+                 test!func("<root>\n" ~
+                           "    <foo></foo>\n" ~
+                           "    <foo/>\n" ~
+                           "    <foo a='42'></foo>\n" ~
+                           "    <foo a='42' b='56></foo>\n" ~
+                           "    <bar>\n" ~
+                           "        <baz/>\n" ~
+                           "        <baz a='42'/>\n" ~
+                           "        <baz a='42' b='56'/>\n" ~
+                           "        <bar/>\n" ~
+                           "    </bar>\n" ~
+                           "</root>");
+                 test!func("<root>\n" ~
+                           "    <foo>silly bear</foo>\n" ~
+                           "    <bar>silly programmer</bar>\n" ~
+                           "</root>");
+                 test!func("<root>\n" ~
+                           "    <?Sherlock isn't here?>\n" ~
+                           "    <?Poirot isn't either?>\n" ~
+                           "    <?Conan?>\n" ~
+                           "    <?Edogawa?>\n" ~
+                           "</root>");
+
+                 {
+                     auto xml = "<root>\n" ~
+                                "    <foo></foo>\n" ~
+                                "    <foo></foo>\n" ~
+                                "<root>";
+                     auto range = parseXML(func(xml));
+                     range.popFront();
+                     auto other = range.save;
+                     assert(range.front == other.front);
+                     range.popFront();
+                     range.popFront();
+                     assert(range.front == other.front);
+                     range.popFront();
+                     other.popFront();
+                     assert(range.front == other.front);
+                     other.popFront();
+                     other.popFront();
+                     assert(range.front == other.front);
+                 }
+                 {
+                     auto xml = "<root>\n" ~
+                                "    <foo></foo>\n" ~
+                                "    <fou></fou>\n" ~
+                                "<root>";
+                     auto range = parseXML(func(xml));
+                     range.popFront();
+                     auto other = range.save;
+                     assert(range.front == other.front);
+                     range.popFront();
+                     range.popFront();
+                     assert(range.front != other.front);
+                     range.popFront();
+                     other.popFront();
+                     assert(range.front != other.front);
+                     other.popFront();
+                     other.popFront();
+                     assert(range.front == other.front);
+                 }
+            }
+        }
+
+
+        // Reduce the chance of bugs if reference-type ranges are involved.
+        static if(!isDynamicArray!R) this(this)
+        {
+            with(EntityType) final switch(_type)
+            {
+                case cdata: break;
+                case comment: break;
+                case elementStart:
+                {
+                    _name = _name.save;
+                    break;
+                }
+                case elementEnd: goto case elementStart;
+                case elementEmpty: goto case elementStart;
+                case text: break;
+                case pi: goto case elementStart;
+            }
+
+            if(_type != EntityType.elementEnd)
+                _savedText = _savedText.save;
+        }
+
+        static if(compileInTests) unittest
+        {
+            import std.algorithm.comparison : equal;
+
+            static bool cmpAttr(T)(T lhs, T rhs)
+            {
+                return equal(lhs.name.save, rhs.name.save) &&
+                       equal(lhs.value.save, rhs.value.save);
+            }
+
+            {
+                auto xml = "<root>\n" ~
+                           "    <foo a='42'/>\n" ~
+                           "    <foo b='42'/>\n" ~
+                           "    <nocomment>nothing to say</nocomment>\n" ~
+                           "</root>";
+
+                // The duplicate lines aren't typos. We want to ensure that the
+                // values are independent and nothing was consumed.
+                static foreach(func; testRangeFuncs)
+                {{
+                     auto range = parseXML(func(xml));
+                     range.popFront();
+                     {
+                         auto entity = range.front;
+                         auto entity2 = entity;
+                         assert(entity == entity2);
+                         assert(entity == entity2);
+                         assert(equal(entity.name, entity2.name));
+                         assert(equal(entity.name, entity2.name));
+                         assert(equal!cmpAttr(entity.attributes, entity2.attributes));
+                         assert(equal!cmpAttr(entity.attributes, entity2.attributes));
+                         range.popFront();
+                         assert(entity == entity2);
+                         assert(entity != range.front);
+                     }
+                     range.popFront();
+                     range.popFront();
+                     {
+                         auto entity = range.front;
+                         auto entity2 = entity;
+                         assert(entity == entity2);
+                         assert(entity == entity2);
+                         assert(equal(entity.text, entity2.text));
+                         assert(equal(entity.text, entity2.text));
+                         range.popFront();
+                         assert(entity == entity2);
+                         assert(entity != range.front);
+                     }
+                }}
+            }
+            {
+                auto xml = "<root>\n" ~
+                           "    <![CDATA[whatever]]>\n" ~
+                           "    <?pi?>\n" ~
+                           "    <!--comment-->\n" ~
+                           "    <empty/>\n" ~
+                           "    <noend a='foo' b='bar'/>\n" ~
+                           "    <foo baz='42'></foo>\n" ~
+                           "</root>";
+
+                static foreach(func; testRangeFuncs)
+                {
+                    for(auto range = parseXML(func(xml)); !range.empty; range.popFront())
+                    {
+                        auto entity = range.front;
+                        auto entity2 = entity;
+                        assert(entity == range.front);
+                        assert(entity == entity2);
+                    }
+                }
+            }
         }
 
 
@@ -1316,6 +1511,57 @@ private:
                     assertThrown!XMLParsingException(range.popFront());
                 }
             }
+
+            {
+                auto xml = "<!--one-->\n" ~
+                           "<!--two-->\n" ~
+                           "<root>\n" ~
+                           "    <!--three-->\n" ~
+                           "    <!--four-->\n" ~
+                           "</root>\n" ~
+                           "<!--five-->\n" ~
+                           "<!--six-->";
+
+                auto text = func(xml);
+                {
+                    auto range = parseXML(text.save);
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "one"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "two"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementStart);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "three"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "four"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementEnd);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "five"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.comment);
+                    assert(equal(range.front.text, "six"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.empty);
+                }
+                {
+                    auto range = parseXML!simpleXML(text.save);
+                    assert(range.front.type == EntityType.elementStart);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementEnd);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.empty);
+                }
+            }
         }
     }
 
@@ -1463,22 +1709,54 @@ private:
             }
 
             {
-                auto xml = "<?foo?>\n" ~
+                auto xml = "<?one?>\n" ~
+                           "<?two?>\n" ~
                            "<root>\n" ~
-                           "    <?pi?>\n" ~
+                           "    <?three?>\n" ~
+                           "    <?four?>\n" ~
                            "</root>\n" ~
-                           "<?bar?>";
-                auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func(xml)));
-                assert(range.front.type == EntityType.elementStart);
-                assert(equal(range.front.name, "root"));
-                assert(range._text.pos == SourcePos(2, 7));
-                assertNotThrown!XMLParsingException(range.popFront());
-                assert(range.front.type == EntityType.elementEnd);
-                assert(equal(range.front.name, "root"));
-                assert(range._text.pos == SourcePos(4, 8));
-                assertNotThrown!XMLParsingException(range.popFront());
-                assert(range.empty);
-                assert(range._text.pos == SourcePos(5, 8));
+                           "<?five?>\n" ~
+                           "<?six?>";
+
+                auto text = func(xml);
+                {
+                    auto range = parseXML(text.save);
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "one"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "two"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementStart);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "three"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "four"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementEnd);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "five"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.pi);
+                    assert(equal(range.front.name, "six"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.empty);
+                }
+                {
+                    auto range = parseXML!simpleXML(text.save);
+                    assert(range.front.type == EntityType.elementStart);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.front.type == EntityType.elementEnd);
+                    assert(equal(range.front.name, "root"));
+                    assertNotThrown!XMLParsingException(range.popFront());
+                    assert(range.empty);
+                }
             }
         }
     }
@@ -2248,6 +2526,7 @@ unittest
     }
 }
 
+// Test the state of the range immediately after parseXML returns.
 unittest
 {
     import std.algorithm.comparison : equal;
@@ -2301,6 +2580,51 @@ unittest
             assert(equal(range.front.name, "root"));
         }}
     }
+}
+
+// Test various invalid states that didn't seem to fit well into tests elsewhere.
+unittest
+{
+    import std.exception : assertThrown;
+
+    static void testFail(alias func)(string text, size_t line = __LINE__)
+    {
+        auto xml = func(text);
+        static foreach(config; variousTestConfigs)
+        {
+            assertThrown!XMLParsingException(
+                {
+                    auto range = parseXML!config(xml.save);
+                    while(!range.empty)
+                        range.popFront();
+                }(), "unittest failure", __FILE__, line);
+        }
+    }
+
+    static foreach(func; testRangeFuncs)
+    {{
+        testFail!func("<root></root><invalid></invalid>");
+        testFail!func("<root></root><invalid/>");
+        testFail!func("<root/><invalid></invalid>");
+        testFail!func("<root/><invalid/>");
+
+        testFail!func("<root></root>invalid");
+        testFail!func("<root/>invalid");
+
+        testFail!func("<root/><!DOCTYPE foo>");
+        testFail!func("<root/></root>");
+
+        testFail!func("invalid<root></root>");
+        testFail!func("invalid<?xml?><root></root>");
+        testFail!func("invalid<!DOCTYPE foo><root></root>");
+        testFail!func("invalid<!--comment--><root></root>");
+        testFail!func("invalid<?Poirot?><root></root>");
+
+        testFail!func("<?xml?>invalid<root></root>");
+        testFail!func("<!DOCTYPE foo>invalid<root></root>");
+        testFail!func("<!--comment-->invalid<root></root>");
+        testFail!func("<?Poirot?>invalid<root></root>");
+    }}
 }
 
 // This is purely to provide a way to trigger the unittest blocks in Entity
@@ -2451,7 +2775,7 @@ unittest
 
     // skipToEntityType will work on an empty range but will always
     // return an empty range.
-    assert(range.skipToEntityType(EntityType.comment).empty);
+    assert(range.takeNone().skipToEntityType(EntityType.comment).empty);
 }
 
 
@@ -2476,7 +2800,7 @@ R skipToPath(R)(R entityRange, string path)
     import std.algorithm.comparison : equal;
     import std.path : pathSplitter;
 
-    if(entityRange.empty || path.empty || path[0] == '/')
+    if(entityRange.empty)
         return entityRange;
     if(path.empty || path[0] == '/')
         return entityRange.takeNone();
@@ -2658,9 +2982,13 @@ unittest
     // empty range.
     {
         auto range = parseXML(xml);
-        range = range.skipToPath("nowhere");
-        assert(range.empty);
-        assert(range.skipToPath("nowhere").empty);
+        assert(range.takeNone().skipToPath("nowhere").empty);
+    }
+    // Empty and absolute paths will also result in an empty range.
+    {
+        auto range = parseXML(xml);
+        assert(range.skipToPath("").empty);
+        assert(range.skipToPath("/").empty);
     }
 
     // Remember to take into account whether the current config skips stuff like
@@ -2725,12 +3053,12 @@ unittest
     {{
         auto text = func(xml);
 
-        static foreach(i, config; [Config.init, simpleXML])
+        static foreach(config; [Config.init, makeConfig(SplitEmpty.yes), simpleXML])
         {{
-            static if(i == 0)
-                enum empty = EntityType.elementEmpty;
-            else
+            static if(config.splitEmpty == SplitEmpty.yes)
                 enum empty = EntityType.elementStart;
+            else
+                enum empty = EntityType.elementEmpty;
             foreach(path; [".", "./"])
             {
                 auto range = parseXML!config(text.save);
@@ -2745,7 +3073,9 @@ unittest
                 assert(parseXML!config(text.save).skipToPath(path).empty);
             foreach(path; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
             {
-                if(i == 0)
+                static if(config.skipComments == SkipComments.yes)
+                    assert(parseXML!config(text.save).skipToPath(path).empty);
+                else
                 {
                     auto range = parseXML!config(text.save).skipToPath(path);
                     assert(!range.empty);
@@ -2754,14 +3084,10 @@ unittest
                     assert(equal(range.front.attributes.front.name, "a"));
                     assert(range.skipToPath("bar").empty);
                 }
-                else
-                    assert(parseXML!config(text.save).skipToPath(path).empty);
             }
             foreach(path; ["foo", "./foo", ".///foo", "././././foo/"])
             {
-                if(i == 0)
-                    assert(parseXML!config(text.save).skipToPath(path).empty);
-                else
+                static if(config.skipComments == SkipComments.yes)
                 {
                     auto range = parseXML!config(text.save).skipToPath(path);
                     assert(!range.empty);
@@ -2770,10 +3096,12 @@ unittest
                     assert(equal(range.front.attributes.front.name, "a"));
                     assert(range.skipToPath("bar").empty);
                 }
+                else
+                    assert(parseXML!config(text.save).skipToPath(path).empty);
             }
             {
                 auto range = parseXML!config(text.save);
-                static if(i == 0)
+                static if(config.skipComments == SkipComments.no)
                     range.popFront();
                 range = range.skipToPath("./foo");
                 assert(range.front.type == empty);
@@ -2795,7 +3123,7 @@ unittest
                 }
                 range.popFront();
                 range = range.skipContents();
-                if(i == 0)
+                static if(config.skipComments == SkipComments.no)
                 {
                     auto temp = range.save;
                     temp.popFront();
@@ -2814,7 +3142,12 @@ unittest
             {
                 import std.range : popFrontN;
                 auto range = parseXML!config(text.save);
-                range.popFrontN(4);
+                static if(config.skipComments == SkipComments.no)
+                    range.popFront();
+                static if(config.splitEmpty == SplitEmpty.no)
+                    range.popFrontN(3);
+                else
+                    range.popFrontN(4);
                 assert(range.front.type == EntityType.elementStart);
                 assert(equal(range.front.name, "bar"));
                 {
