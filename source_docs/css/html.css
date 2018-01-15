@@ -635,19 +635,27 @@ table td, table th, table caption
 table td
 {
     border: none;
-    border-bottom: 1px solid #E6E6E6;
+    /* border-bottom: 1px solid #E6E6E6; */
+    border-bottom: 1px dotted #046000;
     text-align: justify;
 }
 
 table th
 {
     border: none;
-    border-bottom: 1px solid #046000;
+    border-bottom: 2px solid #046000;
 }
 
-table td:not(:last-child), table th:not(:last-child)
+table th:not(:last-child)
 {
     padding-right: 1em;
+    border-right: 1px solid #046000;
+}
+
+table td:not(:last-child)
+{
+    padding-right: 1em;
+    border-right: 1px dotted #046000;
 }
 
 table a
