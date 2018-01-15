@@ -282,9 +282,10 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 {
 }
 
-/* TC: Formats DDOC_PARAM */
+/* SPAN: Formats DDOC_PARAM */
 .ddoc_param
 {
+    font-style: italic;
 }
 
 /* SPAN: Formats the DDOC_PARAMS section's title */
