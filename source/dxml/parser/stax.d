@@ -707,7 +707,7 @@ public:
                                          int row, int col, size_t line = __LINE__)
             {
                 auto xml = func(text);
-                static foreach(i, config; testConfigs)
+                static foreach(i, config; posTestConfigs)
                 {{
                     auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                     auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
@@ -721,7 +721,7 @@ public:
             static void testFail(alias func)(string text, size_t line = __LINE__)
             {
                 auto xml = func(text);
-                static foreach(i, config; testConfigs)
+                static foreach(i, config; posTestConfigs)
                 {{
                     auto range = parseXML!config(xml.save);
                     assertThrown!XMLParsingException(walkLength(range.front.attributes),
@@ -872,6 +872,52 @@ public:
         }
 
 
+        // Reduce the chance of bugs if reference-type ranges are involved.
+        static if(!isDynamicArray!R) this(this)
+        {
+            _name = _name.save;
+            _savedText = _savedText.save;
+        }
+
+
+        /++
+            Overloads opEquals so that
+            $(PHOBOS_REF equals, std, algorithm, comparison) is used to compare
+            the text (since even with the same range types where the values are
+            the same, sometimes, comparing them with $(D ==) doesn't return
+            $(D true)).
+
+            Note that different entities in different places in the document
+            will be considered to be unequal if
+            $(Config.posType != PositionType.none), even if all of their other
+            properties are the same.
+          +/
+        bool opEquals()(auto ref Entity rhs)
+        {
+            import std.algorithm.comparison : equal;
+
+            if(_savedText.pos != rhs._savedText.pos || _type != rhs._type)
+
+            with(EntityType) final switch(_type)
+            {
+                case cdata: break;
+                case comment: break;
+                case elementStart:
+                {
+                    if(!equal(_name.save, rhs._name.save))
+                        return false;
+                    break;
+                }
+                case elementEnd: goto case elementStart;
+                case elementEmpty: goto case elementStart;
+                case text: break;
+                case pi: goto case elementStart;
+            }
+
+            return _type == EntityType.elementEnd || equal(_savedText.input.save, rhs._savedText.input.save);
+        }
+
+
     private:
 
         this(EntityType type)
@@ -980,7 +1026,38 @@ public:
       +/
     @property auto save()
     {
-        return this;
+        auto retval = this;
+        retval._name = _name.save;
+        retval._text.input = _text.input.save;
+        retval._savedText.input = _savedText.input.save;
+        return retval;
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown;
+
+         auto xml = "<root>\n" ~
+                    "    <!-- comment -->\n" ~
+                    "    <something>\n" ~
+                    "         <else/>\n" ~
+                    "         somet text <i>goes</i> here\n" ~
+                    "    </something>\n" ~
+                    "</root>";
+
+        static foreach(i, func; testRangeFuncs)
+        {{
+             auto text = func(xml);
+             assert(equal(parseXML(text.save), parseXML(text.save)));
+             auto range = parseXML(text.save);
+             immutable len1 = assertNotThrown!XMLParsingException(walkLength(range.save));
+             immutable len2 = assertNotThrown!XMLParsingException(walkLength(range.save));
+             assert(len1 == len2);
+             assert(len1 != 0);
+             assert(equal(range.save, range.save));
+             assert(walkLength(range) == len1);
+        }}
     }
 
 
@@ -1044,7 +1121,7 @@ private:
 
         static void test(alias func)(string xml, int row, int col, size_t line = __LINE__)
         {
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(func(xml)));
@@ -1094,6 +1171,8 @@ private:
                 if(_text.stripStartsWith("--"))
                 {
                     _parseComment();
+                    static if(config.skipComments == SkipComments.yes)
+                        _parseAtPrologMisc!miscNum();
                     break;
                 }
                 static if(miscNum == 1)
@@ -1161,7 +1240,7 @@ private:
         static void test(alias func)(string text, string comment, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
@@ -1174,7 +1253,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
 
@@ -1302,7 +1381,7 @@ private:
                                      int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
@@ -1316,7 +1395,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
 
@@ -1499,7 +1578,7 @@ private:
         {
             enum int tagLen = "<root/>".length;
             auto xml = func(text ~ "<root/>");
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
@@ -1511,7 +1590,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
         }
 
@@ -1621,7 +1700,7 @@ private:
                                      int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
@@ -1634,7 +1713,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(i, config; testConfigs)
+            static foreach(i, config; posTestConfigs)
                 assertThrown!XMLParsingException(parseXML!config(xml.save));
         }
 
@@ -1804,6 +1883,8 @@ private:
                 if(_text.stripStartsWith("--"))
                 {
                     _parseComment();
+                    static if(config.skipComments == SkipComments.yes)
+                        _parseAtEndMisc();
                     break;
                 }
                 throw new XMLParsingException("Expected --", _text.pos);
@@ -1892,7 +1973,7 @@ private:
         static void test(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(i, config; [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)])
+            static foreach(config; variousTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 assertNotThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
@@ -1902,7 +1983,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(i, config; [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)])
+            static foreach(config; variousTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 assertThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
@@ -2167,6 +2248,61 @@ unittest
     }
 }
 
+unittest
+{
+    import std.algorithm.comparison : equal;
+
+    static foreach(func; testRangeFuncs)
+    {
+        static foreach(config; variousTestConfigs)
+        {{
+            auto range = parseXML!config("<?xml?><root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "root"));
+        }}
+
+        static foreach(config; [Config.init, makeConfig(SkipPI.yes)])
+        {{
+            auto range = parseXML!config("<!--no comment--><root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.comment);
+            assert(equal(range.front.text, "no comment"));
+        }}
+        static foreach(config; [simpleXML, makeConfig(SkipComments.yes)])
+        {{
+            auto range = parseXML!config("<!--no comment--><root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "root"));
+        }}
+
+        static foreach(config; [Config.init, makeConfig(SkipComments.yes)])
+        {{
+            auto range = parseXML!config("<?private eye?><root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.pi);
+            assert(equal(range.front.name, "private"));
+            assert(equal(range.front.text, "eye"));
+        }}
+        static foreach(config; [simpleXML, makeConfig(SkipPI.yes)])
+        {{
+            auto range = parseXML!config("<?private eye?><root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "root"));
+        }}
+
+        static foreach(config; variousTestConfigs)
+        {{
+            auto range = parseXML!config("<root></root>");
+            assert(!range.empty);
+            assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "root"));
+        }}
+    }
+}
+
 // This is purely to provide a way to trigger the unittest blocks in Entity
 // without compiling them in normally.
 private struct EntityCompileTests
@@ -2273,6 +2409,8 @@ unittest
     Returns: The given range with front now at the first entity which matched
              one of the given $(LREF EntityType)s or an empty range if none were
              found.
+
+    Throws: $(LREF XMLParsingException) on invalid XML.
   +/
 R skipToEntityType(R)(R entityRange, EntityType[] entityTypes...)
     if(isInstanceOf!(EntityRange, R))
@@ -2310,6 +2448,10 @@ unittest
     assert(range.front.name == "foo");
 
     assert(range.skipToEntityType(EntityType.comment).empty);
+
+    // skipToEntityType will work on an empty range but will always
+    // return an empty range.
+    assert(range.skipToEntityType(EntityType.comment).empty);
 }
 
 
@@ -2325,12 +2467,19 @@ unittest
 
     Returns: The given range with front now at the requested entity if the path
              is valid; otherwise, an empty range is returned.
+
+    Throws: $(LREF XMLParsingException) on invalid XML.
   +/
 R skipToPath(R)(R entityRange, string path)
     if(isInstanceOf!(EntityRange, R))
 {
     import std.algorithm.comparison : equal;
     import std.path : pathSplitter;
+
+    if(entityRange.empty || path.empty || path[0] == '/')
+        return entityRange;
+    if(path.empty || path[0] == '/')
+        return entityRange.takeNone();
 
     with(EntityType)
     {
@@ -2505,10 +2654,56 @@ unittest
         auto range = parseXML(xml);
         assert(range.skipToPath("carrot/foo/bar/fuzz").empty);
     }
+    // skipToPath will work on an empty range but will always return an
+    // empty range.
+    {
+        auto range = parseXML(xml);
+        range = range.skipToPath("nowhere");
+        assert(range.empty);
+        assert(range.skipToPath("nowhere").empty);
+    }
+
+    // Remember to take into account whether the current config skips stuff like
+    // comments. The current start tag is not considered part of the path, just
+    // like the current directory is not considered part of the path when
+    // navigating files on the command-line. So, if comments are skipped, the
+    // parser will start at the root element and not the comment.
+    auto xml2 = "<!-- comment -->\n" ~
+                "<foo>\n" ~
+                "    <bar>\n" ~
+                "        <baz/>\n" ~
+                "    </bar>\n" ~
+                "</foo>";
+    // The default config does not skip comments.
+    {
+        auto range = parseXML(xml2).skipToPath("foo/bar/baz");
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "baz");
+    }
+    {
+        auto range = parseXML(xml2).skipToPath("bar/baz");
+        assert(range.empty);
+    }
+    // simpleXML skips comments.
+    {
+        auto range = parseXML!simpleXML(xml2).skipToPath("foo/bar/baz");
+        assert(range.empty);
+    }
+    // simpleXML uses SplitEmpty.yes, hence the EntityType.elementStart instead
+    // of EntityType.elementEmpty.
+    {
+        auto range = parseXML!simpleXML(xml2).skipToPath("bar/baz");
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "baz");
+    }
 }
 
 unittest
 {
+    import std.algorithm.comparison : equal;
+
     auto xml = "<!-- and so it begins -->\n" ~
                "<potato>\n" ~
                "    <foo a='whatever'/>\n" ~
@@ -2521,31 +2716,123 @@ unittest
                "        </bar>\n" ~
                "    </foo>\n" ~
                "    <!-- comment -->\n" ~
+               "    <sally>\n" ~
+               "        <sue>me</sue>\n" ~
+               "    </sally>\n" ~
                "</potato>";
-    static foreach(i, config; [Config.init, simpleXML])
+
+    static foreach(func; testRangeFuncs)
     {{
-        static if(i == 0)
-            enum empty = EntityType.elementEmpty;
-        else
-            enum empty = EntityType.elementStart;
-        foreach(str; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
-        {
-            auto range = parseXML!config(xml).skipToPath("potato/foo");
-            assert(range.front.type == empty);
-            assert(range.front.name == "foo");
-            assert(range.front.attributes.front.name == "a");
-            assert(range.skipToPath("bar").empty);
-        }
-        {
-            auto range = parseXML!config(xml).skipToPath("./potato/foo");
-            assert(range.front.type == empty);
-            range = range.skipToEntityType(EntityType.elementStart);
-            assert(range.front.type == EntityType.elementStart);
-            assert(range.front.name == "foo");
-            assert(range.front.attributes.front.name == "b");
-            assert(range.skipToPath("bar/baz").empty);
-            //FIXME more testing needed
-        }
+        auto text = func(xml);
+
+        static foreach(i, config; [Config.init, simpleXML])
+        {{
+            static if(i == 0)
+                enum empty = EntityType.elementEmpty;
+            else
+                enum empty = EntityType.elementStart;
+            foreach(path; [".", "./"])
+            {
+                auto range = parseXML!config(text.save);
+                auto pos = range._text.pos;
+                auto entity = range.front;
+                range = range.skipToPath(path);
+                assert(!range.empty);
+                assert(pos == range._text.pos);
+                assert(entity == range.front);
+            }
+            foreach(path; ["..", "../", "../..", "../..///", "../././../../../.."])
+                assert(parseXML!config(text.save).skipToPath(path).empty);
+            foreach(path; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
+            {
+                if(i == 0)
+                {
+                    auto range = parseXML!config(text.save).skipToPath(path);
+                    assert(!range.empty);
+                    assert(range.front.type == empty);
+                    assert(equal(range.front.name, "foo"));
+                    assert(equal(range.front.attributes.front.name, "a"));
+                    assert(range.skipToPath("bar").empty);
+                }
+                else
+                    assert(parseXML!config(text.save).skipToPath(path).empty);
+            }
+            foreach(path; ["foo", "./foo", ".///foo", "././././foo/"])
+            {
+                if(i == 0)
+                    assert(parseXML!config(text.save).skipToPath(path).empty);
+                else
+                {
+                    auto range = parseXML!config(text.save).skipToPath(path);
+                    assert(!range.empty);
+                    assert(range.front.type == empty);
+                    assert(equal(range.front.name, "foo"));
+                    assert(equal(range.front.attributes.front.name, "a"));
+                    assert(range.skipToPath("bar").empty);
+                }
+            }
+            {
+                auto range = parseXML!config(text.save);
+                static if(i == 0)
+                    range.popFront();
+                range = range.skipToPath("./foo");
+                assert(range.front.type == empty);
+                range = range.skipToEntityType(EntityType.elementStart);
+                assert(range.front.type == EntityType.elementStart);
+                assert(equal(range.front.name, "foo"));
+                assert(equal(range.front.attributes.front.name, "b"));
+                assert(range.save.skipToPath("bar/baz").empty);
+                {
+                    auto temp = range.save.skipToPath("bar/i");
+                    assert(!temp.empty);
+                    assert(temp.front.type == EntityType.elementStart);
+                    assert(equal(temp.front.name, "i"));
+                    temp = temp.skipToPath("../bar/bar");
+                    assert(!temp.empty);
+                    assert(temp.front.type == empty);
+                    assert(equal(temp.front.name, "bar"));
+                    assert(temp.skipToPath("../bar").empty);
+                }
+                range.popFront();
+                range = range.skipContents();
+                if(i == 0)
+                {
+                    auto temp = range.save;
+                    temp.popFront();
+                    assert(temp.front.type == EntityType.comment);
+                    assert(equal(temp.front.text, " no comment "));
+                    temp = temp.skipToPath("bar/baz");
+                    assert(!temp.empty);
+                    assert(temp.front.type == empty);
+                    assert(equal(temp.front.name, "baz"));
+                }
+                range = range.skipToPath("bar/baz");
+                assert(!range.empty);
+                assert(range.front.type == empty);
+                assert(equal(range.front.name, "baz"));
+            }
+            {
+                import std.range : popFrontN;
+                auto range = parseXML!config(text.save);
+                range.popFrontN(4);
+                assert(range.front.type == EntityType.elementStart);
+                assert(equal(range.front.name, "bar"));
+                {
+                    auto temp = range.save.skipToPath("i/../bar/baz");
+                    assert(!temp.empty);
+                    assert(temp.front.type == empty);
+                    assert(equal(temp.front.name, "baz"));
+                }
+                range = range.skipToPath("./././/./i/.././././bar/./////baz");
+                assert(!range.empty);
+                assert(range.front.type == empty);
+                assert(equal(range.front.name, "baz"));
+                range = range.skipToPath("../../sally/sue");
+                assert(!range.empty);
+                assert(range.front.type == EntityType.elementStart);
+                assert(equal(range.front.name, "sue"));
+            }
+        }}
     }}
 }
 
@@ -2559,6 +2846,8 @@ unittest
              skipToParentDepth was called. If the requested depth is not found
              (which means that the depth was 0 when skipToParentDepth was
              called), then an empty range is returned.
+
+    Throws: $(LREF XMLParsingException) on invalid XML.
   +/
 R skipToParentDepth(R)(R entityRange)
     if(isInstanceOf!(EntityRange, R))
@@ -2677,268 +2966,271 @@ unittest
 
 unittest
 {
-    import std.exception : assertNotThrown;
-    // cdata
-    {
-        auto xml = "<root>\n" ~
-                   "    <![CDATA[ cdata run ]]>\n" ~
-                   "    <nothing/>\n" ~
-                   "    <![CDATA[ cdata have its bits flipped ]]>\n" ~
-                   "    <foo></foo>\n" ~
-                   "    <![CDATA[ cdata play violin ]]>\n" ~
-                   "</root>";
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.cdata);
-        {
-            auto temp = range.save;
-            assert(temp.front.text == " cdata run ");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "root");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementEmpty);
-        range.popFront();
-        assert(range.front.type == EntityType.cdata);
-        {
-            auto temp = range.save;
-            assert(temp.front.text == " cdata have its bits flipped ");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "root");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        range = range.skipContents();
-        range.popFront();
-        assert(range.front.type == EntityType.cdata);
-        assert(range.front.text == " cdata play violin ");
-        range = range.skipToParentDepth();
-        assert(range._type == EntityType.elementEnd);
-        assert(range.front.name == "root");
-    }
-    // comment
-    {
-        auto xml = "<!-- before -->\n" ~
-                   "<root>\n" ~
-                   "    <!-- comment 1 -->\n" ~
-                   "    <nothing/>\n" ~
-                   "    <!-- comment 2 -->\n" ~
-                   "    <foo></foo>\n" ~
-                   "    <!-- comment 3 -->\n" ~
-                   "</root>\n" ~
-                   "<!-- after -->" ~
-                   "<!-- end -->";
+    import std.algorithm.comparison : equal;
 
-        assert(parseXML(xml).skipToParentDepth().empty);
-
+    static foreach(func; testRangeFuncs)
+    {{
+        // cdata
         {
-            auto range = parseXML(xml);
-            assert(range.front.type == EntityType.comment);
-            range.popFront();
+            auto xml = "<root>\n" ~
+                       "    <![CDATA[ cdata run ]]>\n" ~
+                       "    <nothing/>\n" ~
+                       "    <![CDATA[ cdata have its bits flipped ]]>\n" ~
+                       "    <foo></foo>\n" ~
+                       "    <![CDATA[ cdata play violin ]]>\n" ~
+                       "</root>";
+
+            auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
             range.popFront();
-            assert(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.cdata);
             {
                 auto temp = range.save;
-                assert(temp.front.text == " comment 1 ");
+                assert(equal(temp.front.text, " cdata run "));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementEmpty);
             range.popFront();
-            assert(range.front.type == EntityType.comment);
+            assert(range.front.type == EntityType.cdata);
             {
                 auto temp = range.save;
-                assert(temp.front.text == " comment 2 ");
+                assert(equal(temp.front.text, " cdata have its bits flipped "));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            assert(range.front.type == EntityType.comment);
-            assert(range.front.text == " comment 3 ");
+            assert(range.front.type == EntityType.cdata);
+            assert(equal(range.front.text, " cdata play violin "));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            assert(range.front.name == "root");
+            assert(equal(range.front.name, "root"));
+        }
+        // comment
+        {
+            auto xml = "<!-- before -->\n" ~
+                       "<root>\n" ~
+                       "    <!-- comment 1 -->\n" ~
+                       "    <nothing/>\n" ~
+                       "    <!-- comment 2 -->\n" ~
+                       "    <foo></foo>\n" ~
+                       "    <!-- comment 3 -->\n" ~
+                       "</root>\n" ~
+                       "<!-- after -->" ~
+                       "<!-- end -->";
+
+            auto text = func(xml);
+            assert(parseXML(text.save).skipToParentDepth().empty);
+            {
+                auto range = parseXML(text.save);
+                assert(range.front.type == EntityType.comment);
+                range.popFront();
+                assert(range.front.type == EntityType.elementStart);
+                range.popFront();
+                assert(range.front.type == EntityType.comment);
+                {
+                    auto temp = range.save;
+                    assert(equal(temp.front.text, " comment 1 "));
+                    temp = temp.skipToParentDepth();
+                    assert(temp._type == EntityType.elementEnd);
+                    assert(equal(temp.front.name, "root"));
+                }
+                range.popFront();
+                assert(range.front.type == EntityType.elementEmpty);
+                range.popFront();
+                assert(range.front.type == EntityType.comment);
+                {
+                    auto temp = range.save;
+                    assert(equal(temp.front.text, " comment 2 "));
+                    temp = temp.skipToParentDepth();
+                    assert(temp._type == EntityType.elementEnd);
+                    assert(equal(temp.front.name, "root"));
+                }
+                range.popFront();
+                assert(range.front.type == EntityType.elementStart);
+                range = range.skipContents();
+                range.popFront();
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " comment 3 "));
+                range = range.skipToParentDepth();
+                assert(range._type == EntityType.elementEnd);
+                assert(equal(range.front.name, "root"));
+            }
+            {
+                auto range = parseXML(text.save);
+                assert(range.front.type == EntityType.comment);
+                range.popFront();
+                assert(range.front.type == EntityType.elementStart);
+                range = range.skipContents();
+                range.popFront();
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " after "));
+                assert(range.save.skipToParentDepth().empty);
+                range.popFront();
+                assert(range.front.type == EntityType.comment);
+                assert(equal(range.front.text, " end "));
+                assert(range.skipToParentDepth().empty);
+            }
+        }
+        // elementStart
+        {
+            auto xml = "<root>\n" ~
+                       "    <a><b>foo</b></a>\n" ~
+                       "    <nothing/>\n" ~
+                       "    <c></c>\n" ~
+                       "</root>";
+
+            auto range = parseXML(func(xml));
+            assert(range.front.type == EntityType.elementStart);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "root"));
+                assert(temp.skipToParentDepth().empty);
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "a"));
+                temp = temp.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "root"));
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "b"));
+                temp = temp.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "a"));
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            range.popFront();
+            assert(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "c"));
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            assert(equal(range.front.name, "root"));
+        }
+        // elementEnd
+        {
+            auto xml = "<root>\n" ~
+                       "    <a><b>foo</b></a>\n" ~
+                       "    <nothing/>\n" ~
+                       "    <c></c>\n" ~
+                       "</root>";
+
+            auto range = parseXML(func(xml));
+            assert(range.front.type == EntityType.elementStart);
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "b"));
+                temp = temp.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "a"));
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "a"));
+                temp = temp.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "root"));
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.elementEmpty);
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            {
+                auto temp = range.save;
+                assert(equal(temp.front.name, "c"));
+                temp = temp.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "root"));
+            }
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.skipToParentDepth().empty);
+        }
+        // elementEmpty
+        {
+            auto range = parseXML(func("<root/>"));
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(range.skipToParentDepth().empty);
         }
         {
-            auto range = parseXML(xml);
-            assert(range.front.type == EntityType.comment);
+            auto xml = "<root>\n" ~
+                       "    <a><b>foo</b></a>\n" ~
+                       "    <nothing/>\n" ~
+                       "    <c></c>\n" ~
+                       "    <whatever/>\n" ~
+                       "</root>";
+
+            auto range = parseXML(func(xml));
+            assert(range.front.type == EntityType.elementStart);
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
-            assert(range.front.type == EntityType.comment);
-            assert(range.front.text == " after ");
-            assert(range.save.skipToParentDepth().empty);
-            range.popFront();
-            assert(range.front.type == EntityType.comment);
-            assert(range.front.text == " end ");
-            assert(range.skipToParentDepth().empty);
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(equal(range.front.name, "nothing"));
+            {
+                auto temp = range.save;
+                temp.popFront();
+                assert(temp.front.type == EntityType.elementStart);
+                temp.popFront();
+                assert(temp.front.type == EntityType.elementEnd);
+                temp.popFront();
+                assert(temp.front.type == EntityType.elementEmpty);
+                assert(equal(temp.front.name, "whatever"));
+            }
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            assert(equal(range.front.name, "root"));
         }
-    }
-    // elementStart
-    {
-        auto xml = "<root>\n" ~
-                   "    <a><b>foo</b></a>\n" ~
-                   "    <nothing/>\n" ~
-                   "    <c></c>\n" ~
-                   "</root>";
+        // pi
+        {
+            auto xml = "<?Sherlock?>\n" ~
+                       "<root>\n" ~
+                       "    <?Foo?>\n" ~
+                       "    <nothing/>\n" ~
+                       "    <?Bar?>\n" ~
+                       "    <foo></foo>\n" ~
+                       "    <?Baz?>\n" ~
+                       "</root>\n" ~
+                       "<?Poirot?>\n" ~
+                       "<?Conan?>";
 
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "root");
-            assert(temp.skipToParentDepth().empty);
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "a");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "root");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "b");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "a");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.text);
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        range.popFront();
-        assert(range.front.type == EntityType.elementEmpty);
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "c");
-        range = range.skipToParentDepth();
-        assert(range._type == EntityType.elementEnd);
-        assert(range.front.name == "root");
-    }
-    // elementEnd
-    {
-        auto xml = "<root>\n" ~
-                   "    <a><b>foo</b></a>\n" ~
-                   "    <nothing/>\n" ~
-                   "    <c></c>\n" ~
-                   "</root>";
-
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.text);
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "b");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "a");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "a");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "root");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementEmpty);
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        {
-            auto temp = range.save;
-            assert(temp.front.name == "c");
-            temp = temp.skipToParentDepth();
-            assert(temp._type == EntityType.elementEnd);
-            assert(temp.front.name == "root");
-        }
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        assert(range.skipToParentDepth().empty);
-    }
-    // elementEmpty
-    {
-        auto range = parseXML("<root/>");
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.skipToParentDepth().empty);
-    }
-    {
-        auto xml = "<root>\n" ~
-                   "    <a><b>foo</b></a>\n" ~
-                   "    <nothing/>\n" ~
-                   "    <c></c>\n" ~
-                   "    <whatever/>\n" ~
-                   "</root>";
-
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        range.popFront();
-        assert(range.front.type == EntityType.elementStart);
-        range = range.skipContents();
-        range.popFront();
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.front.name == "nothing");
-        {
-            auto temp = range.save;
-            temp.popFront();
-            assert(temp.front.type == EntityType.elementStart);
-            temp.popFront();
-            assert(temp.front.type == EntityType.elementEnd);
-            temp.popFront();
-            assert(temp.front.type == EntityType.elementEmpty);
-            assert(temp.front.name == "whatever");
-        }
-        range = range.skipToParentDepth();
-        assert(range._type == EntityType.elementEnd);
-        assert(range.front.name == "root");
-    }
-    // pi
-    {
-        auto xml = "<?Sherlock?>\n" ~
-                   "<root>\n" ~
-                   "    <?Foo?>\n" ~
-                   "    <nothing/>\n" ~
-                   "    <?Bar?>\n" ~
-                   "    <foo></foo>\n" ~
-                   "    <?Baz?>\n" ~
-                   "</root>\n" ~
-                   "<?Poirot?>\n" ~
-                   "<?Conan?>";
-
-        {
-            auto range = parseXML(xml);
+            auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.pi);
             {
                 auto temp = range.save;
-                assert(temp.front.name == "Sherlock");
+                assert(equal(temp.front.name, "Sherlock"));
                 assert(temp.skipToParentDepth().empty);
             }
             range.popFront();
@@ -2947,10 +3239,10 @@ unittest
             assert(range.front.type == EntityType.pi);
             {
                 auto temp = range.save;
-                assert(temp.front.name == "Foo");
+                assert(equal(temp.front.name, "Foo"));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementEmpty);
@@ -2958,10 +3250,10 @@ unittest
             assert(range.front.type == EntityType.pi);
             {
                 auto temp = range.save;
-                assert(temp.front.name == "Bar");
+                assert(equal(temp.front.name, "Bar"));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
@@ -2969,44 +3261,42 @@ unittest
             assert(range.front.type == EntityType.elementEnd);
             range.popFront();
             assert(range.front.type == EntityType.pi);
-            assert(range.front.name == "Baz");
+            assert(equal(range.front.name, "Baz"));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            assert(range.front.name == "root");
+            assert(equal(range.front.name, "root"));
             range.popFront();
             assert(range.front.type == EntityType.pi);
             {
                 auto temp = range.save;
-                assert(temp.front.name == "Poirot");
+                assert(equal(temp.front.name, "Poirot"));
                 assert(temp.skipToParentDepth().empty);
             }
             range.popFront();
             assert(range.front.type == EntityType.pi);
-            assert(range.front.name == "Conan");
+            assert(equal(range.front.name, "Conan"));
             assert(range.skipToParentDepth().empty);
         }
-    }
-    // text
-    {
-        auto xml = "<root>\n" ~
-                   "    nothing to say\n" ~
-                   "    <nothing/>\n" ~
-                   "    nothing whatsoever\n" ~
-                   "    <foo></foo>\n" ~
-                   "    but he keeps talking\n" ~
-                   "</root>";
-
+        // text
         {
-            auto range = parseXML(xml);
+            auto xml = "<root>\n" ~
+                       "    nothing to say\n" ~
+                       "    <nothing/>\n" ~
+                       "    nothing whatsoever\n" ~
+                       "    <foo></foo>\n" ~
+                       "    but he keeps talking\n" ~
+                       "</root>";
+
+            auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
             range.popFront();
             assert(range.front.type == EntityType.text);
             {
                 auto temp = range.save;
-                assert(temp.front.text == "\n    nothing to say\n    ");
+                assert(equal(temp.front.text, "\n    nothing to say\n    "));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementEmpty);
@@ -3014,22 +3304,22 @@ unittest
             assert(range.front.type == EntityType.text);
             {
                 auto temp = range.save;
-                assert(temp.front.text == "\n    nothing whatsoever\n    ");
+                assert(equal(temp.front.text, "\n    nothing whatsoever\n    "));
                 temp = temp.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
-                assert(temp.front.name == "root");
+                assert(equal(temp.front.name, "root"));
             }
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
             range.popFront();
             assert(range.front.type == EntityType.text);
-            assert(range.front.text == "\n    but he keeps talking\n");
+            assert(equal(range.front.text, "\n    but he keeps talking\n"));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
-            assert(range.front.name == "root");
+            assert(equal(range.front.name, "root"));
         }
-    }
+    }}
 }
 
 
@@ -3173,7 +3463,7 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3261,7 +3551,7 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3313,7 +3603,7 @@ unittest
                                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3341,7 +3631,7 @@ unittest
     static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
             assertThrown!XMLParsingException(text.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
@@ -3396,7 +3686,7 @@ unittest
                                                 int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3424,7 +3714,7 @@ unittest
     static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
             assertThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
@@ -3617,7 +3907,7 @@ unittest
                                             int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3643,7 +3933,7 @@ unittest
     static void testFail(alias func, delims...)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
             assertThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest failure", __FILE__, line);
@@ -3699,7 +3989,7 @@ unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3725,7 +4015,7 @@ unittest
     static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
             assertThrown!XMLParsingException(text.takeEnquotedText(), "unittest failure", __FILE__, line);
@@ -3830,7 +4120,7 @@ unittest
                                            int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
@@ -3858,7 +4148,7 @@ unittest
     static void testFail(alias func, delim...)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
-        static foreach(i, config; testConfigs)
+        static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
             assertThrown!XMLParsingException(text.takeName!delim(), "unittest failure", __FILE__, line);
@@ -4117,5 +4407,6 @@ version(unittest)
                                           a => byCodeUnit(a));
     }
 
-    enum testConfigs = [ Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none) ];
+    enum posTestConfigs = [Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)];
+    enum variousTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
 }

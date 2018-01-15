@@ -157,6 +157,21 @@ auto fwdCharRange(R)(R range)
 static assert(isForwardRange!(FwdCharRange!char));
 static assert(!isBidirectionalRange!(FwdCharRange!char));
 
+unittest
+{
+    auto range = fwdCharRange("hello world");
+    range.popFront();
+    assert(range._str == "ello world");
+    auto unsaved = range;
+    range.popFront();
+    assert(range._str == "llo world");
+    assert(unsaved._str == "ello world");
+    auto saved = range.save;
+    range.popFront();
+    assert(range._str == "lo world");
+    assert(saved._str == "llo world");
+}
+
 
 class FwdRefCharRange(C)
 {
@@ -200,6 +215,21 @@ auto fwdRefCharRange(R)(R range)
 
 static assert(isForwardRange!(FwdRefCharRange!char));
 static assert(!isBidirectionalRange!(FwdRefCharRange!char));
+
+unittest
+{
+    auto range = fwdRefCharRange("hello world");
+    range.popFront();
+    assert(range._str == "ello world");
+    auto unsaved = range;
+    range.popFront();
+    assert(range._str == "llo world");
+    assert(unsaved._str == "llo world");
+    auto saved = range.save;
+    range.popFront();
+    assert(range._str == "lo world");
+    assert(saved._str == "llo world");
+}
 
 
 struct RACharRange(C)
@@ -265,6 +295,21 @@ auto raCharRange(R)(R range)
 static assert(isForwardRange!(RACharRange!char));
 static assert(isRandomAccessRange!(RACharRange!char));
 static assert(!hasSlicing!(RACharRange!char));
+
+unittest
+{
+    auto range = raCharRange("hello world");
+    range.popFront();
+    assert(range._str == "ello world");
+    auto unsaved = range;
+    range.popFront();
+    assert(range._str == "llo world");
+    assert(unsaved._str == "ello world");
+    auto saved = range.save;
+    range.popFront();
+    assert(range._str == "lo world");
+    assert(saved._str == "llo world");
+}
 
 
 struct RASCharRange(C)
@@ -336,6 +381,21 @@ static assert(isForwardRange!(RASCharRange!char));
 static assert(isRandomAccessRange!(RASCharRange!char));
 static assert(hasSlicing!(RASCharRange!char));
 
+unittest
+{
+    auto range = rasCharRange("hello world");
+    range.popFront();
+    assert(range._str == "ello world");
+    auto unsaved = range;
+    range.popFront();
+    assert(range._str == "llo world");
+    assert(unsaved._str == "ello world");
+    auto saved = range.save;
+    range.popFront();
+    assert(range._str == "lo world");
+    assert(saved._str == "llo world");
+}
+
 
 class RASRefCharRange(C)
 {
@@ -405,3 +465,18 @@ version(unittest) auto rasRefCharRange(R)(R range)
 static assert(isForwardRange!(RASRefCharRange!char));
 static assert(isRandomAccessRange!(RASRefCharRange!char));
 static assert(hasSlicing!(RASRefCharRange!char));
+
+unittest
+{
+    auto range = rasRefCharRange("hello world");
+    range.popFront();
+    assert(range._str == "ello world");
+    auto unsaved = range;
+    range.popFront();
+    assert(range._str == "llo world");
+    assert(unsaved._str == "llo world");
+    auto saved = range.save;
+    range.popFront();
+    assert(range._str == "lo world");
+    assert(saved._str == "llo world");
+}
