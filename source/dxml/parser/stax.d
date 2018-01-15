@@ -407,11 +407,10 @@ enum EntityType
         If there is an entity other than the end tag following the text, then
         the text includes up to that entity.
 
-        Note however that character references (e.g. $(D "&#42")) and entity
-        references (e.g. $(D "&Name;")) are left unprocessed in the text
-        (primarily because the most user-friendly thing to do with
-        them is to convert them in place, and that's best to a higher level
-        parser or helper function).
+        Note however that character references (e.g. $(D_STRING "&#42")) and
+        entity references (e.g. $(D_STRING "&Name;")) are left unprocessed in
+        the text. In order for them to be processed, the text should be passed
+        to either $(LREF normalize) or $(LREF asNormalized).
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
       +/
@@ -434,8 +433,8 @@ enum EntityType
     parser provides is either a slice or $(PHOBOS_REF takeExactly, std, range)
     of the input. However, in some cases, for the parser to be fully compliant,
     $(LREF normalize) must be called on the text to mutate certain constructs
-    (e.g. removing any $(D '\r') in the text or converting $(D "&lt") to
-    $(D '<')). But that's left up to the application.
+    (e.g. removing any $(D_STRING '\r') in the text or converting
+    $(D_STRING "&lt") to $(D_STRING '<')). But that's left up to the application.
 
     The parser is not @nogc, but it allocates memory very minimally. It
     allocates some of its state on the heap so that it can retain a stack of
@@ -2112,7 +2111,7 @@ private:
                 else if(_text.stripStartsWith("[CDATA["))
                     _parseCDATA();
                 else
-                    throw new XMLParsingException("Not valid Comment or CData section", _text.pos);
+                    throw new XMLParsingException("Not valid Comment or CDATA section", _text.pos);
                 break;
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -2251,7 +2250,7 @@ private:
         static void test(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(config; variousTestConfigs)
+            static foreach(config; someTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 assertNotThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
@@ -2261,7 +2260,7 @@ private:
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text);
-            static foreach(config; variousTestConfigs)
+            static foreach(config; someTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 assertThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
@@ -2533,7 +2532,7 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(config; variousTestConfigs)
+        static foreach(config; someTestConfigs)
         {{
             auto range = parseXML!config("<?xml?><root></root>");
             assert(!range.empty);
@@ -2572,7 +2571,7 @@ unittest
             assert(equal(range.front.name, "root"));
         }}
 
-        static foreach(config; variousTestConfigs)
+        static foreach(config; someTestConfigs)
         {{
             auto range = parseXML!config("<root></root>");
             assert(!range.empty);
@@ -2590,7 +2589,7 @@ unittest
     static void testFail(alias func)(string text, size_t line = __LINE__)
     {
         auto xml = func(text);
-        static foreach(config; variousTestConfigs)
+        static foreach(config; someTestConfigs)
         {
             assertThrown!XMLParsingException(
                 {
@@ -2780,399 +2779,8 @@ unittest
 
 
 /++
-    Treats the given string like a file path except that each directory
-    corresponds to the name of a start tag. Note that this does $(I not) try to
-    implement XPath as that would be quite complicated, but it does try to be
-    compatible with it for the small subset of the syntax that it supports.
-
-    All paths should be relative. $(LREF EntityRange) can only move forward
-    through the document, so using an absolute path would only make sense at
-    the beginning of the document.
-
-    Returns: The given range with front now at the requested entity if the path
-             is valid; otherwise, an empty range is returned.
-
-    Throws: $(LREF XMLParsingException) on invalid XML.
-  +/
-R skipToPath(R)(R entityRange, string path)
-    if(isInstanceOf!(EntityRange, R))
-{
-    import std.algorithm.comparison : equal;
-    import std.path : pathSplitter;
-
-    if(entityRange.empty)
-        return entityRange;
-    if(path.empty || path[0] == '/')
-        return entityRange.takeNone();
-
-    with(EntityType)
-    {
-        static if(R.config.splitEmpty == SplitEmpty.yes)
-            EntityType[2] startOrEnd = [elementStart, elementEnd];
-        else
-            EntityType[3] startOrEnd = [elementStart, elementEnd, elementEmpty];
-
-        R findOnCurrLevel(string name)
-        {
-            if(entityRange._type == elementStart)
-                entityRange = entityRange.skipContents();
-            while(true)
-            {
-                entityRange = entityRange.skipToEntityType(startOrEnd[]);
-                if(entityRange.empty)
-                    return entityRange;
-                if(entityRange._type == elementEnd)
-                    return entityRange.takeNone();
-
-                if(equal(name, entityRange._name.save))
-                    return entityRange;
-
-                static if(R.config.splitEmpty == SplitEmpty.no)
-                {
-                    if(entityRange._type == elementEmpty)
-                        continue;
-                }
-                entityRange = entityRange.skipContents();
-            }
-        }
-
-        bool checkCurrLevel = false;
-
-        foreach(name; path.pathSplitter())
-        {
-            if(name.empty || name == ".")
-                continue;
-            if(name == "..")
-            {
-                entityRange = entityRange.skipToParentDepth();
-                if(entityRange.empty)
-                    return entityRange;
-                checkCurrLevel = true;
-                continue;
-            }
-
-            static if(R.config.splitEmpty == SplitEmpty.yes)
-                immutable atStart = entityRange._type == elementStart;
-            else
-                immutable atStart = entityRange._type == elementStart || entityRange._type == elementEmpty;
-
-            if(!atStart)
-            {
-                entityRange = findOnCurrLevel(name);
-                if(entityRange.empty)
-                    return entityRange;
-                checkCurrLevel = false;
-                continue;
-            }
-
-            if(checkCurrLevel)
-            {
-                checkCurrLevel = false;
-                if(!equal(name, entityRange._name.save))
-                {
-                    entityRange = findOnCurrLevel(name);
-                    if(entityRange.empty)
-                        return entityRange;
-                }
-                continue;
-            }
-
-            static if(R.config.splitEmpty == SplitEmpty.no)
-            {
-                // elementEmpty has no children to check
-                if(entityRange._type == elementEmpty)
-                    return entityRange.takeNone();
-            }
-
-            entityRange = entityRange.skipToEntityType(startOrEnd[]);
-            assert(!entityRange.empty);
-            if(entityRange._type == elementEnd)
-                return entityRange.takeNone();
-
-            if(!equal(name, entityRange._name.save))
-            {
-                entityRange = findOnCurrLevel(name);
-                if(entityRange.empty)
-                    return entityRange;
-            }
-        }
-
-        return entityRange;
-    }
-}
-
-///
-unittest
-{
-    auto xml = "<carrot>\n" ~
-               "    <foo>\n" ~
-               "        <bar a='42'>\n" ~
-               "            <baz/>\n" ~
-               "        </bar>\n" ~
-               "        <foo></foo>\n" ~
-               "        <bar b='24'>\n" ~
-               "            <fuzz>\n" ~
-               "                <buzz>blah</buzz>\n" ~
-               "            </fuzz>\n" ~
-               "        </bar>\n" ~
-               "    </foo>\n" ~
-               "</carrot>";
-    {
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "carrot");
-
-        range = range.skipToPath("foo/bar");
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "bar");
-        assert(range.front.attributes.front.name == "a");
-
-        range = range.skipToPath("baz");
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.front.name == "baz");
-
-        range = range.skipToPath("../bar/fuzz/buzz");
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "buzz");
-
-        assert(range.skipToPath("bar").empty);
-    }
-    {
-        auto range = parseXML(xml);
-        assert(range.front.type == EntityType.elementStart);
-        range = range.skipToPath("foo/bar");
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "bar");
-        assert(range.front.attributes.front.name == "a");
-
-        range = range.skipToPath("./baz");
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.front.name == "baz");
-
-        range = range.skipToPath("../bar");
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "bar");
-        assert(range.front.attributes.front.name == "b");
-
-        assert(range.skipToPath("buzz").empty);
-    }
-    // If the current entity is not a start tag, then the first "directory"
-    // in the path is matched against a start tag at the same level rather
-    // than against a child tag.
-    {
-        auto range = parseXML(xml);
-        range = range.skipToEntityType(EntityType.elementEmpty);
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.front.name == "baz");
-        range.popFront();
-        assert(range.front.type == EntityType.elementEnd);
-        assert(range.front.name == "bar");
-        range = range.skipToPath("bar");
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.attributes.front.name == "b");
-    }
-    // The first matching start tag is always taken, so even though there is
-    // a bar/fuzz under foo, because fuzz is under the second bar, not the
-    // first, it's not found.
-    {
-        auto range = parseXML(xml);
-        assert(range.skipToPath("carrot/foo/bar/fuzz").empty);
-    }
-    // skipToPath will work on an empty range but will always return an
-    // empty range.
-    {
-        auto range = parseXML(xml);
-        assert(range.takeNone().skipToPath("nowhere").empty);
-    }
-    // Empty and absolute paths will also result in an empty range.
-    {
-        auto range = parseXML(xml);
-        assert(range.skipToPath("").empty);
-        assert(range.skipToPath("/").empty);
-    }
-
-    // Remember to take into account whether the current config skips stuff like
-    // comments. The current start tag is not considered part of the path, just
-    // like the current directory is not considered part of the path when
-    // navigating files on the command-line. So, if comments are skipped, the
-    // parser will start at the root element and not the comment.
-    auto xml2 = "<!-- comment -->\n" ~
-                "<foo>\n" ~
-                "    <bar>\n" ~
-                "        <baz/>\n" ~
-                "    </bar>\n" ~
-                "</foo>";
-    // The default config does not skip comments.
-    {
-        auto range = parseXML(xml2).skipToPath("foo/bar/baz");
-        assert(!range.empty);
-        assert(range.front.type == EntityType.elementEmpty);
-        assert(range.front.name == "baz");
-    }
-    {
-        auto range = parseXML(xml2).skipToPath("bar/baz");
-        assert(range.empty);
-    }
-    // simpleXML skips comments.
-    {
-        auto range = parseXML!simpleXML(xml2).skipToPath("foo/bar/baz");
-        assert(range.empty);
-    }
-    // simpleXML uses SplitEmpty.yes, hence the EntityType.elementStart instead
-    // of EntityType.elementEmpty.
-    {
-        auto range = parseXML!simpleXML(xml2).skipToPath("bar/baz");
-        assert(!range.empty);
-        assert(range.front.type == EntityType.elementStart);
-        assert(range.front.name == "baz");
-    }
-}
-
-unittest
-{
-    import std.algorithm.comparison : equal;
-
-    auto xml = "<!-- and so it begins -->\n" ~
-               "<potato>\n" ~
-               "    <foo a='whatever'/>\n" ~
-               "    <foo b='whatever'>\n" ~
-               "        <bar>text<i>more</i>text</bar>\n" ~
-               "        <!-- no comment -->\n" ~
-               "        <bar>\n" ~
-               "            <bar/>\n" ~
-               "            <baz/>\n" ~
-               "        </bar>\n" ~
-               "    </foo>\n" ~
-               "    <!-- comment -->\n" ~
-               "    <sally>\n" ~
-               "        <sue>me</sue>\n" ~
-               "    </sally>\n" ~
-               "</potato>";
-
-    static foreach(func; testRangeFuncs)
-    {{
-        auto text = func(xml);
-
-        static foreach(config; [Config.init, makeConfig(SplitEmpty.yes), simpleXML])
-        {{
-            static if(config.splitEmpty == SplitEmpty.yes)
-                enum empty = EntityType.elementStart;
-            else
-                enum empty = EntityType.elementEmpty;
-            foreach(path; [".", "./"])
-            {
-                auto range = parseXML!config(text.save);
-                auto pos = range._text.pos;
-                auto entity = range.front;
-                range = range.skipToPath(path);
-                assert(!range.empty);
-                assert(pos == range._text.pos);
-                assert(entity == range.front);
-            }
-            foreach(path; ["..", "../", "../..", "../..///", "../././../../../.."])
-                assert(parseXML!config(text.save).skipToPath(path).empty);
-            foreach(path; ["potato/foo", "./potato/foo", "./potato/./foo", "./potato///foo", "./potato/foo/"])
-            {
-                static if(config.skipComments == SkipComments.yes)
-                    assert(parseXML!config(text.save).skipToPath(path).empty);
-                else
-                {
-                    auto range = parseXML!config(text.save).skipToPath(path);
-                    assert(!range.empty);
-                    assert(range.front.type == empty);
-                    assert(equal(range.front.name, "foo"));
-                    assert(equal(range.front.attributes.front.name, "a"));
-                    assert(range.skipToPath("bar").empty);
-                }
-            }
-            foreach(path; ["foo", "./foo", ".///foo", "././././foo/"])
-            {
-                static if(config.skipComments == SkipComments.yes)
-                {
-                    auto range = parseXML!config(text.save).skipToPath(path);
-                    assert(!range.empty);
-                    assert(range.front.type == empty);
-                    assert(equal(range.front.name, "foo"));
-                    assert(equal(range.front.attributes.front.name, "a"));
-                    assert(range.skipToPath("bar").empty);
-                }
-                else
-                    assert(parseXML!config(text.save).skipToPath(path).empty);
-            }
-            {
-                auto range = parseXML!config(text.save);
-                static if(config.skipComments == SkipComments.no)
-                    range.popFront();
-                range = range.skipToPath("./foo");
-                assert(range.front.type == empty);
-                range = range.skipToEntityType(EntityType.elementStart);
-                assert(range.front.type == EntityType.elementStart);
-                assert(equal(range.front.name, "foo"));
-                assert(equal(range.front.attributes.front.name, "b"));
-                assert(range.save.skipToPath("bar/baz").empty);
-                {
-                    auto temp = range.save.skipToPath("bar/i");
-                    assert(!temp.empty);
-                    assert(temp.front.type == EntityType.elementStart);
-                    assert(equal(temp.front.name, "i"));
-                    temp = temp.skipToPath("../bar/bar");
-                    assert(!temp.empty);
-                    assert(temp.front.type == empty);
-                    assert(equal(temp.front.name, "bar"));
-                    assert(temp.skipToPath("../bar").empty);
-                }
-                range.popFront();
-                range = range.skipContents();
-                static if(config.skipComments == SkipComments.no)
-                {
-                    auto temp = range.save;
-                    temp.popFront();
-                    assert(temp.front.type == EntityType.comment);
-                    assert(equal(temp.front.text, " no comment "));
-                    temp = temp.skipToPath("bar/baz");
-                    assert(!temp.empty);
-                    assert(temp.front.type == empty);
-                    assert(equal(temp.front.name, "baz"));
-                }
-                range = range.skipToPath("bar/baz");
-                assert(!range.empty);
-                assert(range.front.type == empty);
-                assert(equal(range.front.name, "baz"));
-            }
-            {
-                import std.range : popFrontN;
-                auto range = parseXML!config(text.save);
-                static if(config.skipComments == SkipComments.no)
-                    range.popFront();
-                static if(config.splitEmpty == SplitEmpty.no)
-                    range.popFrontN(3);
-                else
-                    range.popFrontN(4);
-                assert(range.front.type == EntityType.elementStart);
-                assert(equal(range.front.name, "bar"));
-                {
-                    auto temp = range.save.skipToPath("i/../bar/baz");
-                    assert(!temp.empty);
-                    assert(temp.front.type == empty);
-                    assert(equal(temp.front.name, "baz"));
-                }
-                range = range.skipToPath("./././/./i/.././././bar/./////baz");
-                assert(!range.empty);
-                assert(range.front.type == empty);
-                assert(equal(range.front.name, "baz"));
-                range = range.skipToPath("../../sally/sue");
-                assert(!range.empty);
-                assert(range.front.type == EntityType.elementStart);
-                assert(equal(range.front.name, "sue"));
-            }
-        }}
-    }}
-}
-
-
-/++
     Skips entities until an entity is reached that is at the same depth as the
-    parent of the current entity.
+    parent of the current entity. That entity will be an end tag.
 
     Returns: The given range with front now at the first entity found which is
              at the same depth as the entity which was front when
@@ -3652,6 +3260,441 @@ unittest
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
         }
+    }}
+}
+
+
+/++
+    Treats the given string like a file path except that each directory
+    corresponds to the name of a start tag. Note that this does $(I not) try to
+    implement XPath as that would be quite complicated, it really doesn't fit
+    with a StAX parser.
+
+    A start tag should be thought of as a directory, with its child start tags
+    as the directories it contains.
+
+    All paths should be relative. $(LREF EntityRange) can only move forward
+    through the document, so using an absolute path would only make sense at
+    the beginning of the document. As such, absolute paths are treated as
+    invalid paths.
+
+    $(D_STRING "./") and $(D_STRING "../") are supported. Repeated slashes such
+    as in $(D_STRING "foo//bar") is not supported is treated as an invalid path.
+
+    If $(D range.front.type == EntityType.elementStart), then
+    $(D range._skiptoPath($(D_STRING "foo"))) will search for the first child
+    start tag (be it $(LREF EntityType.elementStart) or
+    $(LREF EntityType.elementEmpty)) with the $(LREF2 name, EntityRange.Entity)
+    $(D_STRING "foo"). That start tag must be a direct child of the current
+    start tag.
+
+    If $(D range.front.type) is any other $(LREF EntityType), then
+    $(D range._skipToPath($(D_STRING "foo"))) will return an empty range,
+    because no other $(LREF EntityType)s have child start tags.
+
+    For any $(LREF EntityType), $(D range._skipToPath($(D_STRING "../foo")))
+    will search for the first start tag with the
+    $(LREF2 name, EntityRange.Entity) $(D_STRING "foo") at the same level as the
+    current entity. If the current entity is a start tag with the name
+    $(D_STRING "foo"), it will not be considered a match.
+
+    $(D range._skiptoPath($(D_STRING "./"))) is a no-op. However,
+    $(D range._skipToPath($(D_STRING "../"))) will result in the empty range
+    (since it doesn't target a specific start tag).
+
+    $(D range._skipToPath($(D_STRING "foo/bar"))) is equivalent to
+    $(D range._skipToPath($(D_STRING "foo"))._skipToPath($(D_STRING "bar"))),
+    and $(D range._skipToPath($(D_STRING "../foo/bar"))) is equivalent to
+    $(D range._skipToPath($(D_STRING "../foo"))._skipToPath($(D_STRING "bar"))).
+
+    Returns: The given range with front now at the requested entity if the path
+             is valid; otherwise, an empty range is returned.
+
+    Throws: $(LREF XMLParsingException) on invalid XML.
+  +/
+R skipToPath(R)(R entityRange, string path)
+    if(isInstanceOf!(EntityRange, R))
+{
+    import std.algorithm.comparison : equal;
+    import std.path : pathSplitter;
+
+    if(entityRange.empty)
+        return entityRange;
+    if(path.empty || path[0] == '/')
+        return entityRange.takeNone();
+
+    with(EntityType)
+    {
+        static if(R.config.splitEmpty == SplitEmpty.yes)
+            EntityType[2] startOrEnd = [elementStart, elementEnd];
+        else
+            EntityType[3] startOrEnd = [elementStart, elementEnd, elementEmpty];
+
+        R findOnCurrLevel(string name)
+        {
+            if(entityRange._type == elementStart)
+                entityRange = entityRange.skipContents();
+            while(true)
+            {
+                entityRange = entityRange.skipToEntityType(startOrEnd[]);
+                if(entityRange.empty)
+                    return entityRange;
+                if(entityRange._type == elementEnd)
+                    return entityRange.takeNone();
+
+                if(equal(name, entityRange._name.save))
+                    return entityRange;
+
+                static if(R.config.splitEmpty == SplitEmpty.no)
+                {
+                    if(entityRange._type == elementEmpty)
+                        continue;
+                }
+                entityRange = entityRange.skipContents();
+            }
+        }
+
+        for(auto pieces = path.pathSplitter(); !pieces.empty; pieces.popFront())
+        {
+            if(pieces.front == ".")
+                continue;
+            else if(pieces.front == "..")
+            {
+                pieces.popFront();
+                if(pieces.empty)
+                    return entityRange.takeNone();
+
+                while(pieces.front == "..")
+                {
+                    pieces.popFront();
+                    if(pieces.empty)
+                        return entityRange.takeNone();
+                    entityRange = entityRange.skipToParentDepth();
+                    if(entityRange.empty)
+                        return entityRange;
+                }
+
+                entityRange = findOnCurrLevel(pieces.front);
+                if(entityRange.empty)
+                    return entityRange;
+            }
+            else
+            {
+                if(entityRange._type != elementStart)
+                    return entityRange.takeNone();
+
+                entityRange = entityRange.skipToEntityType(startOrEnd[]);
+                assert(!entityRange.empty);
+                if(entityRange._type == elementEnd)
+                    return entityRange.takeNone();
+
+                if(!equal(pieces.front, entityRange._name.save))
+                {
+                    entityRange = findOnCurrLevel(pieces.front);
+                    if(entityRange.empty)
+                        return entityRange;
+                }
+            }
+        }
+
+        return entityRange;
+    }
+}
+
+///
+unittest
+{
+    {
+        auto xml = "<carrot>\n" ~
+                   "    <foo>\n" ~
+                   "        <bar>\n" ~
+                   "            <baz/>\n" ~
+                   "            <other/>\n" ~
+                   "        </bar>\n" ~
+                   "    </foo>\n" ~
+                   "</carrot>";
+
+        auto range = parseXML(xml);
+        // "<carrot>"
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "carrot");
+
+        range = range.skipToPath("foo/bar");
+        // "        <bar>
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+
+        range = range.skipToPath("baz");
+        // "            <baz/>
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        // other is not a child element of baz
+        assert(range.skipToPath("other").empty);
+
+        range = range.skipToPath("../other");
+        // "            <other/>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEmpty);
+    }
+    {
+        auto xml = "<potato>\n" ~
+                   "    <foo>\n" ~
+                   "        <bar>\n "~
+                   "        </bar>\n" ~
+                   "        <crazy>\n" ~
+                   "        </crazy>\n" ~
+                   "        <fou/>\n" ~
+                   "    </foo>\n" ~
+                   "    <buzz/>\n" ~
+                   "</potato>";
+
+        auto range = parseXML(xml);
+        // "<potato>"
+        assert(range.front.type == EntityType.elementStart);
+
+        range = range.skipToPath("./");
+        // "<potato>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "potato");
+
+        range = range.skipToPath("./foo/bar");
+        // "        <bar>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+
+        range = range.skipToPath("../crazy");
+        // "        <crazy>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "crazy");
+
+        // Whether popFront is called here before the call to
+        // range.skipToPath("../fou") below, the result is the same, because
+        // both <crazy> and </crazy> are at the same level.
+        range.popFront();
+        // "        </crazy>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "crazy");
+
+        range = range.skipToPath("../fou");
+        // "        <fou/>"
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEmpty);
+    }
+    // Searching stops at the first matching start tag.
+    {
+        auto xml = "<beet>\n" ~
+                   "    <foo a='42'>\n" ~
+                   "    </foo>\n" ~
+                   "    <foo b='451'>\n" ~
+                   "    </foo>\n" ~
+                   "</beet>";
+
+        auto range = parseXML(xml);
+        range = range.skipToPath("foo");
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
+
+        {
+            auto attrs = range.front.attributes;
+            assert(attrs.front.name == "a");
+            assert(attrs.front.value == "42");
+        }
+
+        range = range.skipToPath("../foo");
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
+
+        {
+            auto attrs = range.front.attributes;
+            assert(attrs.front.name == "b");
+            assert(attrs.front.value == "451");
+        }
+    }
+    // skipToPath will work on an empty range but will always return an
+    // empty range.
+    {
+        auto range = parseXML("<root/>");
+        assert(range.takeNone().skipToPath("nowhere").empty);
+    }
+    // Empty and absolute paths will also result in an empty range as will
+    // "../" without any actual tag name on the end.
+    {
+        auto range = parseXML("<root/>");
+        assert(range.skipToPath("").empty);
+        assert(range.skipToPath("/").empty);
+        assert(range.skipToPath("../").empty);
+    }
+    // Only non-empty start tags have children; all other EntityTypes result
+    // in an empty range unless "../" is used.
+    {
+        auto xml = "<!-- comment -->\n" ~
+                   "<root>\n" ~
+                   "    <foo/>\n" ~
+                   "</root>";
+        auto range = parseXML(xml);
+        assert(range.skipToPath("root").empty);
+        assert(range.skipToPath("foo").empty);
+
+        range = range.skipToPath("../root");
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
+    }
+}
+unittest
+{
+    import core.exception : AssertError;
+    import std.algorithm.comparison : equal;
+    import std.exception : assertNotThrown, enforce;
+
+    static void testPath(R)(R range, string path, EntityType type, string name, size_t line = __LINE__)
+    {
+        auto result = assertNotThrown!XMLParsingException(range.skipToPath(path), "unittest 1", __FILE__, line);
+        enforce!AssertError(!result.empty, "unittest 2", __FILE__, line);
+        enforce!AssertError(result.front.type == type, "unittest 3", __FILE__, line);
+        enforce!AssertError(equal(result.front.name, name), "unittest 4", __FILE__, line);
+    }
+
+    static void popEmpty(R)(ref R range)
+    {
+        range.popFront();
+        static if(range.config.splitEmpty == SplitEmpty.yes)
+            range.popFront();
+    }
+
+    auto xml = "<superuser>\n" ~
+               "    <!-- comment -->\n" ~
+               "    <?pi?>\n" ~
+               "    <![CDATA[cdata]]>\n" ~
+               "    <foo/>\n" ~
+               "    <bar/>\n" ~
+               "    <!-- comment -->\n" ~
+               "    <!-- comment -->\n" ~
+               "    <baz/>\n" ~
+               "    <frobozz>\n" ~
+               "        <!-- comment -->\n" ~
+               "        <!-- comment -->\n" ~
+               "        <whatever/>\n" ~
+               "        <!-- comment -->\n" ~
+               "        <!-- comment -->\n" ~
+               "    </frobozz>\n" ~
+               "    <!-- comment -->\n" ~
+               "    <!-- comment -->\n" ~
+               "    <xyzzy/>\n" ~
+               "</superuser>";
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto text = func(xml);
+
+        static foreach(config; someTestConfigs)
+        {{
+            static if(config.splitEmpty == SplitEmpty.yes)
+                enum empty = EntityType.elementStart;
+            else
+                enum empty = EntityType.elementEmpty;
+
+            auto range = parseXML!config(text.save);
+
+            testPath(range.save, "foo", empty, "foo");
+            testPath(range.save, "bar", empty, "bar");
+            testPath(range.save, "baz", empty, "baz");
+            testPath(range.save, "frobozz", EntityType.elementStart, "frobozz");
+            testPath(range.save, "frobozz/whatever", empty, "whatever");
+            testPath(range.save, "xyzzy", empty, "xyzzy");
+
+            range.popFront();
+            for(; range.front.type != empty; range.popFront())
+            {
+                assert(range.save.skipToPath("foo").empty);
+                testPath(range.save, "../foo", empty, "foo");
+                testPath(range.save, "../bar", empty, "bar");
+                testPath(range.save, "../baz", empty, "baz");
+                testPath(range.save, "../frobozz", EntityType.elementStart, "frobozz");
+                testPath(range.save, "../frobozz/whatever", empty, "whatever");
+                testPath(range.save, "../xyzzy", empty, "xyzzy");
+            }
+            assert(equal(range.front.name, "foo"));
+            assert(range.save.skipToPath("foo").empty);
+            assert(range.save.skipToPath("./foo").empty);
+            assert(range.save.skipToPath("../foo").empty);
+            assert(range.save.skipToPath("bar").empty);
+            assert(range.save.skipToPath("baz").empty);
+            assert(range.save.skipToPath("frobozz").empty);
+            assert(range.save.skipToPath("whatever").empty);
+
+            testPath(range.save, "../bar", empty, "bar");
+            testPath(range.save, "../baz", empty, "baz");
+            testPath(range.save, "../frobozz", EntityType.elementStart, "frobozz");
+            testPath(range.save, "../frobozz/whatever", empty, "whatever");
+            testPath(range.save, "../xyzzy", empty, "xyzzy");
+
+            popEmpty(range);
+            assert(range.save.skipToPath("bar").empty);
+            testPath(range.save, "../baz", empty, "baz");
+            testPath(range.save, "../frobozz", EntityType.elementStart, "frobozz");
+            testPath(range.save, "../frobozz/whatever", empty, "whatever");
+            testPath(range.save, "../xyzzy", empty, "xyzzy");
+
+            range.popFront();
+            for(; range.front.type != empty; range.popFront())
+            {
+                assert(range.save.skipToPath("baz").empty);
+                testPath(range.save, "../baz", empty, "baz");
+                testPath(range.save, "../frobozz", EntityType.elementStart, "frobozz");
+                testPath(range.save, "../frobozz/whatever", empty, "whatever");
+                testPath(range.save, "../xyzzy", empty, "xyzzy");
+            }
+            assert(equal(range.front.name, "baz"));
+
+            testPath(range.save, "../frobozz", EntityType.elementStart, "frobozz");
+            testPath(range.save, "../frobozz/whatever", empty, "whatever");
+            testPath(range.save, "../xyzzy", empty, "xyzzy");
+
+            popEmpty(range);
+            assert(equal(range.front.name, "frobozz"));
+            testPath(range.save, "whatever", empty, "whatever");
+            testPath(range.save, "../xyzzy", empty, "xyzzy");
+
+            range.popFront();
+            for(; range.front.type != empty; range.popFront())
+            {
+                assert(range.save.skipToPath("whatever").empty);
+                testPath(range.save, "../whatever", empty, "whatever");
+                testPath(range.save, "../../xyzzy", empty, "xyzzy");
+            }
+            assert(equal(range.front.name, "whatever"));
+            assert(range.save.skipToPath("frobozz").empty);
+            assert(range.save.skipToPath("../frobozz").empty);
+            assert(range.save.skipToPath("../xyzzy").empty);
+
+            testPath(range.save, "../../xyzzy", empty, "xyzzy");
+
+            popEmpty(range);
+            for(; range.front.type != EntityType.elementEnd; range.popFront())
+            {
+                assert(range.save.skipToPath("xyzzy").empty);
+                assert(range.save.skipToPath("../xyzzy").empty);
+                testPath(range.save, "../../xyzzy", empty, "xyzzy");
+            }
+            assert(equal(range.front.name, "frobozz"));
+
+            range.popFront();
+            for(; range.front.type != empty; range.popFront())
+            {
+                assert(range.save.skipToPath("xyzzy").empty);
+                testPath(range.save, "../xyzzy", empty, "xyzzy");
+            }
+            assert(equal(range.front.name, "xyzzy"));
+        }}
     }}
 }
 
@@ -4741,5 +4784,5 @@ version(unittest)
     }
 
     enum posTestConfigs = [Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)];
-    enum variousTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
+    enum someTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
 }
