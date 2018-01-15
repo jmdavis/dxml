@@ -2907,7 +2907,16 @@ unittest
 
 unittest
 {
+    import core.exception : AssertError;
     import std.algorithm.comparison : equal;
+    import std.exception : enforce;
+
+    static void popAndCheck(R)(ref R range, EntityType type, size_t line = __LINE__)
+    {
+        range.popFront();
+        enforce!AssertError(!range.empty, "unittest 1", __FILE__, line);
+        enforce!AssertError(range.front.type == type, "unittest 2", __FILE__, line);
+    }
 
     static foreach(func; testRangeFuncs)
     {{
@@ -2923,31 +2932,24 @@ unittest
 
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.cdata);
+            popAndCheck(range, EntityType.cdata);
+            assert(equal(range.front.text, " cdata run "));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.text, " cdata run "));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
-            range.popFront();
-            assert(range.front.type == EntityType.cdata);
+            popAndCheck(range, EntityType.elementEmpty);
+            popAndCheck(range, EntityType.cdata);
+            assert(equal(range.front.text, " cdata have its bits flipped "));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.text, " cdata have its bits flipped "));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
+            popAndCheck(range, EntityType.elementStart);
             range = range.skipContents();
-            range.popFront();
-            assert(range.front.type == EntityType.cdata);
+            popAndCheck(range, EntityType.cdata);
             assert(equal(range.front.text, " cdata play violin "));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
@@ -2971,33 +2973,25 @@ unittest
             {
                 auto range = parseXML(text.save);
                 assert(range.front.type == EntityType.comment);
-                range.popFront();
-                assert(range.front.type == EntityType.elementStart);
-                range.popFront();
-                assert(range.front.type == EntityType.comment);
+                popAndCheck(range, EntityType.elementStart);
+                popAndCheck(range, EntityType.comment);
+                assert(equal(range.front.text, " comment 1 "));
                 {
-                    auto temp = range.save;
-                    assert(equal(temp.front.text, " comment 1 "));
-                    temp = temp.skipToParentDepth();
+                    auto temp = range.save.skipToParentDepth();
                     assert(temp._type == EntityType.elementEnd);
                     assert(equal(temp.front.name, "root"));
                 }
-                range.popFront();
-                assert(range.front.type == EntityType.elementEmpty);
-                range.popFront();
-                assert(range.front.type == EntityType.comment);
+                popAndCheck(range, EntityType.elementEmpty);
+                popAndCheck(range, EntityType.comment);
+                assert(equal(range.front.text, " comment 2 "));
                 {
-                    auto temp = range.save;
-                    assert(equal(temp.front.text, " comment 2 "));
-                    temp = temp.skipToParentDepth();
+                    auto temp = range.save.skipToParentDepth();
                     assert(temp._type == EntityType.elementEnd);
                     assert(equal(temp.front.name, "root"));
                 }
-                range.popFront();
-                assert(range.front.type == EntityType.elementStart);
+                popAndCheck(range, EntityType.elementStart);
                 range = range.skipContents();
-                range.popFront();
-                assert(range.front.type == EntityType.comment);
+                popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " comment 3 "));
                 range = range.skipToParentDepth();
                 assert(range._type == EntityType.elementEnd);
@@ -3006,15 +3000,12 @@ unittest
             {
                 auto range = parseXML(text.save);
                 assert(range.front.type == EntityType.comment);
-                range.popFront();
-                assert(range.front.type == EntityType.elementStart);
+                popAndCheck(range, EntityType.elementStart);
                 range = range.skipContents();
-                range.popFront();
-                assert(range.front.type == EntityType.comment);
+                popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " after "));
                 assert(range.save.skipToParentDepth().empty);
-                range.popFront();
-                assert(range.front.type == EntityType.comment);
+                popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " end "));
                 assert(range.skipToParentDepth().empty);
             }
@@ -3025,44 +3016,53 @@ unittest
                        "    <a><b>foo</b></a>\n" ~
                        "    <nothing/>\n" ~
                        "    <c></c>\n" ~
+                       "    <d>\n" ~
+                       "        <e>\n" ~
+                       "        </e>\n" ~
+                       "        <f>\n" ~
+                       "            <g>\n" ~
+                       "            </g>\n" ~
+                       "        </f>\n" ~
+                       "    </d>\n" ~
                        "</root>";
 
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
+            assert(equal(range.front.name, "root"));
+            assert(range.save.skipToParentDepth().empty);
+            popAndCheck(range, EntityType.elementStart);
+            assert(equal(range.front.name, "a"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "root"));
-                assert(temp.skipToParentDepth().empty);
-            }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "a"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
+            popAndCheck(range, EntityType.elementStart);
+            assert(equal(range.front.name, "b"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "b"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "a"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.text);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
+            popAndCheck(range, EntityType.text);
+            popAndCheck(range, EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementEmpty);
+            popAndCheck(range, EntityType.elementStart);
             assert(equal(range.front.name, "c"));
+            {
+                auto temp = range.save.skipToParentDepth();
+                assert(temp._type == EntityType.elementEnd);
+                assert(equal(temp.front.name, "root"));
+            }
+            popAndCheck(range, EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementStart);
+            assert(equal(range.front.name, "d"));
+            popAndCheck(range, EntityType.elementStart);
+            assert(equal(range.front.name, "e"));
+            range = range.skipToParentDepth();
+            assert(range._type == EntityType.elementEnd);
+            assert(equal(range.front.name, "d"));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
@@ -3077,45 +3077,33 @@ unittest
 
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.text);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementStart);
+            popAndCheck(range, EntityType.elementStart);
+            popAndCheck(range, EntityType.text);
+            popAndCheck(range, EntityType.elementEnd);
+            assert(equal(range.front.name, "b"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "b"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "a"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementEnd);
+            assert(equal(range.front.name, "a"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "a"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementEmpty);
+            popAndCheck(range, EntityType.elementStart);
+            popAndCheck(range, EntityType.elementEnd);
+            assert(equal(range.front.name, "c"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "c"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
+            popAndCheck(range, EntityType.elementEnd);
             assert(range.skipToParentDepth().empty);
         }
         // elementEmpty
@@ -3133,21 +3121,16 @@ unittest
                        "</root>";
 
             auto range = parseXML(func(xml));
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
+            popAndCheck(range, EntityType.elementStart);
             assert(range.front.type == EntityType.elementStart);
             range = range.skipContents();
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
+            popAndCheck(range, EntityType.elementEmpty);
             assert(equal(range.front.name, "nothing"));
             {
                 auto temp = range.save;
-                temp.popFront();
-                assert(temp.front.type == EntityType.elementStart);
-                temp.popFront();
-                assert(temp.front.type == EntityType.elementEnd);
-                temp.popFront();
-                assert(temp.front.type == EntityType.elementEmpty);
+                popAndCheck(temp, EntityType.elementStart);
+                popAndCheck(temp, EntityType.elementEnd);
+                popAndCheck(temp, EntityType.elementEmpty);
                 assert(equal(temp.front.name, "whatever"));
             }
             range = range.skipToParentDepth();
@@ -3169,52 +3152,35 @@ unittest
 
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.pi);
+            assert(equal(range.front.name, "Sherlock"));
+            assert(range.save.skipToParentDepth().empty);
+            popAndCheck(range, EntityType.elementStart);
+            popAndCheck(range, EntityType.pi);
+            assert(equal(range.front.name, "Foo"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "Sherlock"));
-                assert(temp.skipToParentDepth().empty);
-            }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.pi);
-            {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "Foo"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
-            range.popFront();
-            assert(range.front.type == EntityType.pi);
+            popAndCheck(range, EntityType.elementEmpty);
+            popAndCheck(range, EntityType.pi);
+            assert(equal(range.front.name, "Bar"));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "Bar"));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.elementEnd);
-            range.popFront();
-            assert(range.front.type == EntityType.pi);
+            popAndCheck(range, EntityType.elementStart);
+            popAndCheck(range, EntityType.elementEnd);
+            popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Baz"));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
-            range.popFront();
-            assert(range.front.type == EntityType.pi);
-            {
-                auto temp = range.save;
-                assert(equal(temp.front.name, "Poirot"));
-                assert(temp.skipToParentDepth().empty);
-            }
-            range.popFront();
-            assert(range.front.type == EntityType.pi);
+            popAndCheck(range, EntityType.pi);
+            assert(equal(range.front.name, "Poirot"));
+            assert(range.save.skipToParentDepth().empty);
+            popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Conan"));
             assert(range.skipToParentDepth().empty);
         }
@@ -3230,31 +3196,24 @@ unittest
 
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
-            range.popFront();
-            assert(range.front.type == EntityType.text);
+            popAndCheck(range, EntityType.text);
+            assert(equal(range.front.text, "\n    nothing to say\n    "));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.text, "\n    nothing to say\n    "));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementEmpty);
-            range.popFront();
-            assert(range.front.type == EntityType.text);
+            popAndCheck(range, EntityType.elementEmpty);
+            popAndCheck(range, EntityType.text);
+            assert(equal(range.front.text, "\n    nothing whatsoever\n    "));
             {
-                auto temp = range.save;
-                assert(equal(temp.front.text, "\n    nothing whatsoever\n    "));
-                temp = temp.skipToParentDepth();
+                auto temp = range.save.skipToParentDepth();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
-            range.popFront();
-            assert(range.front.type == EntityType.elementStart);
+            popAndCheck(range, EntityType.elementStart);
             range = range.skipContents();
-            range.popFront();
-            assert(range.front.type == EntityType.text);
+            popAndCheck(range, EntityType.text);
             assert(equal(range.front.text, "\n    but he keeps talking\n"));
             range = range.skipToParentDepth();
             assert(range._type == EntityType.elementEnd);
