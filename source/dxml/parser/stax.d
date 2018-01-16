@@ -3563,6 +3563,9 @@ unittest
 
             auto range = parseXML!config(text.save);
 
+            assert(range.save.skipToPath("whatever").empty);
+            assert(range.save.skipToPath("frobozz/whateve").empty);
+
             testPath(range.save, "foo", empty, "foo");
             testPath(range.save, "bar", empty, "bar");
             testPath(range.save, "baz", empty, "baz");
@@ -3589,6 +3592,8 @@ unittest
             assert(range.save.skipToPath("baz").empty);
             assert(range.save.skipToPath("frobozz").empty);
             assert(range.save.skipToPath("whatever").empty);
+            assert(range.save.skipToPath("../").empty);
+            assert(range.save.skipToPath("../../").empty);
 
             testPath(range.save, "../bar", empty, "bar");
             testPath(range.save, "../baz", empty, "baz");
@@ -3620,6 +3625,7 @@ unittest
 
             popEmpty(range);
             assert(equal(range.front.name, "frobozz"));
+            assert(range.save.skipToPath("wizard").empty);
             testPath(range.save, "whatever", empty, "whatever");
             testPath(range.save, "../xyzzy", empty, "xyzzy");
 
@@ -3634,6 +3640,7 @@ unittest
             assert(range.save.skipToPath("frobozz").empty);
             assert(range.save.skipToPath("../frobozz").empty);
             assert(range.save.skipToPath("../xyzzy").empty);
+            assert(range.save.skipToPath("../../frobozz").empty);
 
             testPath(range.save, "../../xyzzy", empty, "xyzzy");
 
@@ -3653,6 +3660,13 @@ unittest
                 testPath(range.save, "../xyzzy", empty, "xyzzy");
             }
             assert(equal(range.front.name, "xyzzy"));
+
+            popEmpty(range);
+            assert(equal(range.front.name, "superuser"));
+            assert(range.save.skipToPath("superuser").empty);
+            assert(range.save.skipToPath("foo").empty);
+            assert(range.save.skipToPath("../foo").empty);
+            assert(range.save.skipToPath("../../foo").empty);
         }}
     }}
 }
@@ -4210,7 +4224,7 @@ template skipToOneOf(delims...)
         {
             switch(text.input.front)
             {
-                foreach(delim; delims)
+                static foreach(delim; delims)
                     case delim: return;
                 static if(Text.config.posType != PositionType.none)
                 {
@@ -4434,9 +4448,6 @@ template takeName(delims...)
             if(text.input.empty)
                 break;
         }
-
-        if(takeLen == 0)
-            throw new XMLParsingException("Name cannot be empty", text.pos);
 
         static if(Text.config.posType == PositionType.lineAndCol)
             text.pos.col += takeLen;
