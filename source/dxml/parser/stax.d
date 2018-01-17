@@ -68,7 +68,7 @@ class XMLParsingException : Exception
 
 package:
 
-    this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__)
+    this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__) @safe pure
     {
         import std.format : format;
         pos = sourcePos;
@@ -704,6 +704,7 @@ public:
             import std.algorithm.comparison : equal;
             import std.exception : assertNotThrown, assertThrown, enforce;
             import std.typecons : Tuple, tuple;
+            import dxml.internal : codeLen, testRangeFuncs;
 
             static bool cmpAttr(T, U)(T lhs, U rhs)
             {
@@ -939,6 +940,7 @@ public:
             import std.array : replace;
             import std.exception : enforce;
             import std.stdio : writefln;
+            import dxml.internal : testRangeFuncs;
 
             static void test(alias func)(string xml, size_t line = __LINE__)
             {
@@ -1062,6 +1064,7 @@ public:
         static if(compileInTests) unittest
         {
             import std.algorithm.comparison : equal;
+            import dxml.internal : testRangeFuncs;
 
             static bool cmpAttr(T)(T lhs, T rhs)
             {
@@ -1253,6 +1256,7 @@ public:
     {
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown;
+        import dxml.internal : testRangeFuncs;
 
          auto xml = "<root>\n" ~
                     "    <!-- comment -->\n" ~
@@ -1333,7 +1337,7 @@ private:
     {
         import core.exception : AssertError;
         import std.exception : assertNotThrown, enforce;
-        import std.range : iota, lockstep, only;
+        import dxml.internal : testRangeFuncs;
 
         static void test(alias func)(string xml, int row, int col, size_t line = __LINE__)
         {
@@ -1355,8 +1359,6 @@ private:
             test!func("<?xml\n\n\n    \r\r\r\n\nversion='1.8'?>\n     <root/>", 7, 13);
             test!func("<root/>", 1, 8);
             test!func("\n\t\n <root/>   \n", 3, 9);
-
-            // FIXME add some cases where the document starts with commenst or PIs.
         }
     }
 
@@ -1452,6 +1454,7 @@ private:
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
+        import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, string comment, int row, int col, size_t line = __LINE__)
         {
@@ -1645,6 +1648,7 @@ private:
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
         import std.utf : byUTF;
+        import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, string name, string expected,
                                      int row, int col, size_t line = __LINE__)
@@ -1876,6 +1880,7 @@ private:
     {
         import core.exception : AssertError;
         import std.exception : assertNotThrown, assertThrown, enforce;
+        import dxml.internal : testRangeFuncs;
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
@@ -1998,6 +2003,7 @@ private:
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
+        import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, EntityType type, string name,
                                      int row, int col, size_t line = __LINE__)
@@ -2244,7 +2250,7 @@ private:
                 }
                 ++state.maxSteps;
                 --state.tags.length;
-                state.tags.assumeSafeAppend();
+                () @trusted { state.tags.assumeSafeAppend(); }();
             }
             --depth;
         }
@@ -2273,6 +2279,7 @@ private:
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
+        import dxml.internal : testRangeFuncs;
 
         static void test(alias func)(string text, size_t line = __LINE__)
         {
@@ -2557,6 +2564,7 @@ unittest
 unittest
 {
     import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
 
     static foreach(func; testRangeFuncs)
     {
@@ -2613,6 +2621,7 @@ unittest
 unittest
 {
     import std.exception : assertThrown;
+    import dxml.internal : testRangeFuncs;
 
     static void testFail(alias func)(string text, size_t line = __LINE__)
     {
@@ -2654,14 +2663,54 @@ unittest
     }}
 }
 
+// Test that parseXML and EntityRange's properties work with @safe.
+// pure would be nice too, but at minimum, the use of format for exception
+// messages, and the use of assumeSafeAppend prevent it. It may or may not be
+// worth trying to fix that.
+@safe unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    auto xml = "<root>\n" ~
+               "    <![CDATA[nothing]]>\n" ~
+               "    <foo a='42'/>\n" ~
+               "</root>";
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementStart);
+        assert(equal(range.front.name, "root"));
+        range.popFront();
+        assert(!range.empty);
+        assert(range.front.type == EntityType.cdata);
+        assert(equal(range.front.text, "nothing"));
+        range.popFront();
+        assert(!range.empty);
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(equal(range.front.name, "foo"));
+        {
+            auto attrs = range.front.attributes;
+            auto saved = attrs.save;
+            auto attr = attrs.front;
+            assert(attr.name == "a");
+            assert(attr.value == "42");
+            attrs.popFront();
+            assert(attrs.empty);
+        }
+        auto saved = range.save;
+    }}
+}
+
 // This is purely to provide a way to trigger the unittest blocks in Entity
 // without compiling them in normally.
 private struct EntityCompileTests
 {
-    @property bool empty() { assert(0); }
-    @property char front() { assert(0); }
-    void popFront() { assert(0); }
-    @property typeof(this) save() { assert(0); }
+    @property bool empty() @safe pure nothrow @nogc { assert(0); }
+    @property char front() @safe pure nothrow @nogc { assert(0); }
+    void popFront() @safe pure nothrow @nogc { assert(0); }
+    @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
 }
 
 version(unittest)
@@ -2938,6 +2987,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : enforce;
+    import dxml.internal : testRangeFuncs;
 
     static void popAndCheck(R)(ref R range, EntityType type, size_t line = __LINE__)
     {
@@ -3541,6 +3591,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, enforce;
+    import dxml.internal : testRangeFuncs;
 
     static void testPath(R)(R range, string path, EntityType type, string name, size_t line = __LINE__)
     {
@@ -3835,7 +3886,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.exception : enforce;
-    import dxml.internal : equalCU;
+    import dxml.internal : equalCU, testRangeFuncs;
 
     static void test(alias func)(string origHaystack, string needle, string remainder, bool startsWith,
                                  int row, int col, size_t line = __LINE__)
@@ -3872,6 +3923,19 @@ unittest
         test!func("hello world", "hello sally", "hello world", false, 1, 1);
         test!func("hello world", "hello world ", "hello world", false, 1, 1);
     }
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        assert(text.stripStartsWith("fo"));
+    }}
 }
 
 
@@ -3925,6 +3989,7 @@ unittest
     import core.exception : AssertError;
     import std.exception : enforce;
     import dxml.internal : equalCU;
+    import dxml.internal : testRangeFuncs;
 
     static void test(alias func)(string origHaystack, string remainder, bool stripped,
                                  int row, int col, size_t line = __LINE__)
@@ -3962,6 +4027,18 @@ unittest
     }
 }
 
+@safe pure unittest
+{
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        assert(!text.stripWS());
+    }}
+}
+
 
 // Returns a slice (or takeExactly) of text.input up to but not including the
 // given needle, removing both that slice and the given needle from text.input
@@ -3977,6 +4054,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown, enforce;
+    import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -4047,6 +4125,19 @@ unittest
     }
 }
 
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        assert(equal(text.takeUntilAndDrop!"o"(), "f"));
+    }}
+}
+
 // Variant of takeUntilAndDrop which does not return a slice. It's intended for
 // when the config indicates that something should be skipped.
 void skipUntilAndDrop(string needle, Text)(ref Text text)
@@ -4059,6 +4150,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown, enforce;
+    import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle)(string origHaystack, string remainder,
                                                 int row, int col, size_t line = __LINE__)
@@ -4128,6 +4220,20 @@ unittest
         static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
             testFail!(func, "web")(haystack);
     }
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        text.skipUntilAndDrop!"o"();
+        assert(equal(text.input, "o"));
+    }}
 }
 
 auto _takeUntil(bool retSlice, string needle, Text)(ref Text text)
@@ -4279,6 +4385,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertNotThrown, assertThrown, enforce;
+    import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
                                             int row, int col, size_t line = __LINE__)
@@ -4330,6 +4437,20 @@ unittest
             test!(func, 'g', 'x')(haystack, "great indeed", 1, len + 1);
         }
     }
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        text.skipToOneOf!('o')();
+        assert(equal(text.input, "oo"));
+    }}
 }
 
 
@@ -4402,6 +4523,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown, enforce;
+    import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, delim...)(string origHaystack, string expected, string remainder,
                                            int row, int col, size_t line = __LINE__)
@@ -4477,6 +4599,19 @@ unittest
             testFail!(func, '>')(haystack);
         }
     }
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`foo`);
+        auto text = testParser!simpleXML(xml);
+        assert(equal(text.takeName(), "foo"));
+    }}
 }
 
 
@@ -4673,6 +4808,7 @@ unittest
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown, enforce;
     import std.range : only;
+    import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
@@ -4768,9 +4904,22 @@ unittest
     }
 }
 
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto xml = func(`'foo'`);
+        auto text = testParser!simpleXML(xml);
+        assert(equal(text.takeAttValue(), "foo"));
+    }}
+}
+
 
 // S := (#x20 | #x9 | #xD | #XA)+
-bool isSpace(C)(C c)
+bool isSpace(C)(C c) @safe pure nothrow @nogc
     if(isSomeChar!C)
 {
     switch(c)
@@ -4812,7 +4961,7 @@ unittest
 // NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] |
 //                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
 //                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
-bool isNameStartChar(dchar c)
+bool isNameStartChar(dchar c) @safe pure nothrow @nogc
 {
     import std.ascii : isAlpha;
 
@@ -4888,7 +5037,7 @@ unittest
 //                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
 //                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
 // NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
-bool isNameChar(dchar c)
+bool isNameChar(dchar c) @safe pure nothrow @nogc
 {
     import std.ascii : isDigit;
     return isNameStartChar(c) || isDigit(c) || c == '-' || c == '.' || c == 0xB7 ||
@@ -4966,29 +5115,6 @@ pragma(inline, true) void checkNotEmpty(Text)(ref Text text, size_t line = __LIN
 
 version(unittest)
 {
-    // Wrapping it like this rather than assigning testRangeFuncs directly
-    // allows us to avoid having the imports be at module-level, which is
-    // generally not desirable with version(unittest).
-    alias testRangeFuncs = _testRangeFuncs!();
-    template _testRangeFuncs()
-    {
-        import std.conv : to;
-        import std.algorithm : filter;
-        import std.meta : AliasSeq;
-        import std.utf : byCodeUnit;
-        import dxml.internal : fwdCharRange, fwdRefCharRange, raCharRange, rasCharRange, rasRefCharRange;
-        alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
-                                          a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
-                                          a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
-                                          a => byCodeUnit(a));
-    }
-
     enum posTestConfigs = [Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)];
     enum someTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
-
-    template codeLen(alias func, string str)
-    {
-        import std.utf : codeLength;
-        enum codeLen = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
-    }
 }

@@ -200,7 +200,7 @@ auto asNormalized(R)(R range)
 
         this(this)
         {
-            _front = _buffer[0 .. _front.length];
+            () @trusted { _front = _buffer[0 .. _front.length]; }();
         }
 
     private:
@@ -218,7 +218,7 @@ auto asNormalized(R)(R range)
                             immutable c = func(_range);
                             if(!c.isNull)
                             {
-                                _front = _buffer[0 .. _buffer.encode!(UseReplacementDchar.yes)(c)];
+                                () @trusted { _front = _buffer[0 .. _buffer.encode!(UseReplacementDchar.yes)(c)]; }();
                                 return;
                             }
                         }}
@@ -239,7 +239,7 @@ auto asNormalized(R)(R range)
             }
         }
 
-        this(R range)
+        this(R range) @safe
         {
             _range = byCodeUnit(range);
             _popFrontImpl();
@@ -364,6 +364,7 @@ unittest
     import std.algorithm.comparison : equal;
     import std.exception : enforce;
     import std.utf : byUTF;
+    import dxml.internal : testRangeFuncs;
 
     static void test(alias func)(string text, string expected, size_t line = __LINE__)
     {
@@ -391,6 +392,18 @@ unittest
         test!func("&#x;", "&#x;");
         test!func("&#x0;", "\0");
         test!func("&#12487;&#12451;&#12521;&#12531;", "ディラン");
+    }}
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        assert(normalize(func("foo")) == "foo");
+        assert(equal(asNormalized(func("foo")), "foo"));
     }}
 }
 
@@ -513,7 +526,8 @@ unittest
 
 unittest
 {
-    import std.algorithm : equal;
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
 
     static foreach(func; testRangeFuncs)
     {
@@ -546,6 +560,17 @@ unittest
             assert(range.empty);
         }
     }
+}
+
+@safe pure unittest
+{
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto range = func("foo");
+        assert(range.parseStdEntityRef().isNull);
+    }}
 }
 
 
@@ -657,7 +682,8 @@ unittest
 
 unittest
 {
-    import std.algorithm : equal;
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
 
     static foreach(func; testRangeFuncs)
     {
@@ -699,23 +725,13 @@ unittest
     }
 }
 
-
-version(unittest)
+@safe pure unittest
 {
-    // Wrapping it like this rather than assigning testRangeFuncs directly
-    // allows us to avoid having the imports be at module-level, which is
-    // generally not desirable with version(unittest).
-    alias testRangeFuncs = _testRangeFuncs!();
-    template _testRangeFuncs()
-    {
-        import std.conv : to;
-        import std.algorithm : filter;
-        import std.meta : AliasSeq;
-        import std.utf : byCodeUnit;
-        import dxml.internal : fwdCharRange, fwdRefCharRange, raCharRange, rasCharRange, rasRefCharRange;
-        alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
-                                          a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
-                                          a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
-                                          a => byCodeUnit(a));
-    }
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        auto range = func("foo");
+        assert(range.parseCharRef().isNull);
+    }}
 }

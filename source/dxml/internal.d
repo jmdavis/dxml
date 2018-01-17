@@ -480,3 +480,27 @@ unittest
     assert(range._str == "lo world");
     assert(saved._str == "llo world");
 }
+
+
+// Wrapping it like this rather than assigning testRangeFuncs directly
+// allows us to avoid having the imports be at module-level, which is
+// generally not desirable with version(unittest).
+alias testRangeFuncs = _testRangeFuncs!();
+template _testRangeFuncs()
+{
+    import std.conv : to;
+    import std.algorithm.iteration : filter;
+    import std.meta : AliasSeq;
+    import std.utf : byCodeUnit;
+    alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
+                                      a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
+                                      a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
+                                      a => byCodeUnit(a));
+}
+
+
+template codeLen(alias func, string str)
+{
+    import std.utf : codeLength;
+    enum codeLen = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
+}
