@@ -1307,28 +1307,6 @@ public:
     }
 
 
-    /++
-        When $(LREF2 front, EntityRange.front) is at a start tag, this can be
-        used instead of $(LREF2 popFront, EntityRange.popFront) to parse over
-        the entities between the start tag and its corresponding end tag and
-        return the content between them as text, leaving any markup in between
-        as unprocessed text.
-
-        $(TABLE
-            $(TR $(TH Supported $(LREF EntityType)s:))
-            $(TR $(TD $(LREF2 elementStart, EntityType)))
-        )
-
-        Throws: $(LREF XMLParsingException) on invalid XML.
-      +/
-    @property SliceOfR contentAsText()
-    {
-        assert(_type == EntityType.elementStart);
-
-        assert(0);
-    }
-
-
 private:
 
     void _parseDocumentStart()
