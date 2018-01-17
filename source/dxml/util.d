@@ -363,12 +363,14 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : enforce;
+    import std.utf : byUTF;
 
     static void test(alias func)(string text, string expected, size_t line = __LINE__)
     {
         auto range = func(text);
         enforce!AssertError(range.save.normalize() == expected, "unittest failed 1", __FILE__, line);
-        enforce!AssertError(equal(range.save.asNormalized(), expected), "unittest failed 2", __FILE__, line);
+        alias C = ElementType!(typeof(range.save.asNormalized()));
+        enforce!AssertError(equal(range.save.asNormalized(), expected.byUTF!C), "unittest failed 2", __FILE__, line);
     }
 
     static foreach(func; testRangeFuncs)
@@ -388,6 +390,7 @@ unittest
         test!func("&#x", "&#x");
         test!func("&#x;", "&#x;");
         test!func("&#x0;", "\0");
+        test!func("&#12487;&#12451;&#12521;&#12531;", "ディラン");
     }}
 }
 
