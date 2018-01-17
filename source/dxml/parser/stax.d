@@ -52,8 +52,6 @@ import std.range.primitives;
 import std.traits;
 import std.typecons : Flag;
 
-import dxml.parser.internal;
-
 
 /++
     The exception type thrown when the XML parser runs into invalid XML.
@@ -410,7 +408,8 @@ enum EntityType
         Note however that character references (e.g. $(D_STRING "&#42")) and
         entity references (e.g. $(D_STRING "&Name;")) are left unprocessed in
         the text. In order for them to be processed, the text should be passed
-        to either $(LREF normalize) or $(LREF asNormalized).
+        to either $(REF normalize, dxml, util) or
+        $(REF asNormalized, dxml, util).
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
       +/
@@ -432,9 +431,10 @@ enum EntityType
     that produces a mutated version of the data. So, all of the text that the
     parser provides is either a slice or $(PHOBOS_REF takeExactly, std, range)
     of the input. However, in some cases, for the parser to be fully compliant,
-    $(LREF normalize) must be called on the text to mutate certain constructs
-    (e.g. removing any $(D_STRING '\r') in the text or converting
-    $(D_STRING "&lt") to $(D_STRING '<')). But that's left up to the application.
+    $(REF normalize, dxml, util) must be called on the text to mutate certain
+    constructs (e.g. removing any $(D_STRING '\r') in the text or converting
+    $(D_STRING "&lt") to $(D_STRING '<')). But that's left up to the
+    application.
 
     The parser is not @nogc, but it allocates memory very minimally. It
     allocates some of its state on the heap so that it can retain a stack of
@@ -561,6 +561,7 @@ public:
           +/
         @property SliceOfR name()
         {
+            import dxml.internal : stripBCU;
             with(EntityType)
                 assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
             return stripBCU!R(_name.save);
@@ -601,6 +602,8 @@ public:
 
                 void popFront()
                 {
+                    import dxml.internal : stripBCU;
+
                     immutable wasWS = stripWS(_text);
                     if(_text.input.empty)
                     {
@@ -801,6 +804,7 @@ public:
           +/
         @property SliceOfR text()
         {
+            import dxml.internal : stripBCU;
             with(EntityType)
                 assert(only(cdata, comment, pi, text).canFind(_type));
             return stripBCU!R(_savedText.input.save);
@@ -3807,6 +3811,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.exception : enforce;
+    import dxml.internal : equalCU;
 
     static void test(alias func)(string origHaystack, string needle, string remainder, bool startsWith,
                                  int row, int col, size_t line = __LINE__)
@@ -3895,6 +3900,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.exception : enforce;
+    import dxml.internal : equalCU;
 
     static void test(alias func)(string origHaystack, string remainder, bool stripped,
                                  int row, int col, size_t line = __LINE__)
@@ -4747,6 +4753,7 @@ version(unittest)
         import std.algorithm : filter;
         import std.meta : AliasSeq;
         import std.utf : byCodeUnit;
+        import dxml.internal : fwdCharRange, fwdRefCharRange, raCharRange, rasCharRange, rasRefCharRange;
         alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
                                           a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
                                           a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
