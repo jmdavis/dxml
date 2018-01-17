@@ -4667,6 +4667,7 @@ unittest
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
     import std.exception : assertThrown, enforce;
+    import std.range : only;
 
     static void test(alias func)(string origHaystack, string expected, string remainder,
                                  int row, int col, size_t line = __LINE__)
@@ -4749,68 +4750,22 @@ unittest
         test!func(`"'''"whatever`, "'''", "whatever", 1, 6);
         test!func(`'"""'whatever`, `"""`, "whatever", 1, 6);
 
-        testFail!func(`"`);
-        testFail!func(`"foo`);
-        testFail!func(`"foo'`);
-        testFail!func(`"<"`);
-        testFail!func(`"&`);
-        testFail!func(`"&"`);
-        testFail!func(`"&x"`);
-        testFail!func(`"&.;"`);
-        testFail!func(`"&&;"`);
-        testFail!func(`"&a"`);
-        testFail!func(`"&a`);
-        testFail!func(`"hello&;"`);
-        testFail!func(`"hello&;world"`);
-        testFail!func(`"hello&<;world"`);
-        testFail!func(`"hello&world"`);
-        testFail!func(`"hello<world"`);
-        testFail!func(`"hello world&"`);
-        testFail!func(`"hello world&;"`);
-        testFail!func(`"hello world&.;"`);
-        testFail!func(`"hello world&foo"`);
-        testFail!func(`"foo<"`);
-        testFail!func(`"&#`);
-        testFail!func(`"&#"`);
-        testFail!func(`"&#;"`);
-        testFail!func(`"&#x;"`);
-        testFail!func(`"&#AF;"`);
-        testFail!func(`"&#x`);
-        testFail!func(`"&#0`);
-        testFail!func(`"&#x0`);
+        foreach(str; only(`"`, `"foo`, `"foo'`, `"<"`, `"&`, `"&"`, `"&x"`, `"&.;"`, `"&&;"`, `"&a"`, `"&a`,
+                          `"hello&;"`, `"hello&;world"`, `"hello&<;world"`, `"hello&world"`, `"hello<world"`,
+                          `"hello world&"`, `"hello world&;"`, `"hello world&.;"`, `"hello world&foo"`, `"foo<"`, `"&#`,
+                          `"&#"`, `"&#;"`, `"&#x;"`, `"&#AF;"`, `"&#x`, `"&#0`, `"&#x0`))
+        {
+            testFail!func(str);
+        }
 
-        testFail!func(`'`);
-        testFail!func(`'foo`);
-        testFail!func(`'foo"`);
-        testFail!func(`'<'`);
-        testFail!func(`'&`);
-        testFail!func(`'&'`);
-        testFail!func(`'&x'`);
-        testFail!func(`'&.;'`);
-        testFail!func(`'&&;'`);
-        testFail!func(`'&a'`);
-        testFail!func(`'&a`);
-        testFail!func(`'hello&;'`);
-        testFail!func(`'hello&;world'`);
-        testFail!func(`'hello&<;world'`);
-        testFail!func(`'hello&world'`);
-        testFail!func(`'hello<world'`);
-        testFail!func(`'hello world&'`);
-        testFail!func(`'hello world&;'`);
-        testFail!func(`'hello world&.;'`);
-        testFail!func(`'hello world&foo'`);
-        testFail!func(`'foo<'`);
-        testFail!func(`'&#`);
-        testFail!func(`'&#'`);
-        testFail!func(`'&#;'`);
-        testFail!func(`'&#x;'`);
-        testFail!func(`'&#AF;'`);
-        testFail!func(`'&#x`);
-        testFail!func(`"&#0`);
-        testFail!func(`"&#x0`);
-        testFail!func("'&#xA\nF;'");
-        testFail!func("'&amp\n;'");
-        testFail!func("'&\namp;'");
+        foreach(str; only(`'`, `'foo`, `'foo"`, `'<'`, `'&`, `'&'`, `'&x'`, `'&.;'`, `'&&;'`, `'&a'`, `'&a`,
+                          `'hello&;'`, `'hello&;world'`, `'hello&<;world'`, `'hello&world'`, `'hello<world'`,
+                          `'hello world&'`, `'hello world&;'`, `'hello world&.;'`, `'hello world&foo'`, `'foo<'`, `'&#`,
+                          `'&#'`, `'&#;'`, `'&#x;'`, `'&#AF;'`, `'&#x`, `"&#0`, `"&#x0`,
+                          "'&#xA\nF;'", "'&amp\n;'", "'&\namp;'"))
+        {
+            testFail!func(str);
+        }
     }
 }
 
