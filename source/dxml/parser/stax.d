@@ -762,6 +762,9 @@ public:
                 test!func(`<root foo="&amp;" a='vector&lt;int&gt;' c='&a.;'></root>`, EntityType.elementStart,
                           [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"), tuple("c", "&a.;")], 1, 50);
 
+                test!func(`<foo 京都市="ディラン"/>`, EntityType.elementEmpty,
+                          [tuple("京都市", "ディラン")], 1, codeLen!(func, `<foo 京都市="ディラン"/>`) + 1);
+
                 testFail!func(`<root a=""">`);
                 testFail!func(`<root a='''>`);
                 testFail!func("<root a=>");
@@ -1478,6 +1481,7 @@ private:
             test!func("<!---->", "", 1, 8);
             test!func("<!--- comment -->", "- comment ", 1, 18);
             test!func("<!-- \n foo \n -->", " \n foo \n ", 3, 5);
+            test!func("<!--京都市 ディラン-->", "京都市 ディラン", 1, codeLen!(func, "<!--京都市 ディラン-->") + 1);
 
             testFail!func("<!- comment -->");
             testFail!func("<!-- comment ->");
@@ -1640,6 +1644,7 @@ private:
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
         import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.utf : byUTF;
 
         static void test(alias func)(string text, string name, string expected,
                                      int row, int col, size_t line = __LINE__)
@@ -1648,11 +1653,12 @@ private:
             static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                enforce!AssertError(range.front.type == EntityType.pi, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(equal(range.front.text, expected), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(range._text.pos == pos, "unittest failure 4", __FILE__, line);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save),
+                                                                 "unittest failure 1", __FILE__, line);
+                enforce!AssertError(range.front.type == EntityType.pi, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(equal(range.front.name, name), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, expected), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 5", __FILE__, line);
             }}
         }
 
@@ -1674,6 +1680,7 @@ private:
             test!func("<?dlang is awesome?>", "dlang", "is awesome", 1, 21);
             test!func("<?dlang is awesome! ?>", "dlang", "is awesome! ", 1, 23);
             test!func("<?dlang\n\nis\n\nawesome\n\n?>", "dlang", "is\n\nawesome\n\n", 7, 3);
+            test!func("<?京都市 ディラン?>", "京都市", "ディラン", 1, codeLen!(func, "<?京都市 ディラン?>") + 1);
 
             testFail!func("<?xml?><?xml?>");
             testFail!func("<?XML?>");
@@ -2026,6 +2033,7 @@ private:
             test!func("<foo  \n\n\n />", EntityType.elementEmpty, "foo", 4, 4);
             test!func("<foo  \n\n\n ></foo>", EntityType.elementStart, "foo", 4, 3);
             test!func("<foo.></foo.>", EntityType.elementStart, "foo.", 1, 7);
+            test!func(`<京都市></京都市>`, EntityType.elementStart, "京都市", 1, codeLen!(func, `<京都市>`) + 1);
 
             testFail!func(`<.foo/>`);
             testFail!func(`<>`);
@@ -2272,7 +2280,7 @@ private:
             static foreach(config; someTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                assertNotThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
+                assertNotThrown!XMLParsingException(walkLength(range), "unittest failure", __FILE__, line);
             }}
         }
 
@@ -2282,7 +2290,7 @@ private:
             static foreach(config; someTestConfigs)
             {{
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                assertThrown!XMLParsingException(walkLength(range), "unittest failed", __FILE__, line);
+                assertThrown!XMLParsingException(walkLength(range), "unittest failure", __FILE__, line);
             }}
         }
 
@@ -2330,6 +2338,7 @@ private:
                       "        </c>\n" ~
                       "    </b>\n" ~
                       "</a>");
+            test!func(`<京都市></京都市>`);
 
             testFail!func(`<a>`);
             testFail!func(`<foo></foobar>`);
@@ -4021,9 +4030,8 @@ unittest
         test!(func, "ll")("lello world", "le", "o world", 1, 5);
         test!(func, "le")("llello world", "l", "llo world", 1, 4);
         {
-            import std.utf : codeLength;
             auto haystack = "プログラミング in D is great indeed";
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
+            enum len = codeLen!(func, "プログラミング in D is ");
             enum needle = "great";
             enum remainder = "great indeed";
 
@@ -4104,9 +4112,8 @@ unittest
         test!(func, "le")("llello world", "llo world", 1, 4);
 
         {
-            import std.utf : codeLength;
             auto haystack = "プログラミング in D is great indeed";
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
+            enum len = codeLen!(func, "プログラミング in D is ");
             enum needle = "great";
             enum remainder = "great indeed";
 
@@ -4318,9 +4325,8 @@ unittest
         test!(func, 'z', 'y')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "yzzy \nf\ng", 6, 6);
         test!(func, 'o', 'g')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "g", 8, 1);
         {
-            import std.utf : codeLength;
             auto haystack = "プログラミング in D is great indeed";
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング in D is ");
+            enum len = codeLen!(func, "プログラミング in D is ");
             test!(func, 'g', 'x')(haystack, "great indeed", 1, len + 1);
         }
     }
@@ -4440,8 +4446,7 @@ unittest
     {
         static foreach(str; ["hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42"])
         {{
-            import std.utf : codeLength;
-            enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
+            enum len = codeLen!(func, str);
 
             static foreach(remainder; ["", " ", "\t", "\r", "\n", " foo", "\tfoo", "\rfoo", "\nfoo",  "  foo \n \r "])
             {{
@@ -4708,27 +4713,21 @@ unittest
         }}
     }
 
-    static int codeLen(alias func)(string str)
-    {
-        import std.utf : codeLength;
-        return cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
-    }
-
     static foreach(i, func; testRangeFuncs)
     {
         test!func(`""`, "", "", 1, 3);
         test!func(`"J"`, "J", "", 1, 4);
         test!func(`"foo"`, "foo", "", 1, 6);
-        test!func(`"プログラミング"`, "プログラミング", "", 1, codeLen!func("プログラミング") + 3);
+        test!func(`"プログラミング"`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
         test!func(`"foo"bar`, "foo", "bar", 1, 6);
-        test!func(`"プログラミング" after`, "プログラミング", " after", 1, codeLen!func("プログラミング") + 3);
+        test!func(`"プログラミング" after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
 
         test!func(`''`, "", "", 1, 3);
         test!func(`'J'`, "J", "", 1, 4);
         test!func(`'foo'`, "foo", "", 1, 6);
-        test!func(`'プログラミング'`, "プログラミング", "", 1, codeLen!func("プログラミング") + 3);
+        test!func(`'プログラミング'`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
         test!func(`'foo'bar`, "foo", "bar", 1, 6);
-        test!func(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!func("プログラミング") + 3);
+        test!func(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
 
         test!func(`"&amp;&gt;&lt;"`, "&amp;&gt;&lt;", "", 1, 16);
         test!func(`"hello&amp;&gt;&lt;world"`, "hello&amp;&gt;&lt;world", "", 1, 26);
@@ -4986,4 +4985,10 @@ version(unittest)
 
     enum posTestConfigs = [Config.init, makeConfig(PositionType.line), makeConfig(PositionType.none)];
     enum someTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
+
+    template codeLen(alias func, string str)
+    {
+        import std.utf : codeLength;
+        enum codeLen = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
+    }
 }
