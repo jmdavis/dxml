@@ -622,7 +622,7 @@ public:
                     popFrontAndIncCol(_text);
 
                     stripWS(_text);
-                    _front = Attribute(name, stripBCU!R(takeEnquotedText(_text)));
+                    _front = Attribute(name, stripBCU!R(takeAttValue(_text)));
                 }
 
                 @property auto save()
@@ -756,6 +756,12 @@ public:
                 test!func(`<root foo="bar" a='b' hello="world"/>`, EntityType.elementEmpty,
                           [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
 
+                test!func(`<root foo="&#42;" a='&#x42;' hello="%foo"/>`, EntityType.elementEmpty,
+                          [tuple("foo", "&#42;"), tuple("a", "&#x42;"), tuple("hello", "%foo")], 1, 44);
+
+                test!func(`<root foo="&amp;" a='vector&lt;int&gt;' c='&a.;'></root>`, EntityType.elementStart,
+                          [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"), tuple("c", "&a.;")], 1, 50);
+
                 testFail!func(`<root a=""">`);
                 testFail!func(`<root a='''>`);
                 testFail!func("<root a=>");
@@ -776,12 +782,21 @@ public:
                 testFail!func("<root foo='bar'a='b'>");
                 testFail!func(`<root .foo="bar">`);
 
-                // FIXME The contents of the attribute value aren't currently
-                // validated at all. Validation does get a bit involved though
-                // thanks to the fact that & is legal if the attribute is a
-                // reference and illegal otherwise, and full validation would
-                // also involve validating that the reference is well-formed
-                // as well.
+                testFail!func(`<root foo="<">`);
+                testFail!func(`<root foo="<world">`);
+                testFail!func(`<root foo="hello<world">`);
+                testFail!func(`<root foo="&">`);
+                testFail!func(`<root foo="hello&">`);
+                testFail!func(`<root foo="hello&world">`);
+                testFail!func(`<root foo="&;">`);
+                testFail!func(`<root foo="&.;">`);
+                testFail!func(`<root foo="&.a;">`);
+                testFail!func(`<root foo="&#;">`);
+                testFail!func(`<root foo="&#x;">`);
+                testFail!func(`<root foo="&#A;">`);
+                testFail!func(`<root foo="&#xG;">`);
+                testFail!func(`<root foo="&#42">`);
+                testFail!func(`<root foo="&#x42">`);
             }
         }
 
@@ -4312,92 +4327,6 @@ unittest
 }
 
 
-// The front of the input should be text surrounded by single or double quotes.
-// This returns a slice of the input containing that text, and the input is
-// advanced to one code unit beyond the quote.
-auto takeEnquotedText(Text)(ref Text text)
-{
-    checkNotEmpty(text);
-    immutable quote = text.input.front;
-    static foreach(quoteChar; [`"`, `'`])
-    {
-        // This would be a bit simpler if takeUntilAndDrop took a runtime
-        // argument, but in all other cases, a compile-time argument makes more
-        // sense, so this seemed like a reasonable way to handle this one case.
-        if(quote == quoteChar[0])
-        {
-            popFrontAndIncCol(text);
-            return takeUntilAndDrop!quoteChar(text);
-        }
-    }
-    throw new XMLParsingException("Expected quoted text", text.pos);
-}
-
-unittest
-{
-    import core.exception : AssertError;
-    import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, enforce;
-    import std.range : only;
-
-    static void test(alias func)(string origHaystack, string expected, string remainder,
-                                 int row, int col, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-        static foreach(i, config; posTestConfigs)
-        {{
-            {
-                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                auto text = testParser!config(haystack.save);
-                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
-            }
-            static if(i != 2)
-            {
-                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
-                auto text = testParser!config(haystack.save);
-                text.pos.line += 3;
-                static if(i == 0)
-                    text.pos.col += 7;
-                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 3", __FILE__, line);
-                enforce!AssertError(equal(text.input, remainder), "unittest failure 4", __FILE__, line);
-                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
-            }
-        }}
-    }
-
-    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
-    {
-        auto haystack = func(origHaystack);
-        static foreach(i, config; posTestConfigs)
-        {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeEnquotedText(), "unittest failure", __FILE__, line);
-        }}
-    }
-
-    static foreach(func; testRangeFuncs)
-    {
-        foreach(quote; only("\"", "'"))
-        {
-            test!func(quote ~ quote, "", "", 1, 3);
-            test!func(quote ~ "hello world" ~ quote, "hello world", "", 1, 14);
-            test!func(quote ~ "hello world" ~ quote ~ " foo", "hello world", " foo", 1, 14);
-            {
-                import std.utf : codeLength;
-                auto haystack = quote ~ "プログラミング " ~ quote ~ "in D";
-                enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング ");
-                test!func(haystack, "プログラミング ", "in D", 1, len + 3);
-            }
-        }
-
-        foreach(str; only(`hello`, `"hello'`, `"hello`, `'hello"`, `'hello`, ``, `"'`, `"`, `'"`, `'`))
-            testFail!func(str);
-    }
-}
-
-
 // This removes a name per the Name grammar rule from the front of the input and
 // returns it.
 // The parsing continues until either one of the given delimiters or an XML
@@ -4542,6 +4471,330 @@ unittest
             testFail!func(haystack);
             testFail!(func, '>')(haystack);
         }
+    }
+}
+
+
+// This removes an attribute value from the front of the input, partially
+// validates it, and returns it. The validation that is not done is whether
+// the value in a character reference is valid. It's checkd for whether the
+// characters used in it are valid but not whether the number they form is a
+// valid Unicode character. Checking the number doesn't seem worth the extra
+// complication, and it's not required for the XML to be "well-formed."
+// dxml.util.parseCharRef will check that it is fully correct if it is used.
+auto takeAttValue(Text)(ref Text text)
+{
+    // AttValue    ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'"
+    // Reference   ::= EntityRef | CharRef
+    // EntityRef   ::= '&' Name ';'
+    // PEReference ::= '%' Name ';'
+
+    import std.range : only;
+
+    checkNotEmpty(text);
+    immutable quote = text.input.front;
+    foreach(quoteChar; only('"', '\''))
+    {
+        // This would be a bit simpler if takeUntilAndDrop took a runtime
+        // argument, but in all other cases, a compile-time argument makes more
+        // sense, so this seemed like a reasonable way to handle this one case.
+        if(quote == quoteChar)
+        {
+            popFrontAndIncCol(text);
+            static if(Text.config.posType == PositionType.lineAndCol)
+                size_t lineStart = 0;
+            auto orig = text.input.save;
+            size_t takeLen;
+            for(; true; text.input.popFront())
+            {
+                if(text.input.empty)
+                    goto earlyEnd;
+                switch(text.input.front)
+                {
+                    case '"':
+                    {
+                        if(quote == '"')
+                        {
+                            text.input.popFront();
+                            goto done;
+                        }
+                        goto default;
+                    }
+                    case '\'':
+                    {
+                        if(quote == '\'')
+                        {
+                            text.input.popFront();
+                            goto done;
+                        }
+                        goto default;
+                    }
+                    case '&':
+                    {
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            immutable amperLen = takeLen - lineStart;
+                        ++takeLen;
+                        text.input.popFront();
+                        if(text.input.empty)
+                            goto earlyEnd;
+                        if(text.input.front == quote)
+                            goto failedEntityRef;
+                        // Character Reference
+                        if(text.input.front == '#')
+                        {
+                            ++takeLen;
+                            text.input.popFront();
+                            if(text.input.empty)
+                                goto earlyEnd;
+                            bool hex;
+                            if(text.input.front == 'x')
+                            {
+                                ++takeLen;
+                                hex = true;
+                                text.input.popFront();
+                                if(text.input.empty)
+                                    goto earlyEnd;
+                            }
+                            bool foundChar = false;
+                            while(true)
+                            {
+                                immutable c = text.input.front;
+                                if(c == ';')
+                                {
+                                    if(!foundChar)
+                                        goto failedEntityRef;
+                                    ++takeLen;
+                                    break;
+                                }
+                                if(c == quote)
+                                    goto failedEntityRef;
+                                import std.ascii : isDigit, isHexDigit;
+                                if(hex)
+                                {
+                                    if(!isHexDigit(c))
+                                        goto failedEntityRef;
+                                }
+                                else if(!isDigit(c))
+                                        goto failedEntityRef;
+                                foundChar = true;
+                                ++takeLen;
+                                text.input.popFront();
+                                if(text.input.empty)
+                                    goto earlyEnd;
+                            }
+                        }
+                        // Entity Reference
+                        else
+                        {
+                            import std.utf : decodeFront, UseReplacementDchar;
+                            {
+                                size_t numCodeUnits;
+                                immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                                if(!isNameStartChar(decodedC))
+                                    goto failedEntityRef;
+                                takeLen += numCodeUnits;
+                            }
+                            while(true)
+                            {
+                                if(text.input.empty)
+                                    goto earlyEnd;
+                                immutable c = text.input.front;
+                                if(c == ';')
+                                {
+                                    ++takeLen;
+                                    break;
+                                }
+                                if(c == quote)
+                                    goto failedEntityRef;
+                                size_t numCodeUnits;
+                                immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                                if(!isNameChar(decodedC))
+                                    goto failedEntityRef;
+                                takeLen += numCodeUnits;
+                            }
+                        }
+                        continue;
+                        failedEntityRef:
+                        {
+                            static if(Text.config.posType == PositionType.lineAndCol)
+                                text.pos.col += amperLen;
+                            throw new XMLParsingException("& is only legal in an attribute value as part of a char " ~
+                                                          "or entity reference, and this is not a valid char or " ~
+                                                          "entity reference.", text.pos);
+                        }
+                    }
+                    case '<':
+                    {
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            text.pos.col += takeLen - lineStart;
+                        throw new XMLParsingException("< is not legal in an attribute name", text.pos);
+                    }
+                    case '\n':
+                    {
+                        ++takeLen;
+                        nextLine!(Text.config)(text.pos);
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            lineStart = takeLen;
+                        continue;
+                    }
+                    default:
+                    {
+                        ++takeLen;
+                        continue;
+                    }
+                }
+            }
+            done:
+            {
+                import std.range : takeExactly;
+                static if(Text.config.posType == PositionType.lineAndCol)
+                    text.pos.col += takeLen - lineStart + 1;
+                return takeExactly(orig, takeLen);
+            }
+            earlyEnd:
+            {
+                static if(Text.config.posType == PositionType.lineAndCol)
+                    text.pos.col += takeLen;
+                throw new XMLParsingException("Prematurely reached end of document", text.pos);
+            }
+        }
+    }
+    throw new XMLParsingException("Expected quoted text", text.pos);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.algorithm.comparison : equal;
+    import std.exception : assertThrown, enforce;
+
+    static void test(alias func)(string origHaystack, string expected, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        static foreach(i, config; posTestConfigs)
+        {{
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                enforce!AssertError(equal(text.takeAttValue(), expected),
+                                    "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                enforce!AssertError(equal(text.takeAttValue(), expected),
+                                    "unittest failure 4", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
+            }
+        }}
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        static foreach(i, config; posTestConfigs)
+        {{
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeAttValue(), "unittest failure", __FILE__, line);
+        }}
+    }
+
+    static int codeLen(alias func)(string str)
+    {
+        import std.utf : codeLength;
+        return cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
+    }
+
+    static foreach(i, func; testRangeFuncs)
+    {
+        test!func(`""`, "", "", 1, 3);
+        test!func(`"J"`, "J", "", 1, 4);
+        test!func(`"foo"`, "foo", "", 1, 6);
+        test!func(`"プログラミング"`, "プログラミング", "", 1, codeLen!func("プログラミング") + 3);
+        test!func(`"foo"bar`, "foo", "bar", 1, 6);
+        test!func(`"プログラミング" after`, "プログラミング", " after", 1, codeLen!func("プログラミング") + 3);
+
+        test!func(`''`, "", "", 1, 3);
+        test!func(`'J'`, "J", "", 1, 4);
+        test!func(`'foo'`, "foo", "", 1, 6);
+        test!func(`'プログラミング'`, "プログラミング", "", 1, codeLen!func("プログラミング") + 3);
+        test!func(`'foo'bar`, "foo", "bar", 1, 6);
+        test!func(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!func("プログラミング") + 3);
+
+        test!func(`"&amp;&gt;&lt;"`, "&amp;&gt;&lt;", "", 1, 16);
+        test!func(`"hello&amp;&gt;&lt;world"`, "hello&amp;&gt;&lt;world", "", 1, 26);
+        test!func(`".....&amp;&gt;&lt;....."`, ".....&amp;&gt;&lt;.....", "", 1, 26);
+        test!func(`"&foo.;"`, "&foo.;", "", 1, 9);
+        test!func(`"&#12487;&#12451;&#12521;&#12531;"`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
+        test!func(`"hello&#xAF;&#0;&foo;world"`, "hello&#xAF;&#0;&foo;world", "", 1, 28);
+
+        test!func(`'&amp;&gt;&lt;'`, "&amp;&gt;&lt;", "", 1, 16);
+        test!func(`'hello&amp;&gt;&lt;world'`, "hello&amp;&gt;&lt;world", "", 1, 26);
+        test!func(`'.....&amp;&gt;&lt;.....'`, ".....&amp;&gt;&lt;.....", "", 1, 26);
+        test!func(`'&foo.;'`, "&foo.;", "", 1, 9);
+        test!func(`'&#12487;&#12451;&#12521;&#12531;'`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
+        test!func(`'hello&#xAF;&#0;&foo;world'`, "hello&#xAF;&#0;&foo;world", "", 1, 28);
+
+        test!func("'hello\nworld'", "hello\nworld", "", 2, 7);
+        test!func("'hello\nworld\n'", "hello\nworld\n", "", 3, 2);
+
+        test!func(`"'''"whatever`, "'''", "whatever", 1, 6);
+        test!func(`'"""'whatever`, `"""`, "whatever", 1, 6);
+
+        testFail!func(`"`);
+        testFail!func(`"foo`);
+        testFail!func(`"foo'`);
+        testFail!func(`"<"`);
+        testFail!func(`"&"`);
+        testFail!func(`"&x"`);
+        testFail!func(`"&.;"`);
+        testFail!func(`"&&;"`);
+        testFail!func(`"hello&;"`);
+        testFail!func(`"hello&;world"`);
+        testFail!func(`"hello&<;world"`);
+        testFail!func(`"hello&world"`);
+        testFail!func(`"hello<world"`);
+        testFail!func(`"hello world&"`);
+        testFail!func(`"hello world&;"`);
+        testFail!func(`"hello world&.;"`);
+        testFail!func(`"hello world&foo"`);
+        testFail!func(`"foo<"`);
+        testFail!func(`"&#;"`);
+        testFail!func(`"&#x;"`);
+        testFail!func(`"&#AF;"`);
+
+        testFail!func(`'`);
+        testFail!func(`'foo`);
+        testFail!func(`'foo"`);
+        testFail!func(`'<'`);
+        testFail!func(`'&'`);
+        testFail!func(`'&x'`);
+        testFail!func(`'&.;'`);
+        testFail!func(`'&&;'`);
+        testFail!func(`'hello&;'`);
+        testFail!func(`'hello&;world'`);
+        testFail!func(`'hello&<;world'`);
+        testFail!func(`'hello&world'`);
+        testFail!func(`'hello<world'`);
+        testFail!func(`'hello world&'`);
+        testFail!func(`'hello world&;'`);
+        testFail!func(`'hello world&.;'`);
+        testFail!func(`'hello world&foo'`);
+        testFail!func(`'foo<'`);
+        testFail!func(`'&#;'`);
+        testFail!func(`'&#x;'`);
+        testFail!func(`'&#AF;'`);
+        testFail!func("'&#xA\nF;'");
+        testFail!func("'&amp\n;'");
+        testFail!func("'&\namp;'");
     }
 }
 
