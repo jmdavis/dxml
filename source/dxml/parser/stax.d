@@ -470,6 +470,19 @@ enum EntityType
     parses the DTD section to create an object to then validate an EntityRange),
     but for now at least, dxml isn't getting involved in that mess.
 
+    A quick note about carriage returns$(COLON) per the XML spec, they're all
+    supposed to either be stripped out or replaced with newlines before the XML
+    parser even processes the text. That doesn't work when the parser is slicing
+    the original text and not mutating it at all. So, for the purposes of
+    parsing, this parser treats all carriage returns as if they were newlines or
+    spaces (though they won't count as newlines when counting the lines for
+    $(LREF SourcePos) for error messages). However, they $(I will) appear in any
+    text fields or attribute values if they are in the document (since the text
+    fields and attribute values are slices of the original text).
+    $(REF normalize, dxml, util) can be used to strip them along with converting
+    any character references in the text. Alternatively, the application can
+    remove them all before calling parseXML, but it's not necessary.
+
     See_Also: $(MREF dxml, parser, dom)
   +/
 struct EntityRange(Config cfg, R)
