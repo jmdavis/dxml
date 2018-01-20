@@ -1,7 +1,7 @@
 _=This contains helper macros which are intended to be used in the documentation.
 
 $(COMMENT This is for linking to the source code for the current module.
-          e.g. $(LINK_TO_SRC dxml/parser/_cursor.d) would generate a link to the
+          e.g. $(LINK_TO_SRC dxml/parser/_range.d) would generate a link to the
           source code using the $(PROJECT_SRC_ROOT) macro.)
 LINK_TO_SRC=$(SPANC link_to_source, $(LINK2 $(PROJECT_SRC_ROOT)/$1, $1))
 _=
@@ -19,16 +19,16 @@ LREF2=<a href="#.$+.$1">$(D $1)</a>
 _=
 
 $(COMMENT Used to generate links to symbols in other documentation pages for the same project.
-          e.g. $(REF parseXML, dxml, parser, cursor) for dxml.parser.cursor.parseXML)
+          e.g. $(REF parseXML, dxml, parser, range) for dxml.parser.range.parseXML)
 REF=<a href="$2$(UNDERSCORE_PREFIXED_SKIP $+).html#.$1">$(D $2$(DOT_PREFIXED_SKIP $+, $1))</a>
 _=
 
 $(COMMENT Variant of REF which takes the link's text as its first argument.
-          e.g. $(REF_ALTTEXT XML parser, parseXML, dxml, parser, cursor) for dxml.parser.cursor.parseXML)
+          e.g. $(REF_ALTTEXT XML parser, parseXML, dxml, parser, range) for dxml.parser.range.parseXML)
 REF_ALTTEXT=<a href="$3$(UNDERSCORE_PREFIXED_SKIP2 $+).html#.$2">$1</a>
 
 $(COMMENT Used to generate links to the documentation page for a specific module in the same project.
-          e.g. $(MREF dxml, parser, cursor) for dxml.parser.cursor)
+          e.g. $(MREF dxml, parser, range) for dxml.parser.range)
 MREF=<a href="$1$(UNDERSCORE_PREFIXED $+).html">$(D $1$(DOT_PREFIXED $+))</a>
 _=
 

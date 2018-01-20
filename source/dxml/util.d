@@ -75,14 +75,16 @@ import std.typecons : Nullable;;
     $(D_STRING &#xGGA2;") are left untouched.
 
     The difference between normalize and asNormalized is that normalize returns
-    a $(D string), whereas asNormalized returns a lazy range. In the case where
-    a $(D string) is passed to normalize, it will simply return the original
-    string if there is no text to normalize (whereas in other cases, normalize
-    and asNormalized are forced to return new ranges even if there is no
-    un-normalized text).
+    a $(D string), whereas asNormalized returns a lazy range of code units. In
+    the case where a $(D string) is passed to normalize, it will simply return
+    the original string if there is no text to normalize (whereas in other
+    cases, normalize and asNormalized are forced to return new ranges even if
+    there is no un-normalized text).
 
     Returns: The normalized text. normalize returns a $(D string), whereas
-             asNormalized returns a lazy range.
+             asNormalized returns a lazy range of code units (so it could be a
+             range of $(D char) or $(D wchar) and not just $(D dchar) - which
+             it is depends on the code units of the range being passed in).
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseStdEntityRef)$(BR)
@@ -733,5 +735,446 @@ unittest
     {{
         auto range = func("foo");
         assert(range.parseCharRef().isNull);
+    }}
+}
+
+
+/++
+    Strips the indent from a character range (most likely from
+    $(REF_ALTTEXT Entity.text, EntityRange.Entity.text, dxml, parser, stax)).
+    The idea is that if the XML is formatted to be human-readable, and it's
+    multiple lines long, it's likely going to be indented so that it's to the
+    right of the tags containing it (even on the lines that the tags aren't on),
+    but the application probably doesn't want that extra whitespace. So,
+    stripIndent and withoutIndent attempt to intelligently strip off the leading
+    whitespace.
+
+    Whitespace characters are stripped from the start of the first line, and
+    then those same number of whitespace characters are stripped from the
+    beginning of each subsequent line (or up to the first non-whitespace
+    character). If there is no whitespace at the start of the range,
+    then nothing will be stripped.
+
+    For these functions, $(D_STRING ' '), $(D_STRING '\t'), and $(D_STRING '\r')
+    are considered whitespace.
+
+    If the first line has no leading whitespace, then the leading whitespace on
+    the second line is treated as the indent. If it has no leading whitespace,
+    then no whitespace is stripped.
+
+    So, if the text is well-formatted, then the indent should be cleanly
+    removed, and if it's unformatted or badly formatted, then no characters
+    other than leading whitespace will be removed, and in principle, no real
+    data will have been lost - though of course, it's up to the programmer to
+    decide whether it's better for the application to try to cleanly strip the
+    indent or to leave the text as-is.
+
+    The difference between stripIndent and withoutIndent is that stripIndent
+    returns a $(D string), whereas withoutIndent returns a lazy range of code
+    units. In the case where a $(D string) is passed to stripIndent, it will
+    simply return the original string if the indent is determined to be zero
+    (whereas in other cases, stripIndent and withoutIndent are forced to return
+    new ranges).
+
+    Returns: The text with the indent stripped from each line. stripIndent
+             returns a $(D string), whereas withoutIndent returns a lazy range
+             of code units (so it could be a range of $(D char) or $(D wchar)
+             and not just $(D dchar) - which it is depends on the code units of
+             the range being passed in).
+
+    See_Also: $(REF EntityRange.Entity.text, dxml, parser, stax)
+  +/
+string stripIndent(R)(R range)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    static if(isDynamicArray!R && is(Unqual!(ElementEncodingType!R) == char))
+    {
+        static bool notHWhite(char c)
+        {
+            switch(c)
+            {
+                case ' ':
+                case '\t':
+                case '\r': return false;
+                default : return true;
+            }
+        }
+
+        import std.algorithm.searching : find;
+        import std.utf : byCodeUnit;
+
+        if(range.empty)
+            return range;
+
+        auto orig = range.save;
+        auto text = range.byCodeUnit();
+        string firstLine;
+
+        if(notHWhite(text.front))
+        {
+            text = text.find('\n');
+            if(text.empty)
+                return orig;
+            text.popFront();
+            firstLine = orig[0 .. orig.length - text.length];
+        }
+
+        immutable beforeIndent = text.length;
+        text = text.find!notHWhite();
+        if(text.empty)
+            return text.source;
+        immutable indent = beforeIndent - text.length;
+
+        if(indent == 0)
+            return orig;
+
+        import std.array : appender;
+        auto retval = appender!string();
+        retval.reserve(orig.length / 3);
+
+        // > 1 because we don't want a newline by itself.
+        if(firstLine.length > 1)
+            put(retval, firstLine);
+
+        outer: while(true)
+        {
+            auto start = text.save;
+            text = text.find('\n');
+            if(text.empty)
+            {
+                if(!start.empty)
+                    put(retval, start);
+                return retval.data;
+            }
+            text.popFront();
+            auto line = start[0 .. $ - text.length];
+            foreach(_; 0 .. indent)
+            {
+                if(text.empty)
+                    goto isEmpty;
+                if(notHWhite(text.front))
+                    goto notEmpty;
+                text.popFront();
+            }
+            if(text.empty)
+            {
+                isEmpty: put(retval, line[0 .. $ - 1]);
+                return retval.data;
+            }
+            notEmpty: put(retval, line);
+        }
+        // The compiler is not smart enough to realize that this line is unreachable.
+        assert(0);
+    }
+    else
+    {
+        import std.conv : to;
+        return range.withoutIndent().to!string();
+    }
+}
+
+///
+auto withoutIndent(R)(R range)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    import std.utf : byCodeUnit;
+
+    static struct WithoutIndent
+    {
+    public:
+
+        @property empty() { return _line.empty; }
+
+        @property front() { return _line.front; }
+
+        void popFront()
+        {
+            if(_indent == 0)
+            {
+                _line.popFront();
+                return;
+            }
+
+            if(_line.front == '\n')
+                _nextLine();
+            else
+                _line.popFront();
+            // Skip last newline
+            if(_range.empty && !_line.empty && _line.front == '\n')
+                _line = _range;
+        }
+
+        @property save()
+        {
+            auto retval = this;
+            retval._line = _line.save;
+            retval._range = _range.save;
+            return retval;
+        }
+
+    private:
+
+        static bool notHWhite(ElementEncodingType!R c)
+        {
+            switch(c)
+            {
+                case ' ':
+                case '\t':
+                case '\r': return false;
+                default : return true;
+            }
+        }
+
+        void _nextLine()
+        {
+            import std.algorithm.searching : find;
+            _line = _range.save;
+            _range = _range.find('\n');
+            if(_range.empty)
+                return;
+            _range.popFront();
+            _popIndent();
+        }
+
+        void _popIndent()
+        {
+            foreach(_; 0 .. _indent)
+            {
+                if(_range.empty)
+                    return;
+                if(notHWhite(_range.front))
+                    return;
+                _range.popFront();
+            }
+        }
+
+        this(R range)
+        {
+            import std.algorithm : countUntil, find;
+            import std.range : popFrontN;
+
+            _range = byCodeUnit(range);
+            if(_range.empty)
+            {
+                _line = _range;
+                return;
+            }
+
+            auto orig = _range.save;
+            immutable noFirstIndent = notHWhite(_range.front);
+            if(noFirstIndent)
+            {
+                _range = _range.find('\n');
+                if(_range.empty)
+                    goto noIndent;
+                _range.popFront();
+            }
+
+            _indent = _range.save.countUntil!(a => notHWhite(a))();
+            if(_indent == 0)
+            {
+                noIndent: _line = orig;
+                return;
+            }
+            if(noFirstIndent && orig.front != '\n')
+            {
+                _range = orig;
+                _popIndent();
+            }
+            else
+                _range.popFrontN(_indent);
+            _nextLine();
+        }
+
+        typeof(byCodeUnit(R.init)) _range;
+        typeof(byCodeUnit(R.init)) _line;
+        size_t _indent;
+    }
+
+    return WithoutIndent(range);
+}
+
+///
+unittest
+{
+    import std.algorithm.comparison : equal;
+
+    // The prime use case for these two functions is for an Entity.text section
+    // that is formatted to be human-readable, and the rules of what whitespace
+    // is stripped from the beginning or end of the range are geared towards
+    // the text coming from a well-formatted Entity.text section.
+    {
+        import dxml.parser.stax;
+        auto xml = "<root>\n" ~
+                   "    <code>\n" ~
+                   "    bool isASCII(string str)\n" ~
+                   "    {\n" ~
+                   "        import std.algorithm : all;\n" ~
+                   "        import std.ascii : isASCII;\n" ~
+                   "        return str.all!isASCII();\n" ~
+                   "    }\n" ~
+                   "    </code>\n" ~
+                   "<root>";
+        auto range = parseXML(xml);
+        range.popFront();
+        range.popFront();
+        assert(range.front.text ==
+               "\n" ~
+               "    bool isASCII(string str)\n" ~
+               "    {\n" ~
+               "        import std.algorithm : all;\n" ~
+               "        import std.ascii : isASCII;\n" ~
+               "        return str.all!isASCII();\n" ~
+               "    }\n" ~
+               "    ");
+        assert(range.front.text.stripIndent() ==
+               "bool isASCII(string str)\n" ~
+               "{\n" ~
+               "    import std.algorithm : all;\n" ~
+               "    import std.ascii : isASCII;\n" ~
+               "    return str.all!isASCII();\n" ~
+               "}");
+    }
+
+    // The indent that is stripped matches the amount of whitespace at the front
+    // of the first line.
+    assert(("    start\n" ~
+            "    foo\n" ~
+            "    bar\n" ~
+            "        baz\n" ~
+            "        xyzzy\n" ~
+            "           ").stripIndent() ==
+           "start\n" ~
+           "foo\n" ~
+           "bar\n" ~
+           "    baz\n" ~
+           "    xyzzy\n" ~
+           "       ");
+
+    // If the first has no leading whitespace but the second line does, then
+    // the second line's leading whitespace is treated as the indent.
+    assert(("foo\n" ~
+            "    bar\n" ~
+            "        baz\n" ~
+            "        xyzzy").stripIndent() ==
+           "foo\n" ~
+           "bar\n" ~
+           "    baz\n" ~
+           "    xyzzy");
+
+    assert(("\n" ~
+            "    foo\n" ~
+            "    bar\n" ~
+            "        baz\n" ~
+            "        xyzzy").stripIndent() ==
+           "foo\n" ~
+           "bar\n" ~
+           "    baz\n" ~
+           "    xyzzy");
+
+    // If neither of the first two lines has leading whitespace, then nothing
+    // is stripped.
+    assert(("foo\n" ~
+            "bar\n" ~
+            "    baz\n" ~
+            "    xyzzy\n" ~
+            "    ").stripIndent() ==
+           "foo\n" ~
+           "bar\n" ~
+           "    baz\n" ~
+           "    xyzzy\n" ~
+           "    ");
+
+    // If a subsequent line starts with less whitespace than the indent, then
+    // all of its leading whitespace is stripped but no other characters are
+    // stripped.
+    assert(("      foo\n" ~
+            "         bar\n" ~
+            "   baz\n" ~
+            "         xyzzy").stripIndent() ==
+           "foo\n" ~
+           "   bar\n" ~
+           "baz\n" ~
+           "   xyzzy");
+
+    // If the last line is just the indent, then it and the newline before it
+    // are stripped.
+    assert(("    foo\n" ~
+            "       bar\n" ~
+            "    ").stripIndent() ==
+           "foo\n" ~
+           "   bar");
+
+    // If the last line is just whitespace, but it's more than the indent, then
+    // the whitespace after the indent is kept.
+    assert(("    foo\n" ~
+            "       bar\n" ~
+            "       ").stripIndent() ==
+           "foo\n" ~
+           "   bar\n" ~
+           "   ");
+
+    // withoutIndent does the same as stripIndent but with a lazy range.
+    assert(equal(("  foo\n" ~
+                  "    bar\n" ~
+                  "    baz\n").withoutIndent(),
+                 "foo\n" ~
+                 "  bar\n" ~
+                 "  baz"));
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.algorithm.comparison : equal;
+    import std.exception : enforce;
+    import std.utf : byUTF;
+    import dxml.internal : testRangeFuncs;
+
+    static void test(alias func)(string text, string expected, size_t line = __LINE__)
+    {
+        auto range = func(text);
+        enforce!AssertError(range.save.stripIndent() == expected, "unittest failed 1", __FILE__, line);
+        alias C = ElementType!(typeof(range.save.withoutIndent()));
+        enforce!AssertError(equal(range.save.withoutIndent(), expected.byUTF!C), "unittest failed 2", __FILE__, line);
+    }
+
+    static foreach(func; testRangeFuncs)
+    {
+        test!func("", "");
+        test!func("     ", "");
+        test!func("foo", "foo");
+        test!func("\nfoo", "\nfoo");
+        test!func("    foo", "foo");
+        test!func("\n    foo", "foo");
+        test!func("\n    foo\n", "foo");
+        test!func("\n    foo\n    ", "foo");
+        test!func("\n    foo\n     ", "foo\n ");
+
+        test!func("  foo\n  bar  \n    baz", "foo\nbar  \n  baz");
+        test!func("  foo\nbar\n  baz", "foo\nbar\nbaz");
+        test!func("  foo\n bar\n  baz", "foo\nbar\nbaz");
+        test!func("  foo\n  bar\n  baz", "foo\nbar\nbaz");
+        test!func("  foo\n   bar\n  baz", "foo\n bar\nbaz");
+        test!func("  foo\n    bar\n  baz", "foo\n  bar\nbaz");
+        test!func("  foo\n     bar\n  baz", "foo\n   bar\nbaz");
+        test!func("  foo\n     bar\n  baz\n\n\n\n\n", "foo\n   bar\nbaz\n\n\n\n");
+
+        test!func("     foo\n  bar\n       baz", "foo\nbar\n  baz");
+
+        test!func("foo\n     bar\n      baz", "foo\nbar\n baz");
+        test!func("foo\nbar\n      baz\n", "foo\nbar\n      baz\n");
+    }
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        assert(stripIndent(func("foo")) == "foo");
+        assert(equal(withoutIndent(func("foo")), "foo"));
     }}
 }
