@@ -745,9 +745,11 @@ public:
                 auto xml = func(text);
                 static foreach(i, config; posTestConfigs)
                 {{
-                    auto range = parseXML!config(xml.save);
-                    assertThrown!XMLParsingException(walkLength(range.front.attributes),
-                                                     "unittest failure", __FILE__, line);
+                    assertThrown!XMLParsingException(
+                        {
+                            auto range = parseXML!config(xml.save);
+                            walkLength(range.front.attributes);
+                        }(), "unittest failure", __FILE__, line);
                 }}
             }
 
@@ -779,41 +781,82 @@ public:
                 test!func(`<foo 京都市="ディラン"/>`, EntityType.elementEmpty,
                           [tuple("京都市", "ディラン")], 1, codeLen!(func, `<foo 京都市="ディラン"/>`) + 1);
 
-                testFail!func(`<root a=""">`);
-                testFail!func(`<root a='''>`);
-                testFail!func("<root a=>");
-                testFail!func("<root a='>");
-                testFail!func("<root a='>");
-                testFail!func("<root =''>");
-                testFail!func(`<root a "">`);
-                testFail!func(`<root a"">`);
-                testFail!func(`<root a>`);
-                testFail!func("<root foo='bar' a=>");
-                testFail!func("<root foo='bar' a='>");
-                testFail!func("<root foo='bar' a='>");
-                testFail!func("<root foo='bar' =''>");
-                testFail!func("<root foo='bar' a= hello='world'>");
-                testFail!func("<root foo='bar' a=' hello='world'>");
-                testFail!func("<root foo='bar' a=' hello='world'>");
-                testFail!func("<root foo='bar' ='' hello='world'>");
-                testFail!func("<root foo='bar'a='b'>");
-                testFail!func(`<root .foo="bar">`);
+                test!func(`<root foo=">"/>`, EntityType.elementEmpty, [tuple("foo", ">")], 1, 16);
+                test!func(`<root foo=">>>>>>"/>`, EntityType.elementEmpty, [tuple("foo", ">>>>>>")], 1, 21);
+                test!func(`<root foo=">"></root>`, EntityType.elementStart, [tuple("foo", ">")], 1, 15);
+                test!func(`<root foo=">>>>>>"></root>`, EntityType.elementStart, [tuple("foo", ">>>>>>")], 1, 20);
 
-                testFail!func(`<root foo="<">`);
-                testFail!func(`<root foo="<world">`);
-                testFail!func(`<root foo="hello<world">`);
-                testFail!func(`<root foo="&">`);
-                testFail!func(`<root foo="hello&">`);
-                testFail!func(`<root foo="hello&world">`);
-                testFail!func(`<root foo="&;">`);
-                testFail!func(`<root foo="&.;">`);
-                testFail!func(`<root foo="&.a;">`);
-                testFail!func(`<root foo="&#;">`);
-                testFail!func(`<root foo="&#x;">`);
-                testFail!func(`<root foo="&#A;">`);
-                testFail!func(`<root foo="&#xG;">`);
-                testFail!func(`<root foo="&#42">`);
-                testFail!func(`<root foo="&#x42">`);
+                testFail!func(`<root a="""/>`);
+                testFail!func(`<root a='''/>`);
+                testFail!func("<root a=/>");
+                testFail!func("<root a='/>");
+                testFail!func("<root a='/>");
+                testFail!func("<root =''/>");
+                testFail!func(`<root a ""/>`);
+                testFail!func(`<root a""/>`);
+                testFail!func(`<root a/>`);
+                testFail!func("<root foo='bar' a=/>");
+                testFail!func("<root foo='bar' a='/>");
+                testFail!func("<root foo='bar' a='/>");
+                testFail!func("<root foo='bar' =''/>");
+                testFail!func("<root foo='bar' a= hello='world'/>");
+                testFail!func("<root foo='bar' a=' hello='world'/>");
+                testFail!func("<root foo='bar' a=' hello='world'/>");
+                testFail!func("<root foo='bar' ='' hello='world'/>");
+                testFail!func("<root foo='bar'a='b'/>");
+                testFail!func(`<root .foo="bar"/>`);
+
+                testFail!func(`<root foo="<"/>`);
+                testFail!func(`<root foo="<world"/>`);
+                testFail!func(`<root foo="hello<world"/>`);
+                testFail!func(`<root foo="&"/>`);
+                testFail!func(`<root foo="hello&"/>`);
+                testFail!func(`<root foo="hello&world"/>`);
+                testFail!func(`<root foo="&;"/>`);
+                testFail!func(`<root foo="&.;"/>`);
+                testFail!func(`<root foo="&.a;"/>`);
+                testFail!func(`<root foo="&#;"/>`);
+                testFail!func(`<root foo="&#x;"/>`);
+                testFail!func(`<root foo="&#A;"/>`);
+                testFail!func(`<root foo="&#xG;"/>`);
+                testFail!func(`<root foo="&#42"/>`);
+                testFail!func(`<root foo="&#x42"/>`);
+
+                testFail!func(`<root a="""></root>`);
+                testFail!func(`<root a='''></root>`);
+                testFail!func("<root a=></root>");
+                testFail!func("<root a='></root>");
+                testFail!func("<root a='></root>");
+                testFail!func("<root =''></root>");
+                testFail!func(`<root a ""></root>`);
+                testFail!func(`<root a""></root>`);
+                testFail!func(`<root a></root>`);
+                testFail!func("<root foo='bar' a=></root>");
+                testFail!func("<root foo='bar' a='></root>");
+                testFail!func("<root foo='bar' a='></root>");
+                testFail!func("<root foo='bar' =''></root>");
+                testFail!func("<root foo='bar' a= hello='world'></root>");
+                testFail!func("<root foo='bar' a=' hello='world'></root>");
+                testFail!func("<root foo='bar' a=' hello='world'></root>");
+                testFail!func("<root foo='bar' ='' hello='world'></root>");
+                testFail!func("<root foo='bar'a='b'></root>");
+                testFail!func(`<root .foo="bar"></root>`);
+
+                testFail!func(`<root foo="<"></root>`);
+                testFail!func(`<root foo="<world"></root>`);
+                testFail!func(`<root foo="hello<world"></root>`);
+                testFail!func(`<root foo="&"></root>`);
+                testFail!func(`<root foo="hello&"></root>`);
+                testFail!func(`<root foo="hello&world"></root>`);
+                testFail!func(`<root foo="&;"></root>`);
+                testFail!func(`<root foo="&.;"></root>`);
+                testFail!func(`<root foo="&.a;"></root>`);
+                testFail!func(`<root foo="&#;"></root>`);
+                testFail!func(`<root foo="&#x;"></root>`);
+                testFail!func(`<root foo="&#A;"></root>`);
+                testFail!func(`<root foo="&#xG;"></root>`);
+                testFail!func(`<root foo="&#42"></root>`);
+                testFail!func(`<root foo="&#x42"></root>`);
             }
         }
 
@@ -991,7 +1034,7 @@ public:
                            "    <foo></foo>\n" ~
                            "    <foo/>\n" ~
                            "    <foo a='42'></foo>\n" ~
-                           "    <foo a='42' b='56></foo>\n" ~
+                           "    <foo a='42' b='56'></foo>\n" ~
                            "    <bar>\n" ~
                            "        <baz/>\n" ~
                            "        <baz a='42'/>\n" ~
@@ -1947,7 +1990,7 @@ private:
     void _parseElementStart()
     {
         _savedText.pos = _text.pos;
-        _savedText.input = _text.takeUntilAndDrop!">"();
+        _savedText.input = _text.takeUntilAndDrop!(">", true)();
 
         if(_savedText.input.empty)
             throw new XMLParsingException("Tag missing name", _savedText.pos);
@@ -4035,9 +4078,9 @@ unittest
 // given needle, removing both that slice and the given needle from text.input
 // in the process. If the needle is not found, then an XMLParsingException is
 // thrown.
-auto takeUntilAndDrop(string needle, Text)(ref Text text)
+auto takeUntilAndDrop(string needle, bool skipQuotedText = false, Text)(ref Text text)
 {
-    return _takeUntil!(true, needle, Text)(text);
+    return _takeUntil!(true, needle, skipQuotedText, Text)(text);
 }
 
 unittest
@@ -4047,8 +4090,8 @@ unittest
     import std.exception : assertThrown, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func, string needle)(string origHaystack, string expected, string remainder,
-                                                int row, int col, size_t line = __LINE__)
+    static void test(alias func, string needle, bool sqt )(string origHaystack, string expected, string remainder,
+                                                           int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
@@ -4056,7 +4099,8 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                enforce!AssertError(equal(text.takeUntilAndDrop!needle(), expected),
+                auto temp = text.save;
+                enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), expected),
                                     "unittest failure 1", __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
@@ -4068,7 +4112,7 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                enforce!AssertError(equal(text.takeUntilAndDrop!needle(), expected),
+                enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), expected),
                                     "unittest failure 4", __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
@@ -4076,43 +4120,62 @@ unittest
         }}
     }
 
-    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, string needle, bool sqt)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+            assertThrown!XMLParsingException(text.takeUntilAndDrop!(needle, sqt)(), "unittest failure", __FILE__, line);
         }}
     }
 
     static foreach(func; testRangeFuncs)
     {
+        static foreach(sqt; [false, true])
         {
-            auto haystack = "hello world";
-            enum needle = "world";
+            {
+                auto haystack = "hello world";
+                enum needle = "world";
 
-            static foreach(i; 1 .. needle.length)
-                test!(func, needle[0 .. i])(haystack, "hello ", needle[i .. $], 1, 7 + i);
-        }
-        test!(func, "l")("lello world", "", "ello world", 1, 2);
-        test!(func, "ll")("lello world", "le", "o world", 1, 5);
-        test!(func, "le")("llello world", "l", "llo world", 1, 4);
-        {
-            auto haystack = "プログラミング in D is great indeed";
-            enum len = codeLen!(func, "プログラミング in D is ");
-            enum needle = "great";
-            enum remainder = "great indeed";
+                static foreach(i; 1 .. needle.length)
+                    test!(func, needle[0 .. i], sqt)(haystack, "hello ", needle[i .. $], 1, 7 + i);
+            }
 
-            static foreach(i; 1 .. needle.length)
-                test!(func, needle[0 .. i])(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
+            test!(func, "l", sqt)("lello world", "", "ello world", 1, 2);
+            test!(func, "ll", sqt)("lello world", "le", "o world", 1, 5);
+            test!(func, "le", sqt)("llello world", "l", "llo world", 1, 4);
+            {
+                auto haystack = "プログラミング in D is great indeed";
+                enum len = codeLen!(func, "プログラミング in D is ");
+                enum needle = "great";
+                enum remainder = "great indeed";
+
+                static foreach(i; 1 .. needle.length)
+                    test!(func, needle[0 .. i], sqt)(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
+            }
+            static foreach(haystack; ["", "a", "hello"])
+                testFail!(func, "x", sqt)(haystack);
+            static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
+                testFail!(func, "le", sqt)(haystack);
+            static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
+                testFail!(func, "web", sqt)(haystack);
         }
-        static foreach(haystack; ["", "a", "hello"])
-            testFail!(func, "x")(haystack);
-        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
-            testFail!(func, "le")(haystack);
-        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
-            testFail!(func, "web")(haystack);
+
+        test!(func, "*", false)(`hello '*' "*" * world`, `hello '`, `' "*" * world`, 1, 9);
+        test!(func, "*", false)(`hello '"*' * world`, `hello '"`, `' * world`, 1, 10);
+        test!(func, "*", false)(`hello "'*" * world`, `hello "'`, `" * world`, 1, 10);
+        test!(func, "*", false)(`hello ''' * world`, `hello ''' `, ` world`, 1, 12);
+        test!(func, "*", false)(`hello """ * world`, `hello """ `, ` world`, 1, 12);
+
+        test!(func, "*", true)(`hello '*' "*" * world`, `hello '*' "*" `, ` world`, 1, 16);
+        test!(func, "*", true)(`hello '"*' * world`, `hello '"*' `, ` world`, 1, 13);
+        test!(func, "*", true)(`hello "'*" * world`, `hello "'*" `, ` world`, 1, 13);
+        testFail!(func, "*", true)(`hello ''' * world`);
+        testFail!(func, "*", true)(`hello """ * world`);
+
+        test!(func, "*", true)(`hello '' "" * world`, `hello '' "" `, ` world`, 1, 14);
+        test!(func, "*", true)("foo '\n \n \n' bar*", "foo '\n \n \n' bar", "", 4, 7);
     }
 }
 
@@ -4131,9 +4194,9 @@ unittest
 
 // Variant of takeUntilAndDrop which does not return a slice. It's intended for
 // when the config indicates that something should be skipped.
-void skipUntilAndDrop(string needle, Text)(ref Text text)
+void skipUntilAndDrop(string needle, bool skipQuotedText = false, Text)(ref Text text)
 {
-    _takeUntil!(false, needle, Text)(text);
+    _takeUntil!(false, needle, skipQuotedText, Text)(text);
 }
 
 unittest
@@ -4143,8 +4206,8 @@ unittest
     import std.exception : assertNotThrown, assertThrown, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func, string needle)(string origHaystack, string remainder,
-                                                int row, int col, size_t line = __LINE__)
+    static void test(alias func, string needle, bool sqt)(string origHaystack, string remainder,
+                                                          int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
@@ -4152,7 +4215,7 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto text = testParser!config(haystack.save);
-                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 1",
+                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)(), "unittest failure 1",
                                                     __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
@@ -4164,7 +4227,7 @@ unittest
                 text.pos.line += 3;
                 static if(i == 0)
                     text.pos.col += 7;
-                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure 4",
+                assertNotThrown!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)(), "unittest failure 4",
                                                     __FILE__, line);
                 enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
                 enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
@@ -4172,44 +4235,62 @@ unittest
         }}
     }
 
-    static void testFail(alias func, string needle)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, string needle, bool sqt)(string origHaystack, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
             auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.skipUntilAndDrop!needle(), "unittest failure", __FILE__, line);
+            assertThrown!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)(), "unittest failure", __FILE__, line);
         }}
     }
 
     static foreach(func; testRangeFuncs)
     {
+        static foreach(sqt; [false, true])
         {
-            enum needle = "world";
-            static foreach(i; 1 .. needle.length)
-                test!(func, needle[0 .. i])("hello world", needle[i .. $], 1, 7 + i);
+            {
+                enum needle = "world";
+                static foreach(i; 1 .. needle.length)
+                    test!(func, needle[0 .. i], sqt)("hello world", needle[i .. $], 1, 7 + i);
+            }
+
+            test!(func, "l", sqt)("lello world", "ello world", 1, 2);
+            test!(func, "ll", sqt)("lello world", "o world", 1, 5);
+            test!(func, "le", sqt)("llello world", "llo world", 1, 4);
+
+            {
+                auto haystack = "プログラミング in D is great indeed";
+                enum len = codeLen!(func, "プログラミング in D is ");
+                enum needle = "great";
+                enum remainder = "great indeed";
+
+                static foreach(i; 1 .. needle.length)
+                    test!(func, needle[0 .. i], sqt)(haystack, remainder[i .. $], 1, len + i + 1);
+            }
+
+            static foreach(haystack; ["", "a", "hello"])
+                testFail!(func, "x", sqt)(haystack);
+            static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
+                testFail!(func, "le", sqt)(haystack);
+            static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
+                testFail!(func, "web", sqt)(haystack);
         }
 
-        test!(func, "l")("lello world", "ello world", 1, 2);
-        test!(func, "ll")("lello world", "o world", 1, 5);
-        test!(func, "le")("llello world", "llo world", 1, 4);
+        test!(func, "*", false)(`hello '*' "*" * world`, `' "*" * world`, 1, 9);
+        test!(func, "*", false)(`hello '"*' * world`, `' * world`, 1, 10);
+        test!(func, "*", false)(`hello "'*" * world`, `" * world`, 1, 10);
+        test!(func, "*", false)(`hello ''' * world`, ` world`, 1, 12);
+        test!(func, "*", false)(`hello """ * world`, ` world`, 1, 12);
 
-        {
-            auto haystack = "プログラミング in D is great indeed";
-            enum len = codeLen!(func, "プログラミング in D is ");
-            enum needle = "great";
-            enum remainder = "great indeed";
+        test!(func, "*", true)(`hello '*' "*" * world`, ` world`, 1, 16);
+        test!(func, "*", true)(`hello '"*' * world`, ` world`, 1, 13);
+        test!(func, "*", true)(`hello "'*" * world`, ` world`, 1, 13);
+        testFail!(func, "*", true)(`hello ''' * world`);
+        testFail!(func, "*", true)(`hello """ * world`);
 
-            static foreach(i; 1 .. needle.length)
-                test!(func, needle[0 .. i])(haystack, remainder[i .. $], 1, len + i + 1);
-        }
-
-        static foreach(haystack; ["", "a", "hello"])
-            testFail!(func, "x")(haystack);
-        static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
-            testFail!(func, "le")(haystack);
-        static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
-            testFail!(func, "web")(haystack);
+        test!(func, "*", true)(`hello '' "" * world`, ` world`, 1, 14);
+        test!(func, "*", true)("foo '\n \n \n' bar*", "", 4, 7);
     }
 }
 
@@ -4227,7 +4308,7 @@ unittest
     }}
 }
 
-auto _takeUntil(bool retSlice, string needle, Text)(ref Text text)
+auto _takeUntil(bool retSlice, string needle, bool skipQuotedText, Text)(ref Text text)
 {
     import std.algorithm : find;
     import std.ascii : isWhite;
@@ -4245,6 +4326,18 @@ auto _takeUntil(bool retSlice, string needle, Text)(ref Text text)
 
     static if(Text.config.posType == PositionType.lineAndCol)
         size_t lineStart = 0;
+
+    static if(Text.config.posType != PositionType.none)
+    {
+        void processNewline()
+        {
+            static if(trackTakeLen)
+                ++takeLen;
+            nextLine!(Text.config)(text.pos);
+            static if(Text.config.posType == PositionType.lineAndCol)
+                lineStart = takeLen;
+        }
+    }
 
     loop: while(!text.input.empty)
     {
@@ -4296,15 +4389,52 @@ auto _takeUntil(bool retSlice, string needle, Text)(ref Text text)
                     break loop;
                 }
             }
+            static if(skipQuotedText)
+            {
+                static foreach(quote; ['\'', '"'])
+                {
+                    case quote:
+                    {
+                        static if(trackTakeLen)
+                            ++takeLen;
+                        while(true)
+                        {
+                            text.input.popFront();
+                            checkNotEmpty(text);
+                            switch(text.input.front)
+                            {
+                                case quote:
+                                {
+                                    static if(trackTakeLen)
+                                        ++takeLen;
+                                    text.input.popFront();
+                                    continue loop;
+                                }
+                                static if(Text.config.posType != PositionType.none)
+                                {
+                                    case '\n':
+                                    {
+                                        processNewline();
+                                        break;
+                                    }
+                                }
+                                default:
+                                {
+                                    static if(trackTakeLen)
+                                        ++takeLen;
+                                    break;
+                                }
+                            }
+                        }
+                        assert(0); // the compiler isn't smart enough to see that this is unreachable.
+                    }
+                }
+            }
             static if(Text.config.posType != PositionType.none)
             {
                 case '\n':
                 {
-                    static if(trackTakeLen)
-                        ++takeLen;
-                    nextLine!(Text.config)(text.pos);
-                    static if(Text.config.posType == PositionType.lineAndCol)
-                        lineStart = takeLen;
+                    processNewline();
                     break;
                 }
             }
