@@ -89,6 +89,15 @@ package:
     Where in the XML text an entity is. If the $(LREF PositionType) when
     parsing does not keep track of a given field, then that field will always be
     $(D -1).
+
+    The primary use case for this is $(LREF XMLParsingException), but an
+    application may have other uses for it. The $(LREF SourcePos) for an
+    $(LREF2 Entity, EntityRange.Entity) can be obtained from
+    $(LREF2 Entity.pos, EntityRange.Entity.pos).
+
+    See_Also: $(LREF PositionType)$(BR)
+              $(LREF XMLParsingException.pos)$(BR)
+              $(LREF EntityRange.Entity.pos)
   +/
 struct SourcePos
 {
@@ -109,11 +118,13 @@ struct SourcePos
 
 /++
     At what level of granularity the position in the XML file should be kept
-    track of (it's used in $(LREF XMLParsingException) to indicate where the
-    in the text the invalid XML was found). $(LREF _text.positionType.none) is the
-    most efficient but least informative, whereas
-    $(LREF _text.positionType.lineAndCol) is the most informative but least
-    efficient.
+    track of. $(LREF _text.positionType.none) is the most efficient but least
+    informative, whereas $(LREF _text.positionType.lineAndCol) is the most
+    informative but least efficient.
+
+    See_Also: $(LREF SourcePos)$(BR)
+              $(LREF XMLParsingException.pos)$(BR)
+              $(LREF EntityRange.Entity.pos)
   +/
 enum PositionType
 {
@@ -557,6 +568,238 @@ public:
             return _type;
         }
 
+        ///
+        unittest
+        {
+            auto xml = "<root>\n" ~
+                       "    <!--no comment-->\n" ~
+                       "    <![CDATA[cdata run]]>\n" ~
+                       "    <text>I am text!</text>\n" ~
+                       "    <empty/>\n" ~
+                       "    <?pi?>\n" ~
+                       "</root>";
+
+            auto range = parseXML(xml);
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+            range.popFront();
+
+            assert(range.front.type == EntityType.comment);
+            assert(range.front.text == "no comment");
+            range.popFront();
+
+            assert(range.front.type == EntityType.cdata);
+            assert(range.front.text == "cdata run");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "text");
+            range.popFront();
+
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "I am text!");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "text");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(range.front.name == "empty");
+            range.popFront();
+
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "pi");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "root");
+            range.popFront();
+
+            assert(range.empty);
+        }
+
+
+        /++
+            The position in the the original text where the entity starts.
+            How precise that information is depends on the $(LREF PositionType)
+            the parser's $(LREF Config) used. $(D Config.init) and
+            $(LREF simpleXML) both use $(LREF PositionType.lineAndCol).
+
+            See_Also: $(LREF SourcePos)($BR)
+                      $(LREF PositionType)($BR)
+                      $(LREF Config.posType)($BR)
+                      $(LREF XMLParsingException.pos)
+          +/
+        @property SourcePos pos() @safe const pure nothrow @nogc
+        {
+            return _pos;
+        }
+
+        ///
+        unittest
+        {
+            auto xml = "<root>\n" ~
+                       "    <foo>\n" ~
+                       "        Foo and bar. Always foo and bar...\n" ~
+                       "    </foo>\n" ~
+                       "</root>";
+
+            // PositionType.lineAndCol
+            {
+                auto range = parseXML(xml);
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(1, 1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(2, 5));
+                range.popFront();
+
+                assert(range.front.type == EntityType.text);
+                assert(range.front.text ==
+                       "\n" ~
+                       "        Foo and bar. Always foo and bar...\n" ~
+                       "    ");
+                assert(range.front.pos == SourcePos(2, 10));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(4, 5));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(5, 1));
+                range.popFront();
+
+                assert(range.empty);
+            }
+            // PositionType.line
+            {
+                auto range = parseXML!(makeConfig(PositionType.line))(xml);
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(1, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(2, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.text);
+                assert(range.front.text ==
+                       "\n" ~
+                       "        Foo and bar. Always foo and bar...\n" ~
+                       "    ");
+                assert(range.front.pos == SourcePos(2, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(4, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(5, -1));
+                range.popFront();
+
+                assert(range.empty);
+            }
+            // PositionType.none
+            {
+                auto range = parseXML!(makeConfig(PositionType.none))(xml);
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(-1, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementStart);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(-1, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.text);
+                assert(range.front.text ==
+                       "\n" ~
+                       "        Foo and bar. Always foo and bar...\n" ~
+                       "    ");
+                assert(range.front.pos == SourcePos(-1, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "foo");
+                assert(range.front.pos == SourcePos(-1, -1));
+                range.popFront();
+
+                assert(range.front.type == EntityType.elementEnd);
+                assert(range.front.name == "root");
+                assert(range.front.pos == SourcePos(-1, -1));
+                range.popFront();
+
+                assert(range.empty);
+            }
+        }
+
+        unittest
+        {
+            import core.exception : AssertError;
+            import std.exception : enforce;
+
+            static void test(ER)(ref ER range, EntityType type, int row, int col, size_t line = __LINE__)
+            {
+                static if(ER.config.posType == PositionType.lineAndCol)
+                    auto pos = SourcePos(row, col);
+                else static if(ER.config.posType == PositionType.line)
+                    auto pos = SourcePos(row, -1);
+                else
+                    SourcePos pos;
+                enforce!AssertError(!range.empty, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(range.front.type == type, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range.front.pos == pos, "unittest failure 3", __FILE__, line);
+                range.popFront();
+            }
+
+            auto xml = "<?xml?>\n" ~
+                       "   <!--comment-->\n" ~
+                       "   <?pi?>\n" ~
+                       " <root>\n" ~
+                       "          <!--comment--><!--comment-->\n" ~
+                       "       <?pi?>\n" ~
+                       "  <![CDATA[]]>\n" ~
+                       "              <empty/>     </root>\n" ~
+                       " <!--comment-->\n" ~
+                       " <?pi?>\n";
+
+            static foreach(config; posTestConfigs)
+            {{
+                auto range = parseXML!config(xml);
+                test(range, EntityType.comment, 2, 4);
+                test(range, EntityType.pi, 3, 4);
+                test(range, EntityType.elementStart, 4, 2);
+                test(range, EntityType.comment, 5, 11);
+                test(range, EntityType.comment, 5, 25);
+                test(range, EntityType.pi, 6, 8);
+                test(range, EntityType.cdata, 7, 3);
+                test(range, EntityType.elementEmpty, 8, 15);
+                test(range, EntityType.elementEnd, 8, 28);
+                test(range, EntityType.comment, 9, 2);
+                test(range, EntityType.pi, 10, 2);
+            }}
+
+            auto range = parseXML!simpleXML(xml);
+            test(range, EntityType.elementStart, 4, 2);
+            test(range, EntityType.cdata, 7, 3);
+            test(range, EntityType.elementStart, 8, 15);
+            test(range, EntityType.elementEnd, 8, 15);
+            test(range, EntityType.elementEnd, 8, 28);
+        }
+
 
         /++
             Gives the name of this Entity.
@@ -581,6 +824,34 @@ public:
             return stripBCU!R(_name.save);
         }
 
+        ///
+        unittest
+        {
+            auto xml = "<root>\n" ~
+                       "    <empty/>\n" ~
+                       "    <?pi?>\n" ~
+                       "</root>";
+
+            auto range = parseXML(xml);
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementEmpty);
+            assert(range.front.name == "empty");
+            range.popFront();
+
+            assert(range.front.type == EntityType.pi);
+            assert(range.front.name == "pi");
+            range.popFront();
+
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "root");
+            range.popFront();
+
+            assert(range.empty);
+        }
+
 
         /++
             Returns a lazy range of attributes for a start tag where each
@@ -594,6 +865,9 @@ public:
             )
 
             Throws: $(LREF XMLParsingException) on invalid XML.
+
+            See_Also: $(REF normalize, dxml, util)$(BR)
+                      $(REF asNormalized, dxml, util)
           +/
         @property auto attributes()
         {
@@ -877,6 +1151,11 @@ public:
                 $(TR $(TD $(LREF2 pi, EntityType)))
                 $(TR $(TD $(LREF2 _text, EntityType)))
             )
+
+            See_Also: $(REF normalize, dxml, util)$(BR)
+                      $(REF asNormalized, dxml, util)$(BR)
+                      $(REF stripIndent, dxml, util)$(BR)
+                      $(REF withoutIndent, dxml, util)
           +/
         @property SliceOfR text()
         {
@@ -1206,6 +1485,7 @@ public:
         }
 
         EntityType _type;
+        SourcePos _pos;
         Taken _name;
         typeof(EntityRange._savedText) _savedText;
     }
@@ -1228,6 +1508,8 @@ public:
             case text: goto case cdata;
             case pi: goto case elementStart;
         }
+        static if(config.posType != PositionType.none)
+            retval._pos = _entityPos;
         return retval;
     }
 
@@ -1475,6 +1757,10 @@ private:
             _text.skipUntilAndDrop!"--"();
         else
         {
+            static if(config.posType == PositionType.lineAndCol)
+                _entityPos = SourcePos(_text.pos.line, _text.pos.col - 4);
+            else static if(config.posType == PositionType.line)
+                _entityPos = _text.pos;
             _type = EntityType.comment;
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"--"();
@@ -1631,6 +1917,10 @@ private:
     // Parses a processing instruction. < was already removed from the input.
     void _parsePI()
     {
+        static if(config.posType == PositionType.lineAndCol)
+            _entityPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+        else static if(config.posType == PositionType.line)
+            _entityPos = _text.pos;
         assert(_text.input.front == '?');
         popFrontAndIncCol(_text);
         static if(config.skipPI == SkipPI.yes)
@@ -1721,6 +2011,8 @@ private:
             test!func("<?dlang\n\nis\n\nawesome\n\n?>", "dlang", "is\n\nawesome\n\n", 7, 3);
             test!func("<?京都市 ディラン?>", "京都市", "ディラン", 1, codeLen!(func, "<?京都市 ディラン?>") + 1);
 
+            testFail!func("<??>");
+            testFail!func("<? ?>");
             testFail!func("<?xml?><?xml?>");
             testFail!func("<?XML?>");
             testFail!func("<?xMl?>");
@@ -1830,9 +2122,13 @@ private:
     // CDStart ::= '<![CDATA['
     // CData   ::= (Char* - (Char* ']]>' Char*))
     // CDEnd   ::= ']]>'
-    // Parses a CDATA. <!CDATA[ was already removed from the front of the input.
+    // Parses a CDATA. <![CDATA[ was already removed from the front of the input.
     void _parseCDATA()
     {
+        static if(config.posType == PositionType.lineAndCol)
+            _entityPos = SourcePos(_text.pos.line, _text.pos.col - cast(int)"<![CDATA[".length);
+        else static if(config.posType == PositionType.line)
+            _entityPos = _text.pos;
         _type = EntityType.cdata;
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!"]]>";
@@ -1990,6 +2286,10 @@ private:
     // < was already removed from the front of the input.
     void _parseElementStart()
     {
+        static if(config.posType == PositionType.lineAndCol)
+            _entityPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+        else static if(config.posType == PositionType.line)
+            _entityPos = _text.pos;
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!(">", true)();
 
@@ -2100,6 +2400,10 @@ private:
     // </ was already removed from the front of the input.
     void _parseElementEnd()
     {
+        static if(config.posType == PositionType.lineAndCol)
+            _entityPos = SourcePos(_text.pos.line, _text.pos.col - 2);
+        else static if(config.posType == PositionType.line)
+            _entityPos = _text.pos;
         _type = EntityType.elementEnd;
         immutable namePos = _text.pos;
         _name = _text.takeUntilAndDrop!">"();
@@ -2119,9 +2423,10 @@ private:
         stripWS(_text);
         checkNotEmpty(_text);
         if(_text.input.front != '<')
-            _text = orig;
-        if(_text.input.front != '<')
         {
+            _text = orig;
+            static if(config.posType != PositionType.none)
+                _entityPos = _text.pos;
             _type = EntityType.text;
             _savedText.input = _text.takeUntilAndDrop!"<"();
             checkNotEmpty(_text);
@@ -2445,6 +2750,7 @@ private:
 
 
     EntityType _type;
+    SourcePos _entityPos;
     auto _grammarPos = GrammarPos.documentStart;
 
     Taken _name;
