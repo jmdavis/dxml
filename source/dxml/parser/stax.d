@@ -1,13 +1,13 @@
 // Written in the D programming language
 
 /++
-    This implements a $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX parser)
-    for XML 1.0 (which will work with XML 1.1 documents assuming that they
-    don't use any 1.1-specific features). For the sake of simplicity, sanity,
-    and efficiency, the
-    $(LINK2 https://en.wikipedia.org/wiki/Document_type_definition, DTD) section
-    is not supported beyond what is required to parse past it. As such, the
-    parser parses "well-formed" XML but is not what the
+    This implements a range-based
+    $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX parser) for XML 1.0 (which
+    will work with XML 1.1 documents assuming that they don't use any
+    1.1-specific features). For the sake of simplicity, sanity, and efficiency,
+    the $(LINK2 https://en.wikipedia.org/wiki/Document_type_definition, DTD)
+    section is not supported beyond what is required to parse past it. As such,
+    the parser parses "well-formed" XML but is not what the
     $(LINK2 http://www.w3.org/TR/REC-xml, XML spec) calls a "validating parser."
 
     Start tags, end tags, comments, cdata sections, and processing instructions
@@ -32,12 +32,13 @@
     whatever they refer to).
 
     $(LREF parseXML) is the function used to initiate the parsing of an XML
-    document, and it returns an $(LREF EntityRange), which is a StAX parser.
-    $(LREF Config) can be used to configure some of the parser's behavior (e.g.
-    $(LREF SkipComments.yes) would tell it to not report comments to the
-    application). $(LREF makeConfig) is a helper function to create custom
-    $(LREF Config)s more easily, and $(LREF simpleXML) is a $(LREF Config) which
-    provides simpler defaults than $(D $(LREF Config).init).
+    document, and it returns an $(LREF EntityRange), which is a range-based
+    StAX parser. $(LREF Config) can be used to configure some of the parser's
+    behavior (e.g. $(LREF SkipComments.yes) would tell it to not report comments
+    to the application). $(LREF makeConfig) is a helper function to create
+    custom $(LREF Config)s more easily, and $(LREF simpleXML) is a
+    $(LREF Config) which provides simpler defaults than
+    $(D $(LREF Config).init).
 
     Copyright: Copyright 2017 - 2018
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
