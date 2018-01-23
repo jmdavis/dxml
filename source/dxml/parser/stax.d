@@ -1778,7 +1778,7 @@ private:
         // so that the error message for improperly terminating a comment takes
         // precedence over the one involving invalid characters in the comment.
         static if(config.skipComments == SkipComments.no)
-            checkText!true(_savedText);
+            checkText!(CheckText.allowAllXMLChar)(_savedText);
         popFrontAndIncCol(_text);
     }
 
@@ -1966,7 +1966,7 @@ private:
                 checkNotEmpty(_text);
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"?>"();
-            checkText!false(_savedText);
+            checkText!(CheckText.disallowAmpAndLT)(_savedText);
             if(walkLength(_name.save) == 3)
             {
                 // FIXME icmp doesn't compile right now due to an issue with
@@ -2170,7 +2170,7 @@ private:
         _type = EntityType.cdata;
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!"]]>";
-        checkText!true(_savedText);
+        checkText!(CheckText.allowAllXMLChar)(_savedText);
         _grammarPos = GrammarPos.contentCharData2;
     }
 
@@ -2532,7 +2532,7 @@ private:
             _type = EntityType.text;
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"<"();
-            checkText!false(_savedText);
+            checkText!(CheckText.disallowAmpLTAndCDATAEnd)(_savedText);
             checkNotEmpty(_text);
             if(_text.input.front == '/')
             {
@@ -2598,6 +2598,9 @@ private:
             test!func("\nhello\n\nworld", 4, 6);
             test!func("京都市", 1, codeLen!(func, "京都市") + 1);
             test!func("&#x42;", 1, 7);
+            test!func("]", 1, 2);
+            test!func("]]", 1, 3);
+            test!func("]>", 1, 3);
 
             testFail!func("&", 1, 1);
             testFail!func("\v", 1, 1);
@@ -2608,6 +2611,9 @@ private:
             testFail!func("hello&#x;world", 1, 6);
             testFail!func("hello&.;world", 1, 6);
             testFail!func("\n\nfoo\nbar&.;", 4, 4);
+
+            testFail!func("]]>", 1, 1);
+            testFail!func("foo]]>bar", 1, 4);
         }
     }
 
@@ -3196,6 +3202,8 @@ unittest
         testFail!func("<?Poirot?><?Sherlock?><?Holmes?>", 1, 33);
         testFail!func("<?Poirot?></Poirot>", 1, 12);
         testFail!func("</Poirot>", 1, 2);
+
+        testFail!func("<doc>]]></doc>", 1, 6);
     }}
 }
 
@@ -5683,10 +5691,16 @@ unittest
     }}
 }
 
+enum CheckText
+{
+    allowAllXMLChar,
+    disallowAmpAndLT,
+    disallowAmpLTAndCDATAEnd,
+}
 
 // Validates an EntityType.text field to verify that it does not contain invalid
 // characters.
-void checkText(bool allowAmpAndLT, Text)(ref Text text)
+void checkText(CheckText ct, Text)(ref Text text)
 {
 
     static void invalidChar(dchar c, SourcePos pos, size_t line = __LINE__)
@@ -5702,7 +5716,7 @@ void checkText(bool allowAmpAndLT, Text)(ref Text text)
     {
         switch(temp.input.front)
         {
-            static if(!allowAmpAndLT)
+            static if(ct != CheckText.allowAllXMLChar)
             {
                 case '&':
                 {
@@ -5786,6 +5800,20 @@ void checkText(bool allowAmpAndLT, Text)(ref Text text)
                 }
                 case '<': invalidChar('<', temp.pos); assert(0);
             }
+            static if(ct == CheckText.disallowAmpLTAndCDATAEnd)
+            {
+                case ']':
+                {
+                    popFrontAndIncCol(temp);
+                    if(temp.stripStartsWith("]>"))
+                    {
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            temp.pos.col -= 3;
+                        throw new XMLParsingException("]]> not allowed in EntityType.text", temp.pos);
+                    }
+                    break;
+                }
+            }
             case '\n':
             {
                 static if(temp.config.posType != PositionType.none)
@@ -5824,17 +5852,17 @@ unittest
     import std.exception : assertNotThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func, bool allow)(string text, size_t line = __LINE__)
+    static void test(alias func, CheckText ct)(string text, size_t line = __LINE__)
     {
         auto xml = func(text);
         static foreach(i, config; posTestConfigs)
         {{
             auto range = testParser!config(xml.save);
-            assertNotThrown(checkText!allow(range), "unittest failure", __FILE__, line);
+            assertNotThrown(checkText!ct(range), "unittest failure", __FILE__, line);
         }}
     }
 
-    static void testFail(alias func, bool allow)(string text, int row, int col, size_t line = __LINE__)
+    static void testFail(alias func, CheckText ct)(string text, int row, int col, size_t line = __LINE__)
     {
         auto xml = func(text);
         static foreach(i, config; posTestConfigs)
@@ -5842,7 +5870,7 @@ unittest
             {
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = testParser!config(xml.save);
-                auto e = collectException!XMLParsingException(checkText!allow(range));
+                auto e = collectException!XMLParsingException(checkText!ct(range));
                 enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
             }
@@ -5853,7 +5881,7 @@ unittest
                 range.pos.line += 3;
                 static if(i == 0)
                     range.pos.col += 7;
-                auto e = collectException!XMLParsingException(checkText!allow(range));
+                auto e = collectException!XMLParsingException(checkText!ct(range));
                 enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
                 enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
             }
@@ -5862,83 +5890,100 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(allow; [false, true])
+        static foreach(ct; EnumMembers!CheckText)
         {
-            test!(func, allow)("");
-            test!(func, allow)("J",);
-            test!(func, allow)("foo");
-            test!(func, allow)("プログラミング");
+            test!(func, ct)("");
+            test!(func, ct)("J",);
+            test!(func, ct)("foo");
+            test!(func, ct)("プログラミング");
 
-            test!(func, allow)("&amp;&gt;&lt;");
-            test!(func, allow)("hello&amp;&gt;&lt;world");
-            test!(func, allow)(".....&amp;&gt;&lt;.....");
-            test!(func, allow)("&foo.;");
-            test!(func, allow)("&#12487;&#12451;&#12521;&#12531;");
-            test!(func, allow)("hello&#xAF;&#0;&foo;world");
+            test!(func, ct)("&amp;&gt;&lt;");
+            test!(func, ct)("hello&amp;&gt;&lt;world");
+            test!(func, ct)(".....&amp;&gt;&lt;.....");
+            test!(func, ct)("&foo.;");
+            test!(func, ct)("&#12487;&#12451;&#12521;&#12531;");
+            test!(func, ct)("hello&#xAF;&#0;&foo;world");
+
+            test!(func, ct)("]]");
+            test!(func, ct)("]>");
+            test!(func, ct)("foo]]bar");
+            test!(func, ct)("foo]>bar");
+            test!(func, ct)("]] >");
         }
 
-        testFail!(func, false)("<", 1, 1);
-        testFail!(func, false)("&", 1, 1);
-        testFail!(func, false)("&", 1, 1);
-        testFail!(func, false)("&x", 1, 1);
-        testFail!(func, false)("&.;", 1, 1);
-        testFail!(func, false)("&&;", 1, 1);
-        testFail!(func, false)("&a", 1, 1);
-        testFail!(func, false)("&a", 1, 1);
-        testFail!(func, false)("hello&;", 1, 6);
-        testFail!(func, false)("hello&;world", 1, 6);
-        testFail!(func, false)("hello&<;world", 1, 6);
-        testFail!(func, false)("hello&world", 1, 6);
-        testFail!(func, false)("hello world&", 1, 12);
-        testFail!(func, false)("hello world&;", 1, 12);
-        testFail!(func, false)("hello world&.;", 1, 12);
-        testFail!(func, false)("hello world&foo", 1, 12);
-        testFail!(func, false)("&#;", 1, 1);
-        testFail!(func, false)("&#x;", 1, 1);
-        testFail!(func, false)("&#AF;", 1, 1);
-        testFail!(func, false)("&#x", 1, 1);
-        testFail!(func, false)("&#0", 1, 1);
-        testFail!(func, false)("&#x0", 1, 1);
-        testFail!(func, false)("&#0;foo\nbar&#;", 2, 4);
-        testFail!(func, false)("&#0;foo\nbar&#x;", 2, 4);
-        testFail!(func, false)("&#0;foo\nbar&#AF;", 2, 4);
-        testFail!(func, false)("&#0;foo\nbar&#x", 2, 4);
-        testFail!(func, false)("&#0;foo\nbar&#0", 2, 4);
-        testFail!(func, false)("&#0;foo\nbar&#x0", 2, 4);
-        testFail!(func, false)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
-        testFail!(func, false)("hello\vworld", 1, 6);
-        testFail!(func, false)("he\nllo\vwo\nrld", 2, 4);
+        static foreach(ct; [CheckText.disallowAmpAndLT, CheckText.disallowAmpLTAndCDATAEnd])
+        {
+            testFail!(func, ct)("<", 1, 1);
+            testFail!(func, ct)("&", 1, 1);
+            testFail!(func, ct)("&", 1, 1);
+            testFail!(func, ct)("&x", 1, 1);
+            testFail!(func, ct)("&.;", 1, 1);
+            testFail!(func, ct)("&&;", 1, 1);
+            testFail!(func, ct)("&a", 1, 1);
+            testFail!(func, ct)("&a", 1, 1);
+            testFail!(func, ct)("hello&;", 1, 6);
+            testFail!(func, ct)("hello&;world", 1, 6);
+            testFail!(func, ct)("hello&<;world", 1, 6);
+            testFail!(func, ct)("hello&world", 1, 6);
+            testFail!(func, ct)("hello world&", 1, 12);
+            testFail!(func, ct)("hello world&;", 1, 12);
+            testFail!(func, ct)("hello world&.;", 1, 12);
+            testFail!(func, ct)("hello world&foo", 1, 12);
+            testFail!(func, ct)("&#;", 1, 1);
+            testFail!(func, ct)("&#x;", 1, 1);
+            testFail!(func, ct)("&#AF;", 1, 1);
+            testFail!(func, ct)("&#x", 1, 1);
+            testFail!(func, ct)("&#0", 1, 1);
+            testFail!(func, ct)("&#x0", 1, 1);
+            testFail!(func, ct)("&#0;foo\nbar&#;", 2, 4);
+            testFail!(func, ct)("&#0;foo\nbar&#x;", 2, 4);
+            testFail!(func, ct)("&#0;foo\nbar&#AF;", 2, 4);
+            testFail!(func, ct)("&#0;foo\nbar&#x", 2, 4);
+            testFail!(func, ct)("&#0;foo\nbar&#0", 2, 4);
+            testFail!(func, ct)("&#0;foo\nbar&#x0", 2, 4);
+            testFail!(func, ct)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
+            testFail!(func, ct)("hello\vworld", 1, 6);
+            testFail!(func, ct)("he\nllo\vwo\nrld", 2, 4);
+        }
 
-        test!(func, true)("<");
-        test!(func, true)("&");
-        test!(func, true)("&x");
-        test!(func, true)("&.;");
-        test!(func, true)("&&;");
-        test!(func, true)("&a");
-        test!(func, true)("&a");
-        test!(func, true)("hello&;");
-        test!(func, true)("hello&;world");
-        test!(func, true)("hello&<;world");
-        test!(func, true)("hello&world");
-        test!(func, true)("hello world&");
-        test!(func, true)("hello world&;");
-        test!(func, true)("hello world&.;");
-        test!(func, true)("hello world&foo");
-        test!(func, true)("&#;");
-        test!(func, true)("&#x;");
-        test!(func, true)("&#AF;");
-        test!(func, true)("&#x");
-        test!(func, true)("&#0");
-        test!(func, true)("&#x0");
-        test!(func, true)("&#0;foo\nbar&#;");
-        test!(func, true)("&#0;foo\nbar&#x;");
-        test!(func, true)("&#0;foo\nbar&#AF;");
-        test!(func, true)("&#0;foo\nbar&#x");
-        test!(func, true)("&#0;foo\nbar&#0");
-        test!(func, true)("&#0;foo\nbar&#x0");
-        test!(func, true)("プログラミング&");
-        testFail!(func, true)("hello\vworld", 1, 6);
-        testFail!(func, true)("he\nllo\vwo\nrld", 2, 4);
+        static foreach(ct; [CheckText.allowAllXMLChar, CheckText.disallowAmpAndLT])
+        {
+            test!(func, ct)("]]>");
+            test!(func, ct)("foo]]>bar");
+        }
+        testFail!(func, CheckText.disallowAmpLTAndCDATAEnd)("]]>", 1, 1);
+        testFail!(func, CheckText.disallowAmpLTAndCDATAEnd)("foo]]>bar", 1, 4);
+
+        test!(func, CheckText.allowAllXMLChar)("<");
+        test!(func, CheckText.allowAllXMLChar)("&");
+        test!(func, CheckText.allowAllXMLChar)("&x");
+        test!(func, CheckText.allowAllXMLChar)("&.;");
+        test!(func, CheckText.allowAllXMLChar)("&&;");
+        test!(func, CheckText.allowAllXMLChar)("&a");
+        test!(func, CheckText.allowAllXMLChar)("&a");
+        test!(func, CheckText.allowAllXMLChar)("hello&;");
+        test!(func, CheckText.allowAllXMLChar)("hello&;world");
+        test!(func, CheckText.allowAllXMLChar)("hello&<;world");
+        test!(func, CheckText.allowAllXMLChar)("hello&world");
+        test!(func, CheckText.allowAllXMLChar)("hello world&");
+        test!(func, CheckText.allowAllXMLChar)("hello world&;");
+        test!(func, CheckText.allowAllXMLChar)("hello world&.;");
+        test!(func, CheckText.allowAllXMLChar)("hello world&foo");
+        test!(func, CheckText.allowAllXMLChar)("&#;");
+        test!(func, CheckText.allowAllXMLChar)("&#x;");
+        test!(func, CheckText.allowAllXMLChar)("&#AF;");
+        test!(func, CheckText.allowAllXMLChar)("&#x");
+        test!(func, CheckText.allowAllXMLChar)("&#0");
+        test!(func, CheckText.allowAllXMLChar)("&#x0");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#;");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#x;");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#AF;");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#x");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#0");
+        test!(func, CheckText.allowAllXMLChar)("&#0;foo\nbar&#x0");
+        test!(func, CheckText.allowAllXMLChar)("プログラミング&");
+        testFail!(func, CheckText.allowAllXMLChar)("hello\vworld", 1, 6);
+        testFail!(func, CheckText.allowAllXMLChar)("he\nllo\vwo\nrld", 2, 4);
     }
 }
 
@@ -5948,11 +5993,11 @@ unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(allow; [false, true])
+        static foreach(ct; EnumMembers!CheckText)
         {{
             auto xml = func("foo");
             auto text = testParser!simpleXML(xml);
-            checkText!allow(text);
+            checkText!ct(text);
         }}
     }
 }
