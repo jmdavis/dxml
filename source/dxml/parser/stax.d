@@ -990,7 +990,7 @@ public:
         {
             import core.exception : AssertError;
             import std.algorithm.comparison : equal;
-            import std.exception : assertNotThrown, assertThrown, enforce;
+            import std.exception : assertNotThrown, collectException, enforce;
             import std.typecons : Tuple, tuple;
             import dxml.internal : codeLen, testRangeFuncs;
 
@@ -1015,16 +1015,19 @@ public:
                 }}
             }
 
-            static void testFail(alias func)(string text, size_t line = __LINE__)
+            static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
             {
                 auto xml = func(text);
                 static foreach(i, config; posTestConfigs)
                 {{
-                    assertThrown!XMLParsingException(
+                    auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                    auto e = collectException!XMLParsingException(
                         {
                             auto range = parseXML!config(xml.save);
                             walkLength(range.front.attributes);
-                        }(), "unittest failure", __FILE__, line);
+                        }());
+                    enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                    enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
                 }}
             }
 
@@ -1041,6 +1044,7 @@ public:
                 test!func(`<root foo='"""'/>`, EntityType.elementEmpty, [tuple("foo", `"""`)], 1, 18);
                 test!func(`<root foo="'''"/>`, EntityType.elementEmpty, [tuple("foo", `'''`)], 1, 18);
                 test!func(`<root foo.=""/>`, EntityType.elementEmpty, [tuple("foo.", "")], 1, 16);
+                test!func(`<root foo="bar="/>`, EntityType.elementEmpty, [tuple("foo", "bar=")], 1, 19);
 
                 test!func("<root foo='bar' a='b' hello='world'/>", EntityType.elementEmpty,
                           [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
@@ -1061,77 +1065,79 @@ public:
                 test!func(`<root foo=">"></root>`, EntityType.elementStart, [tuple("foo", ">")], 1, 15);
                 test!func(`<root foo=">>>>>>"></root>`, EntityType.elementStart, [tuple("foo", ">>>>>>")], 1, 20);
 
-                testFail!func(`<root a="""/>`);
-                testFail!func(`<root a='''/>`);
-                testFail!func("<root a=/>");
-                testFail!func("<root a='/>");
-                testFail!func("<root a='/>");
-                testFail!func("<root =''/>");
-                testFail!func(`<root a ""/>`);
-                testFail!func(`<root a""/>`);
-                testFail!func(`<root a/>`);
-                testFail!func("<root foo='bar' a=/>");
-                testFail!func("<root foo='bar' a='/>");
-                testFail!func("<root foo='bar' a='/>");
-                testFail!func("<root foo='bar' =''/>");
-                testFail!func("<root foo='bar' a= hello='world'/>");
-                testFail!func("<root foo='bar' a=' hello='world'/>");
-                testFail!func("<root foo='bar' a=' hello='world'/>");
-                testFail!func("<root foo='bar' ='' hello='world'/>");
-                testFail!func("<root foo='bar'a='b'/>");
-                testFail!func(`<root .foo="bar"/>`);
+                testFail!func(`<root a="""/>`, 1, 11);
+                testFail!func(`<root a='''/>`, 1, 11);
+                testFail!func("<root a=/>", 1, 9);
+                testFail!func("<root a='/>", 1, 9);
+                testFail!func("<root a='/>", 1, 9);
+                testFail!func("<root =''/>", 1, 7);
+                testFail!func(`<root a ""/>`, 1, 9);
+                testFail!func(`<root a""/>`, 1, 8);
+                testFail!func(`<root a/>`, 1, 8);
+                testFail!func("<root foo='bar' a=/>", 1, 19);
+                testFail!func("<root foo='bar' a='/>", 1, 19);
+                testFail!func("<root foo='bar' a='/>", 1, 19);
+                testFail!func("<root foo='bar' =''/>", 1, 17);
+                testFail!func("<root foo='bar' a= hello='world'/>", 1, 20);
+                // It's 33 rather than 28, because it throws when processing the start tag and not when processing
+                // the attributes. So, the mismatched quotes are detected before the attributes are checked.
+                testFail!func("<root foo='bar' a=' hello='world'/>", 1, 33);
+                testFail!func("<root foo='bar' ='' hello='world'/>", 1, 17);
+                testFail!func("<root foo='bar'a='b'/>", 1, 16);
+                testFail!func(`<root .foo="bar"/>`, 1, 7);
 
-                testFail!func(`<root foo="<"/>`);
-                testFail!func(`<root foo="<world"/>`);
-                testFail!func(`<root foo="hello<world"/>`);
-                testFail!func(`<root foo="&"/>`);
-                testFail!func(`<root foo="hello&"/>`);
-                testFail!func(`<root foo="hello&world"/>`);
-                testFail!func(`<root foo="&;"/>`);
-                testFail!func(`<root foo="&.;"/>`);
-                testFail!func(`<root foo="&.a;"/>`);
-                testFail!func(`<root foo="&#;"/>`);
-                testFail!func(`<root foo="&#x;"/>`);
-                testFail!func(`<root foo="&#A;"/>`);
-                testFail!func(`<root foo="&#xG;"/>`);
-                testFail!func(`<root foo="&#42"/>`);
-                testFail!func(`<root foo="&#x42"/>`);
+                testFail!func(`<root foo="<"/>`, 1, 12);
+                testFail!func(`<root foo="<world"/>`, 1, 12);
+                testFail!func(`<root foo="hello<world"/>`, 1, 17);
+                testFail!func(`<root foo="&"/>`, 1, 12);
+                testFail!func(`<root foo="hello&"/>`, 1, 17);
+                testFail!func(`<root foo="hello&world"/>`, 1, 17);
+                testFail!func(`<root foo="&;"/>`, 1, 12);
+                testFail!func(`<root foo="&.;"/>`, 1, 12);
+                testFail!func(`<root foo="&.a;"/>`, 1, 12);
+                testFail!func(`<root foo="&#;"/>`, 1, 12);
+                testFail!func(`<root foo="&#x;"/>`, 1, 12);
+                testFail!func(`<root foo="&#A;"/>`, 1, 12);
+                testFail!func(`<root foo="&#xG;"/>`, 1, 12);
+                testFail!func(`<root foo="&#42"/>`, 1, 12);
+                testFail!func(`<root foo="&#x42"/>`, 1, 12);
 
-                testFail!func(`<root a="""></root>`);
-                testFail!func(`<root a='''></root>`);
-                testFail!func("<root a=></root>");
-                testFail!func("<root a='></root>");
-                testFail!func("<root a='></root>");
-                testFail!func("<root =''></root>");
-                testFail!func(`<root a ""></root>`);
-                testFail!func(`<root a""></root>`);
-                testFail!func(`<root a></root>`);
-                testFail!func("<root foo='bar' a=></root>");
-                testFail!func("<root foo='bar' a='></root>");
-                testFail!func("<root foo='bar' a='></root>");
-                testFail!func("<root foo='bar' =''></root>");
-                testFail!func("<root foo='bar' a= hello='world'></root>");
-                testFail!func("<root foo='bar' a=' hello='world'></root>");
-                testFail!func("<root foo='bar' a=' hello='world'></root>");
-                testFail!func("<root foo='bar' ='' hello='world'></root>");
-                testFail!func("<root foo='bar'a='b'></root>");
-                testFail!func(`<root .foo="bar"></root>`);
+                testFail!func("<root\n\nfoo='\nbar&#x42'></root>", 4, 4);
 
-                testFail!func(`<root foo="<"></root>`);
-                testFail!func(`<root foo="<world"></root>`);
-                testFail!func(`<root foo="hello<world"></root>`);
-                testFail!func(`<root foo="&"></root>`);
-                testFail!func(`<root foo="hello&"></root>`);
-                testFail!func(`<root foo="hello&world"></root>`);
-                testFail!func(`<root foo="&;"></root>`);
-                testFail!func(`<root foo="&.;"></root>`);
-                testFail!func(`<root foo="&.a;"></root>`);
-                testFail!func(`<root foo="&#;"></root>`);
-                testFail!func(`<root foo="&#x;"></root>`);
-                testFail!func(`<root foo="&#A;"></root>`);
-                testFail!func(`<root foo="&#xG;"></root>`);
-                testFail!func(`<root foo="&#42"></root>`);
-                testFail!func(`<root foo="&#x42"></root>`);
+                testFail!func(`<root a="""></root>`, 1, 11);
+                testFail!func(`<root a='''></root>`, 1, 11);
+                testFail!func("<root a=></root>", 1, 9);
+                testFail!func("<root a='></root>", 1, 9);
+                testFail!func("<root a='></root>", 1, 9);
+                testFail!func("<root =''></root>", 1, 7);
+                testFail!func(`<root a ""></root>`, 1, 9);
+                testFail!func(`<root a""></root>`, 1, 8);
+                testFail!func(`<root a></root>`, 1, 8);
+                testFail!func("<root foo='bar' a=></root>", 1, 19);
+                testFail!func("<root foo='bar' a='></root>", 1, 19);
+                testFail!func("<root foo='bar' a='></root>", 1, 19);
+                testFail!func("<root foo='bar' =''></root>", 1, 17);
+                testFail!func("<root foo='bar' a= hello='world'></root>", 1, 20);
+                testFail!func("<root foo='bar' a=' hello='world'></root>", 1, 33);
+                testFail!func("<root foo='bar' ='' hello='world'></root>", 1, 17);
+                testFail!func("<root foo='bar'a='b'></root>", 1, 16);
+                testFail!func(`<root .foo='bar'></root>`, 1, 7);
+
+                testFail!func(`<root foo="<"></root>`, 1, 12);
+                testFail!func(`<root foo="<world"></root>`, 1, 12);
+                testFail!func(`<root foo="hello<world"></root>`, 1, 17);
+                testFail!func(`<root foo="&"></root>`, 1, 12);
+                testFail!func(`<root foo="hello&"></root>`, 1, 17);
+                testFail!func(`<root foo="hello&world"></root>`, 1, 17);
+                testFail!func(`<root foo="&;"></root>`, 1, 12);
+                testFail!func(`<root foo="&.;"></root>`, 1, 12);
+                testFail!func(`<root foo="&.a;"></root>`, 1, 12);
+                testFail!func(`<root foo="&#;"></root>`, 1, 12);
+                testFail!func(`<root foo="&#x;"></root>`, 1, 12);
+                testFail!func(`<root foo="&#A;"></root>`, 1, 12);
+                testFail!func(`<root foo="&#xG;"></root>`, 1, 12);
+                testFail!func(`<root foo="&#42"></root>`, 1, 12);
+                testFail!func(`<root foo="&#x42"></root>`, 1, 12);
             }
         }
 
@@ -1702,6 +1708,7 @@ private:
             // doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
             case '!':
             {
+                immutable bangPos = _text.pos;
                 popFrontAndIncCol(_text);
                 if(_text.stripStartsWith("--"))
                 {
@@ -1719,16 +1726,16 @@ private:
                         _parseDoctypeDecl();
                         break;
                     }
-                    throw new XMLParsingException("Expected DOCTYPE or --", _text.pos);
+                    throw new XMLParsingException("Expected Comment or DOCTYPE section", bangPos);
                 }
                 else
                 {
                     if(_text.stripStartsWith("DOCTYPE"))
                     {
                         throw new XMLParsingException("Only one <!DOCTYPE ...> declaration allowed per XML document",
-                                                      _text.pos);
+                                                      bangPos);
                     }
-                    throw new XMLParsingException("Expected --", _text.pos);
+                    throw new XMLParsingException("Expected Comment", bangPos);
                 }
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -1764,10 +1771,14 @@ private:
             _type = EntityType.comment;
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"--"();
-            checkText!true(_savedText);
         }
         if(_text.input.empty || _text.input.front != '>')
             throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _text.pos);
+        // This is here rather than at the end of the previous static if block
+        // so that the error message for improperly terminating a comment takes
+        // precedence over the one involving invalid characters in the comment.
+        static if(config.skipComments == SkipComments.no)
+            checkText!true(_savedText);
         popFrontAndIncCol(_text);
     }
 
@@ -1775,7 +1786,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
@@ -1790,12 +1801,15 @@ private:
                 enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
             }}
         }
-        static void testFail(alias func)(string text, size_t line = __LINE__)
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
             {{
-                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -1813,18 +1827,19 @@ private:
             test!func("<!-->-->", ">", 1, 9);
             test!func("<!--->-->", "->", 1, 10);
 
-            testFail!func("<!- comment -->");
-            testFail!func("<!-- comment ->");
-            testFail!func("<!-- comment --->");
-            testFail!func("<!---- comment -->");
-            testFail!func("<!-- comment -- comment -->");
-            testFail!func("<!->");
-            testFail!func("<!-->");
-            testFail!func("<!--->");
-            testFail!func("<!----->");
-            testFail!func("<!blah>");
-            testFail!func("<! blah>");
-            testFail!func("<!-- \n\n   \v \n -->");
+            testFail!func("<!- comment -->", 1, 2);
+            testFail!func("<!-- comment ->", 1, 5);
+            testFail!func("<!-- comment --->", 1, 16);
+            testFail!func("<!---- comment -->", 1, 7);
+            testFail!func("<!-- comment -- comment -->", 1, 16);
+            testFail!func("<!->", 1, 2);
+            testFail!func("<!-->", 1, 5);
+            testFail!func("<!--->", 1, 5);
+            testFail!func("<!----->", 1, 7);
+            testFail!func("<!blah>", 1, 2);
+            testFail!func("<! blah>", 1, 2);
+            testFail!func("<!-- \n\n   \v \n -->", 3, 4);
+            testFail!func("<!--京都市 ディラン\v-->", 1, codeLen!(func, "<!--京都市 ディラン\v"));
 
             {
                 auto xml = func("<!DOCTYPE foo><!-- comment --><root/>");
@@ -2163,7 +2178,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+        import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
@@ -2289,27 +2304,31 @@ private:
     static if(compileInTests) unittest
     {
         import core.exception : AssertError;
-        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : testRangeFuncs;
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            enum int tagLen = "<root/>".length;
             auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
             {{
-                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + tagLen : -1);
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + cast(int)"<root/>".length : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
-        static void testFail(alias func)(string text, size_t line = __LINE__)
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text);
+            auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
-                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
         }
 
         static foreach(func; testRangeFuncs)
@@ -2351,11 +2370,10 @@ private:
             test!func("<!DOCTYPE name [ <?pi> <!----> <!ELEMENT blah EMPTY> ]>", 1, 56);
             test!func("<!DOCTYPE \nname\n[\n<?pi> \n <!---->\n<!ENTITY foo '\n\n'\n>\n]>", 10, 3);
 
-            testFail!func("<!DOCTYP name>");
-            testFail!func("<!DOCTYPEname>");
-            testFail!func("<!DOCTYPE >");
-            testFail!func("<!DOCTYPE>");
-            testFail!func("<!DOCTYPE name1><!DOCTYPE name2>");
+            testFail!func("<!DOCTYP name>", 1, 2);
+            testFail!func("<!DOCTYPEname>", 1, 10);
+            testFail!func("<!DOCTYPE name1><!DOCTYPE name2>", 1, 18);
+            testFail!func("<!DOCTYPE\n\nname1><!DOCTYPE name2>", 3, 8);
         }
     }
 
@@ -2416,7 +2434,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, EntityType type, string name,
@@ -2433,11 +2451,16 @@ private:
             }}
         }
 
-        static void testFail(alias func)(string text, size_t line = __LINE__)
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text);
             static foreach(i, config; posTestConfigs)
-                assertThrown!XMLParsingException(parseXML!config(xml.save));
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
         }
 
         static foreach(func; testRangeFuncs)
@@ -2455,10 +2478,10 @@ private:
             test!func("<foo.></foo.>", EntityType.elementStart, "foo.", 1, 7);
             test!func(`<京都市></京都市>`, EntityType.elementStart, "京都市", 1, codeLen!(func, `<京都市>`) + 1);
 
-            testFail!func(`<.foo/>`);
-            testFail!func(`<>`);
-            testFail!func(`</>`);
-            testFail!func(`</foo>`);
+            testFail!func(`<.foo/>`, 1, 2);
+            testFail!func(`<>`, 1, 2);
+            testFail!func(`</>`, 1, 2);
+            testFail!func(`</foo>`, 1, 2);
 
             {
                 auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func("<root/>")));
@@ -2537,7 +2560,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+        import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -2678,7 +2701,10 @@ private:
                         _parseAtEndMisc();
                     break;
                 }
-                throw new XMLParsingException("Expected --", _text.pos);
+                auto bangPos = _text.pos;
+                static if(config.posType == PositionType.lineAndCol)
+                    --bangPos.col;
+                throw new XMLParsingException("Expected Comment", bangPos);
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
             case '?':
@@ -2759,7 +2785,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : testRangeFuncs;
 
         static void test(alias func)(string text, size_t line = __LINE__)
@@ -2772,13 +2798,21 @@ private:
             }}
         }
 
-        static void testFail(alias func)(string text, size_t line = __LINE__)
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text);
             static foreach(config; someTestConfigs)
             {{
+                static if(config.posType == PositionType.lineAndCol)
+                    auto pos = SourcePos(row, col);
+                else static if(config.posType == PositionType.line)
+                    auto pos = SourcePos(row, -1);
+                else
+                    SourcePos pos;
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                assertThrown!XMLParsingException(walkLength(range), "unittest failure", __FILE__, line);
+                auto e = collectException!XMLParsingException(walkLength(range));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -2828,19 +2862,19 @@ private:
                       "</a>");
             test!func(`<京都市></京都市>`);
 
-            testFail!func(`<a>`);
-            testFail!func(`<foo></foobar>`);
-            testFail!func(`<foobar></foo>`);
-            testFail!func(`<a><\a>`);
-            testFail!func(`<a><a/>`);
-            testFail!func(`<a><b>`);
-            testFail!func(`<a><b><c>`);
-            testFail!func(`<a></a><b>`);
-            testFail!func(`<a></a><b></b>`);
-            testFail!func(`<a><b></a></b>`);
-            testFail!func(`<a><b><c></c><b></a>`);
-            testFail!func(`<a><b></c><c></b></a>`);
-            testFail!func(`<a><b></c></b></a>`);
+            testFail!func(`<a>`, 1, 4);
+            testFail!func(`<foo></foobar>`, 1, 8);
+            testFail!func(`<foobar></foo>`, 1, 11);
+            testFail!func(`<a><\a>`, 1, 5);
+            testFail!func(`<a><a/>`, 1, 8);
+            testFail!func(`<a><b>`, 1, 7);
+            testFail!func(`<a><b><c>`, 1, 10);
+            testFail!func(`<a></a><b>`, 1, 9);
+            testFail!func(`<a></a><b></b>`, 1, 9);
+            testFail!func(`<a><b></a></b>`, 1, 9);
+            testFail!func(`<a><b><c></c><b></a>`, 1, 19);
+            testFail!func(`<a><b></c><c></b></a>`, 1, 9);
+            testFail!func(`<a><b></c></b></a>`, 1, 9);
             testFail!func("<a>\n" ~
                           "    <b>\n" ~
                           "        <c>\n" ~
@@ -2852,7 +2886,7 @@ private:
                           "            </d>\n" ~
                           "        </c>\n" ~
                           "    </b>\n" ~
-                          "<a>");
+                          "<a>", 12, 4);
             testFail!func("<a>\n" ~
                           "    <b>\n" ~
                           "        <c>\n" ~
@@ -2864,7 +2898,7 @@ private:
                           "            </d>\n" ~
                           "        </c>\n" ~
                           "    </b>\n" ~
-                          "</q>");
+                          "</q>", 12, 3);
         }
     }
 
@@ -3102,46 +3136,66 @@ unittest
 // Test various invalid states that didn't seem to fit well into tests elsewhere.
 unittest
 {
-    import std.exception : assertThrown;
+    import core.exception : AssertError;
+    import std.exception : collectException, enforce;
     import dxml.internal : testRangeFuncs;
 
-    static void testFail(alias func)(string text, size_t line = __LINE__)
+    static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
     {
         auto xml = func(text);
         static foreach(config; someTestConfigs)
-        {
-            assertThrown!XMLParsingException(
+        {{
+            static if(config.posType == PositionType.lineAndCol)
+                auto pos = SourcePos(row, col);
+            else static if(config.posType == PositionType.line)
+                auto pos = SourcePos(row, -1);
+            else
+                SourcePos pos;
+            auto e = collectException!XMLParsingException(
                 {
                     auto range = parseXML!config(xml.save);
                     while(!range.empty)
                         range.popFront();
-                }(), "unittest failure", __FILE__, line);
-        }
+                }());
+            enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+            import std.stdio; scope(failure) { writeln(e.pos); writeln(pos); writeln(e); }
+            enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+        }}
     }
 
     static foreach(func; testRangeFuncs)
     {{
-        testFail!func("<root></root><invalid></invalid>");
-        testFail!func("<root></root><invalid/>");
-        testFail!func("<root/><invalid></invalid>");
-        testFail!func("<root/><invalid/>");
+        testFail!func("<root></root><invalid></invalid>", 1, 15);
+        testFail!func("<root></root><invalid/>", 1, 15);
+        testFail!func("<root/><invalid></invalid>", 1, 9);
+        testFail!func("<root/><invalid/>", 1, 9);
 
-        testFail!func("<root></root>invalid");
-        testFail!func("<root/>invalid");
+        testFail!func("<root></root>invalid", 1, 14);
+        testFail!func("<root/>invalid", 1, 8);
 
-        testFail!func("<root/><!DOCTYPE foo>");
-        testFail!func("<root/></root>");
+        testFail!func("<root/><?pi?>invalid", 1, 14);
+        testFail!func("<root/><?pi?><invalid/>", 1, 15);
 
-        testFail!func("invalid<root></root>");
-        testFail!func("invalid<?xml?><root></root>");
-        testFail!func("invalid<!DOCTYPE foo><root></root>");
-        testFail!func("invalid<!--comment--><root></root>");
-        testFail!func("invalid<?Poirot?><root></root>");
+        testFail!func("<root/><!DOCTYPE foo>", 1, 9);
+        testFail!func("<root/></root>", 1, 9);
 
-        testFail!func("<?xml?>invalid<root></root>");
-        testFail!func("<!DOCTYPE foo>invalid<root></root>");
-        testFail!func("<!--comment-->invalid<root></root>");
-        testFail!func("<?Poirot?>invalid<root></root>");
+        testFail!func("invalid<root></root>", 1, 1);
+        testFail!func("invalid<?xml?><root></root>", 1, 1);
+        testFail!func("invalid<!DOCTYPE foo><root></root>", 1, 1);
+        testFail!func("invalid<!--comment--><root></root>", 1, 1);
+        testFail!func("invalid<?Poirot?><root></root>", 1, 1);
+
+        testFail!func("<?xml?>invalid<root></root>", 1, 8);
+        testFail!func("<!DOCTYPE foo>invalid<root></root>", 1, 15);
+        testFail!func("<!--comment-->invalid<root></root>", 1, 15);
+        testFail!func("<?Poirot?>invalid<root></root>", 1, 11);
+
+        testFail!func("<?xml?>", 1, 8);
+        testFail!func("<!DOCTYPE name>", 1, 16);
+        testFail!func("<?Sherlock?>", 1, 13);
+        testFail!func("<?Poirot?><?Sherlock?><?Holmes?>", 1, 33);
+        testFail!func("<?Poirot?></Poirot>", 1, 12);
+        testFail!func("</Poirot>", 1, 2);
     }}
 }
 
@@ -4535,7 +4589,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, collectException, enforce;
+    import std.exception : collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle, bool sqt )(string origHaystack, string expected, string remainder,
@@ -4672,7 +4726,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+    import std.exception : assertNotThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle, bool sqt)(string origHaystack, string remainder,
@@ -4999,7 +5053,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+    import std.exception : assertNotThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
@@ -5157,7 +5211,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, collectException, enforce;
+    import std.exception : collectException, enforce;
     import std.typecons : tuple;
     import dxml.internal : codeLen, testRangeFuncs;
 
@@ -5455,7 +5509,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : collectException, assertThrown, enforce;
+    import std.exception : collectException, enforce;
     import std.range : only;
     import dxml.internal : codeLen, testRangeFuncs;
 
