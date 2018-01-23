@@ -569,7 +569,7 @@ public:
         }
 
         ///
-        unittest
+        static if(compileInTests) unittest
         {
             auto xml = "<root>\n" ~
                        "    <!--no comment-->\n" ~
@@ -637,7 +637,7 @@ public:
         }
 
         ///
-        unittest
+        static if(compileInTests) unittest
         {
             auto xml = "<root>\n" ~
                        "    <foo>\n" ~
@@ -746,7 +746,7 @@ public:
             }
         }
 
-        unittest
+        static if(compileInTests) unittest
         {
             import core.exception : AssertError;
             import std.exception : enforce;
@@ -825,7 +825,7 @@ public:
         }
 
         ///
-        unittest
+        static if(compileInTests) unittest
         {
             auto xml = "<root>\n" ~
                        "    <empty/>\n" ~
@@ -1764,6 +1764,7 @@ private:
             _type = EntityType.comment;
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"--"();
+            checkText!true(_savedText);
         }
         if(_text.input.empty || _text.input.front != '>')
             throw new XMLParsingException("Comments cannot contain -- and cannot be terminated by --->", _text.pos);
@@ -1777,7 +1778,7 @@ private:
         import std.exception : assertNotThrown, assertThrown, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
-        static void test(alias func)(string text, string comment, int row, int col, size_t line = __LINE__)
+        static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
@@ -1785,16 +1786,17 @@ private:
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 enforce!AssertError(range.front.type == EntityType.comment, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(equal(range.front.text, comment), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, expected), "unittest failure 2", __FILE__, line);
                 enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
             }}
         }
-
         static void testFail(alias func)(string text, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
+            {{
                 assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+            }}
         }
 
         static foreach(func; testRangeFuncs)
@@ -1806,6 +1808,10 @@ private:
             test!func("<!--- comment -->", "- comment ", 1, 18);
             test!func("<!-- \n foo \n -->", " \n foo \n ", 3, 5);
             test!func("<!--京都市 ディラン-->", "京都市 ディラン", 1, codeLen!(func, "<!--京都市 ディラン-->") + 1);
+            test!func("<!--&-->", "&", 1, 9);
+            test!func("<!--<-->", "<", 1, 9);
+            test!func("<!-->-->", ">", 1, 9);
+            test!func("<!--->-->", "->", 1, 10);
 
             testFail!func("<!- comment -->");
             testFail!func("<!-- comment ->");
@@ -1818,6 +1824,7 @@ private:
             testFail!func("<!----->");
             testFail!func("<!blah>");
             testFail!func("<! blah>");
+            testFail!func("<!-- \n\n   \v \n -->");
 
             {
                 auto xml = func("<!DOCTYPE foo><!-- comment --><root/>");
@@ -1930,19 +1937,21 @@ private:
             immutable posAtName = _text.pos;
             _type = EntityType.pi;
             _name = takeName!'?'(_text);
+            immutable posAtWS = _text.pos;
             if(stripWS(_text))
             {
                 checkNotEmpty(_text);
                 if(_text.input.front == '?')
                 {
                     throw new XMLParsingException("There cannot be whitespace after the name if there is no text " ~
-                                                  "before the terminating ?>", _text.pos);
+                                                  "before the terminating ?>", posAtWS);
                 }
             }
             else
                 checkNotEmpty(_text);
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"?>"();
+            checkText!false(_savedText);
             if(walkLength(_name.save) == 3)
             {
                 // FIXME icmp doesn't compile right now due to an issue with
@@ -1971,7 +1980,7 @@ private:
     {
         import core.exception : AssertError;
         import std.algorithm.comparison : equal;
-        import std.exception : assertNotThrown, assertThrown, enforce;
+        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
         import std.utf : byUTF;
         import dxml.internal : codeLen, testRangeFuncs;
 
@@ -1991,11 +2000,16 @@ private:
             }}
         }
 
-        static void testFail(alias func)(string text, size_t line = __LINE__)
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
             static foreach(i, config; posTestConfigs)
-                assertThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure", __FILE__, line);
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
         }
 
         static foreach(func; testRangeFuncs)
@@ -2006,23 +2020,32 @@ private:
             test!func("<?foo bar?>", "foo", "bar", 1, 12);
             test!func("<?xmf bar?>", "xmf", "bar", 1, 12);
             test!func("<?xmlfoo bar?>", "xmlfoo", "bar", 1, 15);
+            test!func("<?foo bar baz?>", "foo", "bar baz", 1, 16);
+            test!func("<?foo\nbar baz?>", "foo", "bar baz", 2, 10);
+            test!func("<?foo \n bar baz?>", "foo", "bar baz", 2, 11);
+            test!func("<?foo bar\nbaz?>", "foo", "bar\nbaz", 2, 6);
             test!func("<?dlang is awesome?>", "dlang", "is awesome", 1, 21);
             test!func("<?dlang is awesome! ?>", "dlang", "is awesome! ", 1, 23);
             test!func("<?dlang\n\nis\n\nawesome\n\n?>", "dlang", "is\n\nawesome\n\n", 7, 3);
             test!func("<?京都市 ディラン?>", "京都市", "ディラン", 1, codeLen!(func, "<?京都市 ディラン?>") + 1);
 
-            testFail!func("<??>");
-            testFail!func("<? ?>");
-            testFail!func("<?xml?><?xml?>");
-            testFail!func("<?XML?>");
-            testFail!func("<?xMl?>");
-            testFail!func("<?foo>");
-            testFail!func("<? foo?>");
-            testFail!func("<?\nfoo?>");
-            testFail!func("<?foo ?>");
-            testFail!func("<?foo ??>");
-            testFail!func("<??foo?>");
-            testFail!func("<?.foo?>");
+            testFail!func("<??>", 1, 3);
+            testFail!func("<? ?>", 1, 3);
+            testFail!func("<?xml?><?xml?>", 1, 10);
+            testFail!func("<?XML?>", 1, 3);
+            testFail!func("<?xMl?>", 1, 3);
+            testFail!func("<?foo>", 1, 6);
+            testFail!func("<? foo?>", 1, 3);
+            testFail!func("<?\nfoo?>", 1, 3);
+            testFail!func("<?foo ?>", 1, 6);
+            testFail!func("<?foo   ?>", 1, 6);
+            testFail!func("<?foo\n?>", 1, 6);
+            testFail!func("<?foo ??>", 1, 6);
+            testFail!func("<??foo?>", 1, 3);
+            testFail!func("<?.foo?>", 1, 3);
+            testFail!func("<?foo bar&baz?>", 1, 10);
+            testFail!func("<?foo bar<baz?>", 1, 10);
+            testFail!func("<?foo bar\vbaz?>", 1, 10);
 
             {
                 auto xml = func("<!DOCTYPE foo><?foo bar?><root/>");
@@ -2132,7 +2155,63 @@ private:
         _type = EntityType.cdata;
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!"]]>";
+        checkText!true(_savedText);
         _grammarPos = GrammarPos.contentCharData2;
+    }
+
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+        import dxml.internal : codeLen, testRangeFuncs;
+
+        static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func("<root>" ~ text ~ "<root/>");
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + (row == 1 ? cast(int)"<root>".length : 0) : -1);
+                auto range = parseXML!config(xml.save);
+                assertNotThrown!XMLParsingException(range.popFront());
+                enforce!AssertError(range.front.type == EntityType.cdata, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, expected), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func("<root>" ~ text ~ "<root/>");
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + (row == 1 ? cast(int)"<root>".length : 0) : -1);
+                auto range = parseXML!config(xml.save);
+                auto e = collectException!XMLParsingException(range.popFront());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<![CDATA[]]>", "", 1, 13);
+            test!func("<![CDATA[hello world]]>", "hello world", 1, 24);
+            test!func("<![CDATA[\nhello\n\nworld\n]]>", "\nhello\n\nworld\n", 5, 4);
+            test!func("<![CDATA[京都市]]>", "京都市", 1, codeLen!(func, "<![CDATA[京都市]>") + 2);
+            test!func("<![CDATA[<><><><><<<<>>>>>> ] ] ]> <]> <<>> ][][] >> ]]>",
+                      "<><><><><<<<>>>>>> ] ] ]> <]> <<>> ][][] >> ", 1, 57);
+            test!func("<![CDATA[&]]>", "&", 1, 14);
+
+            testFail!func("<[CDATA[]>", 1, 2);
+            testFail!func("<![CDAT[]>", 1, 2);
+            testFail!func("<![CDATA]>", 1, 2);
+            testFail!func("<![CDATA[>", 1, 10);
+            testFail!func("<![CDATA[]", 1, 10);
+            testFail!func("<![CDATA[]>", 1, 10);
+            testFail!func("<![CDATA[ \v ]]>", 1, 11);
+            testFail!func("<![CDATA[ \n\n \v \n ]]>", 3, 2);
+        }
     }
 
 
@@ -2428,7 +2507,9 @@ private:
             static if(config.posType != PositionType.none)
                 _entityPos = _text.pos;
             _type = EntityType.text;
+            _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"<"();
+            checkText!false(_savedText);
             checkNotEmpty(_text);
             if(_text.input.front == '/')
             {
@@ -2449,6 +2530,61 @@ private:
             }
             else
                 _parseAtContentMid();
+        }
+    }
+
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, assertThrown, collectException, enforce;
+        import dxml.internal : codeLen, testRangeFuncs;
+
+        static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func("<root>" ~ text ~ "</root>");
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1,
+                                     i == 0 ? col + (cast(int)(row == 1 ? "<root></" : "</").length) : -1);
+                auto range = parseXML!config(xml.save);
+                assertNotThrown!XMLParsingException(range.popFront());
+                enforce!AssertError(range.front.type == EntityType.text, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.text, text), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func("<root>" ~ text ~ "</root>");
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1,
+                                     i == 0 ? col + (row == 1 ? cast(int)"<root>".length : 0) : -1);
+                auto range = parseXML!config(xml.save);
+                auto e = collectException!XMLParsingException(range.popFront());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("hello world", 1, 12);
+            test!func("\nhello\n\nworld", 4, 6);
+            test!func("京都市", 1, codeLen!(func, "京都市") + 1);
+            test!func("&#x42;", 1, 7);
+
+            testFail!func("&", 1, 1);
+            testFail!func("\v", 1, 1);
+            testFail!func("hello&world", 1, 6);
+            testFail!func("hello\vworld", 1, 6);
+            testFail!func("hello&;world", 1, 6);
+            testFail!func("hello&#;world", 1, 6);
+            testFail!func("hello&#x;world", 1, 6);
+            testFail!func("hello&.;world", 1, 6);
+            testFail!func("\n\nfoo\nbar&.;", 4, 4);
         }
     }
 
@@ -2484,7 +2620,12 @@ private:
                 else if(_text.stripStartsWith("[CDATA["))
                     _parseCDATA();
                 else
-                    throw new XMLParsingException("Not valid Comment or CDATA section", _text.pos);
+                {
+                    auto bangPos = _text.pos;
+                    static if(config.posType == PositionType.lineAndCol)
+                        --bangPos.col;
+                    throw new XMLParsingException("Expected Comment or CDATA section", bangPos);
+                }
                 break;
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -4394,7 +4535,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle, bool sqt )(string origHaystack, string expected, string remainder,
@@ -4427,13 +4568,30 @@ unittest
         }}
     }
 
-    static void testFail(alias func, string needle, bool sqt)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, string needle, bool sqt)
+                        (string origHaystack, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeUntilAndDrop!(needle, sqt)(), "unittest failure", __FILE__, line);
+            {
+                auto text = testParser!config(haystack.save);
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto e = collectException!XMLParsingException(text.takeUntilAndDrop!(needle, sqt)());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                auto e = collectException!XMLParsingException(text.takeUntilAndDrop!(needle, sqt)());
+                enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }}
     }
 
@@ -4453,20 +4611,20 @@ unittest
             test!(func, "ll", sqt)("lello world", "le", "o world", 1, 5);
             test!(func, "le", sqt)("llello world", "l", "llo world", 1, 4);
             {
-                auto haystack = "プログラミング in D is great indeed";
-                enum len = codeLen!(func, "プログラミング in D is ");
                 enum needle = "great";
-                enum remainder = "great indeed";
-
+                enum expected = "プログラミング in D is ";
                 static foreach(i; 1 .. needle.length)
-                    test!(func, needle[0 .. i], sqt)(haystack, "プログラミング in D is ", remainder[i .. $], 1, len + i + 1);
+                {
+                    test!(func, needle[0 .. i], sqt)("プログラミング in D is great indeed", expected,
+                                                     "great indeed"[i .. $], 1, codeLen!(func, expected) + i + 1);
+                }
             }
-            static foreach(haystack; ["", "a", "hello"])
-                testFail!(func, "x", sqt)(haystack);
+            static foreach(haystack; ["", "a", "hello", "ディラン"])
+                testFail!(func, "x", sqt)(haystack, 1, 1);
             static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
-                testFail!(func, "le", sqt)(haystack);
+                testFail!(func, "le", sqt)(haystack, 1, 1);
             static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
-                testFail!(func, "web", sqt)(haystack);
+                testFail!(func, "web", sqt)(haystack, 1, 1);
         }
 
         test!(func, "*", false)(`hello '*' "*" * world`, `hello '`, `' "*" * world`, 1, 9);
@@ -4474,12 +4632,16 @@ unittest
         test!(func, "*", false)(`hello "'*" * world`, `hello "'`, `" * world`, 1, 10);
         test!(func, "*", false)(`hello ''' * world`, `hello ''' `, ` world`, 1, 12);
         test!(func, "*", false)(`hello """ * world`, `hello """ `, ` world`, 1, 12);
+        testFail!(func, "*", false)("foo\n\n   '   \n\nbar", 1, 1);
+        testFail!(func, "*", false)(`ディラン   "   `, 1, 1);
 
         test!(func, "*", true)(`hello '*' "*" * world`, `hello '*' "*" `, ` world`, 1, 16);
         test!(func, "*", true)(`hello '"*' * world`, `hello '"*' `, ` world`, 1, 13);
         test!(func, "*", true)(`hello "'*" * world`, `hello "'*" `, ` world`, 1, 13);
-        testFail!(func, "*", true)(`hello ''' * world`);
-        testFail!(func, "*", true)(`hello """ * world`);
+        testFail!(func, "*", true)(`hello ''' * world`, 1, 9);
+        testFail!(func, "*", true)(`hello """ * world`, 1, 9);
+        testFail!(func, "*", true)("foo\n\n   '   \n\nbar", 3, 4);
+        testFail!(func, "*", true)(`ディラン   "   `, 1, codeLen!(func, `ディラン   "`));
 
         test!(func, "*", true)(`hello '' "" * world`, `hello '' "" `, ` world`, 1, 14);
         test!(func, "*", true)("foo '\n \n \n' bar*", "foo '\n \n \n' bar", "", 4, 7);
@@ -4510,7 +4672,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown, enforce;
+    import std.exception : assertNotThrown, assertThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, string needle, bool sqt)(string origHaystack, string remainder,
@@ -4542,13 +4704,30 @@ unittest
         }}
     }
 
-    static void testFail(alias func, string needle, bool sqt)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, string needle, bool sqt)
+                        (string origHaystack, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)(), "unittest failure", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                auto e = collectException!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                auto e = collectException!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)());
+                enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }}
     }
 
@@ -4567,21 +4746,20 @@ unittest
             test!(func, "le", sqt)("llello world", "llo world", 1, 4);
 
             {
-                auto haystack = "プログラミング in D is great indeed";
-                enum len = codeLen!(func, "プログラミング in D is ");
                 enum needle = "great";
-                enum remainder = "great indeed";
-
                 static foreach(i; 1 .. needle.length)
-                    test!(func, needle[0 .. i], sqt)(haystack, remainder[i .. $], 1, len + i + 1);
+                {
+                    test!(func, needle[0 .. i], sqt)("プログラミング in D is great indeed", "great indeed"[i .. $],
+                                                     1, codeLen!(func, "プログラミング in D is ") + i + 1);
+                }
             }
 
-            static foreach(haystack; ["", "a", "hello"])
-                testFail!(func, "x", sqt)(haystack);
+            static foreach(haystack; ["", "a", "hello", "ディラン"])
+                testFail!(func, "x", sqt)(haystack, 1, 1);
             static foreach(haystack; ["", "l", "lte", "world", "nomatch"])
-                testFail!(func, "le", sqt)(haystack);
+                testFail!(func, "le", sqt)(haystack, 1, 1);
             static foreach(haystack; ["", "w", "we", "wew", "bwe", "we b", "hello we go", "nomatch"])
-                testFail!(func, "web", sqt)(haystack);
+                testFail!(func, "web", sqt)(haystack, 1, 1);
         }
 
         test!(func, "*", false)(`hello '*' "*" * world`, `' "*" * world`, 1, 9);
@@ -4589,12 +4767,16 @@ unittest
         test!(func, "*", false)(`hello "'*" * world`, `" * world`, 1, 10);
         test!(func, "*", false)(`hello ''' * world`, ` world`, 1, 12);
         test!(func, "*", false)(`hello """ * world`, ` world`, 1, 12);
+        testFail!(func, "*", false)("foo\n\n   '   \n\nbar", 1, 1);
+        testFail!(func, "*", false)(`ディラン   "   `, 1, 1);
 
         test!(func, "*", true)(`hello '*' "*" * world`, ` world`, 1, 16);
         test!(func, "*", true)(`hello '"*' * world`, ` world`, 1, 13);
         test!(func, "*", true)(`hello "'*" * world`, ` world`, 1, 13);
-        testFail!(func, "*", true)(`hello ''' * world`);
-        testFail!(func, "*", true)(`hello """ * world`);
+        testFail!(func, "*", true)(`hello ''' * world`, 1, 9);
+        testFail!(func, "*", true)(`hello """ * world`, 1, 9);
+        testFail!(func, "*", true)("foo\n\n   '   \n\nbar", 3, 4);
+        testFail!(func, "*", true)(`ディラン   "   `, 1, codeLen!(func, `ディラン   "`));
 
         test!(func, "*", true)(`hello '' "" * world`, ` world`, 1, 14);
         test!(func, "*", true)("foo '\n \n \n' bar*", "", 4, 7);
@@ -4625,7 +4807,7 @@ auto _takeUntil(bool retSlice, string needle, bool skipQuotedText, Text)(ref Tex
 
     enum trackTakeLen = retSlice || Text.config.posType == PositionType.lineAndCol;
 
-    auto orig = text.input.save;
+    auto orig = text.save;
     bool found = false;
 
     static if(trackTakeLen)
@@ -4702,12 +4884,17 @@ auto _takeUntil(bool retSlice, string needle, bool skipQuotedText, Text)(ref Tex
                 {
                     case quote:
                     {
+                        auto quotePos = text.pos;
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            quotePos.col += takeLen - lineStart;
+
                         static if(trackTakeLen)
                             ++takeLen;
                         while(true)
                         {
                             text.input.popFront();
-                            checkNotEmpty(text);
+                            if(text.input.empty)
+                                throw new XMLParsingException("Failed to find matching quote", quotePos);
                             switch(text.input.front)
                             {
                                 case quote:
@@ -4759,10 +4946,10 @@ auto _takeUntil(bool retSlice, string needle, bool skipQuotedText, Text)(ref Tex
     static if(Text.config.posType == PositionType.lineAndCol)
         text.pos.col += takeLen - lineStart + needle.length;
     if(!found)
-        throw new XMLParsingException("Failed to find: " ~ needle, text.pos);
+        throw new XMLParsingException("Failed to find: " ~ needle, orig.pos);
 
     static if(retSlice)
-        return takeExactly(orig, takeLen);
+        return takeExactly(orig.input, takeLen);
 }
 
 
@@ -4812,7 +4999,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertNotThrown, assertThrown, enforce;
+    import std.exception : assertNotThrown, assertThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, delims...)(string origHaystack, string remainder,
@@ -4842,13 +5029,29 @@ unittest
         }}
     }
 
-    static void testFail(alias func, delims...)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, delims...)(string origHaystack, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest failure", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                auto e = collectException!XMLParsingException(text.skipToOneOf!delims());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                auto e = collectException!XMLParsingException(text.skipToOneOf!delims());
+                enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }}
     }
 
@@ -4856,14 +5059,14 @@ unittest
     {
         test!(func, 'o', 'w')("hello world", "o world", 1, 5);
         test!(func, 'r', 'w', '1', '+', '*')("hello world", "world", 1, 7);
-        testFail!(func, 'a', 'b')("hello world");
         test!(func, 'z', 'y')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "yzzy \nf\ng", 6, 6);
         test!(func, 'o', 'g')("abc\n\n\n  \n\n   wxyzzy \nf\ng", "g", 8, 1);
-        {
-            auto haystack = "プログラミング in D is great indeed";
-            enum len = codeLen!(func, "プログラミング in D is ");
-            test!(func, 'g', 'x')(haystack, "great indeed", 1, len + 1);
-        }
+        test!(func, 'g', 'x')("プログラミング in D is great indeed", "great indeed",
+                              1, codeLen!(func, "プログラミング in D is ") + 1);
+
+        testFail!(func, 'a', 'b')("hello world", 1, 12);
+        testFail!(func, 'a', 'b')("hello\n\nworld", 3, 6);
+        testFail!(func, 'a', 'b')("プログラミング",  1, codeLen!(func, "プログラミング") + 1);
     }
 }
 
@@ -4908,7 +5111,7 @@ template takeName(delims...)
         {
             immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
             if(!isNameStartChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
+                throw new XMLParsingException(format!"Name contains invalid character: 0x%0x"(decodedC), text.pos);
         }
 
         if(text.input.empty)
@@ -4932,7 +5135,11 @@ template takeName(delims...)
             size_t numCodeUnits;
             immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
             if(!isNameChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: '%s'"(decodedC), text.pos);
+            {
+                static if(Text.config.posType == PositionType.lineAndCol)
+                    text.pos.col += takeLen;
+                throw new XMLParsingException(format!"Name contains invalid character: 0x%0x"(decodedC), text.pos);
+            }
             takeLen += numCodeUnits;
 
             if(text.input.empty)
@@ -4950,7 +5157,8 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, enforce;
+    import std.exception : assertThrown, collectException, enforce;
+    import std.typecons : tuple;
     import dxml.internal : codeLen, testRangeFuncs;
 
     static void test(alias func, delim...)(string origHaystack, string expected, string remainder,
@@ -4982,13 +5190,29 @@ unittest
         }}
     }
 
-    static void testFail(alias func, delim...)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func, delim...)(string origHaystack, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeName!delim(), "unittest failure", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                auto e = collectException!XMLParsingException(text.takeName!delim());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                auto e = collectException!XMLParsingException(text.takeName!delim());
+                enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
+            }
         }}
     }
 
@@ -5010,21 +5234,22 @@ unittest
             }}
         }}
 
-        static foreach(haystack; [" ", "<", "foo!", "foo!<"])
-        {
-            testFail!func(haystack);
-            testFail!func(haystack ~ '>');
-            testFail!(func, '?')(haystack);
-            testFail!(func, '=')(haystack ~ '=');
-        }
+        static foreach(t; [tuple(" ", 1, 1), tuple("<", 1, 1), tuple("foo!", 1, 4), tuple("foo!<", 1, 4)])
+        {{
+            testFail!func(t[0], t[1], t[2]);
+            testFail!func(t[0] ~ '>', t[1], t[2]);
+            testFail!(func, '?')(t[0], t[1], t[2]);
+            testFail!(func, '=')(t[0] ~ '=', t[1], t[2]);
+        }}
 
-        testFail!(func, '>')(">");
-        testFail!(func, '?')("?");
+        testFail!(func, '>')(">", 1, 1);
+        testFail!(func, '?')("?", 1, 1);
+        testFail!(func, '?')("プログ&ラミング", 1, codeLen!(func, "プログ&"));
 
-        static foreach(haystack; ["42", ".", ".a"])
+        static foreach(t; [tuple("42", 1, 1), tuple(".", 1, 1), tuple(".a", 1, 1)])
         {
-            testFail!func(haystack);
-            testFail!(func, '>')(haystack);
+            testFail!func(t[0], t[1], t[2]);
+            testFail!(func, '>')(t[0], t[1], t[2]);
         }
     }
 }
@@ -5134,8 +5359,6 @@ auto takeAttValue(Text)(ref Text text)
                                     ++takeLen;
                                     break;
                                 }
-                                if(c == quote)
-                                    goto failedEntityRef;
                                 import std.ascii : isDigit, isHexDigit;
                                 if(hex)
                                 {
@@ -5143,7 +5366,7 @@ auto takeAttValue(Text)(ref Text text)
                                         goto failedEntityRef;
                                 }
                                 else if(!isDigit(c))
-                                        goto failedEntityRef;
+                                    goto failedEntityRef;
                                 foundChar = true;
                                 ++takeLen;
                                 text.input.popFront();
@@ -5172,8 +5395,6 @@ auto takeAttValue(Text)(ref Text text)
                                     ++takeLen;
                                     break;
                                 }
-                                if(c == quote)
-                                    goto failedEntityRef;
                                 size_t numCodeUnits;
                                 immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
                                 if(!isNameChar(decodedC))
@@ -5234,7 +5455,7 @@ unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
-    import std.exception : assertThrown, enforce;
+    import std.exception : collectException, assertThrown, enforce;
     import std.range : only;
     import dxml.internal : codeLen, testRangeFuncs;
 
@@ -5267,13 +5488,29 @@ unittest
         }}
     }
 
-    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    static void testFail(alias func)(string origHaystack, int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         static foreach(i, config; posTestConfigs)
         {{
-            auto text = testParser!config(haystack.save);
-            assertThrown!XMLParsingException(text.takeAttValue(), "unittest failure", __FILE__, line);
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                auto e = collectException!XMLParsingException(text.takeAttValue());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                auto e = collectException!XMLParsingException(text.takeAttValue());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
         }}
     }
 
@@ -5313,22 +5550,69 @@ unittest
         test!func(`"'''"whatever`, "'''", "whatever", 1, 6);
         test!func(`'"""'whatever`, `"""`, "whatever", 1, 6);
 
-        foreach(str; only(`"`, `"foo`, `"foo'`, `"<"`, `"&`, `"&"`, `"&x"`, `"&.;"`, `"&&;"`, `"&a"`, `"&a`,
-                          `"hello&;"`, `"hello&;world"`, `"hello&<;world"`, `"hello&world"`, `"hello<world"`,
-                          `"hello world&"`, `"hello world&;"`, `"hello world&.;"`, `"hello world&foo"`, `"foo<"`, `"&#`,
-                          `"&#"`, `"&#;"`, `"&#x;"`, `"&#AF;"`, `"&#x`, `"&#0`, `"&#x0`))
-        {
-            testFail!func(str);
-        }
+        testFail!func(`"`, 1, 2);
+        testFail!func(`"foo`, 1, 5);
+        testFail!func(`"foo'`, 1, 6);
+        testFail!func(`"<"`, 1, 2);
+        testFail!func(`"&`, 1, 3);
+        testFail!func(`"&"`, 1, 2);
+        testFail!func(`"&x"`, 1, 2);
+        testFail!func(`"&.;"`, 1, 2);
+        testFail!func(`"&&;"`, 1, 2);
+        testFail!func(`"&a"`, 1, 2);
+        testFail!func(`"&a`, 1, 4);
+        testFail!func(`"hello&;"`, 1, 7);
+        testFail!func(`"hello&;world"`,1, 7);
+        testFail!func(`"hello&<;world"`,1, 7);
+        testFail!func(`"hello&world"`,1, 7);
+        testFail!func(`"hello<world"`,1, 7);
+        testFail!func(`"hello world&"`, 1, 13);
+        testFail!func(`"hello world&;"`, 1, 13);
+        testFail!func(`"hello world&.;"`, 1, 13);
+        testFail!func(`"hello world&foo"`, 1, 13);
+        testFail!func(`"foo<"`, 1, 5);
+        testFail!func(`"&#`, 1, 4);
+        testFail!func(`"&#"`, 1, 2);
+        testFail!func(`"&#;"`, 1, 2);
+        testFail!func(`"&#x;"`, 1, 2);
+        testFail!func(`"&#AF;"`, 1, 2);
+        testFail!func(`"&#x`, 1, 5);
+        testFail!func(`"&#0`, 1, 5);
+        testFail!func(`"&#x0`, 1, 6);
 
-        foreach(str; only(`'`, `'foo`, `'foo"`, `'<'`, `'&`, `'&'`, `'&x'`, `'&.;'`, `'&&;'`, `'&a'`, `'&a`,
-                          `'hello&;'`, `'hello&;world'`, `'hello&<;world'`, `'hello&world'`, `'hello<world'`,
-                          `'hello world&'`, `'hello world&;'`, `'hello world&.;'`, `'hello world&foo'`, `'foo<'`, `'&#`,
-                          `'&#'`, `'&#;'`, `'&#x;'`, `'&#AF;'`, `'&#x`, `"&#0`, `"&#x0`,
-                          "'&#xA\nF;'", "'&amp\n;'", "'&\namp;'"))
-        {
-            testFail!func(str);
-        }
+        testFail!func(`'`, 1, 2);
+        testFail!func(`'foo`, 1, 5);
+        testFail!func(`'foo"`, 1, 6);
+        testFail!func(`'<'`, 1, 2);
+        testFail!func(`'&`, 1, 3);
+        testFail!func(`'&'`, 1, 2);
+        testFail!func(`'&x'`, 1, 2);
+        testFail!func(`'&.;'`, 1, 2);
+        testFail!func(`'&&;'`, 1, 2);
+        testFail!func(`'&a'`, 1, 2);
+        testFail!func(`'&a`, 1, 4);
+        testFail!func(`'hello&;'`, 1, 7);
+        testFail!func(`'hello&;world'`, 1, 7);
+        testFail!func(`'hello&<;world'`, 1, 7);
+        testFail!func(`'hello&world'`, 1, 7);
+        testFail!func(`'hello<world'`, 1, 7);
+        testFail!func(`'hello world&'`, 1, 13);
+        testFail!func(`'hello world&;'`, 1, 13);
+        testFail!func(`'hello world&.;'`, 1, 13);
+        testFail!func(`'hello world&foo'`, 1, 13);
+        testFail!func(`'foo<'`, 1, 5);
+        testFail!func(`'&#`, 1, 4);
+        testFail!func(`'&#'`, 1, 2);
+        testFail!func(`'&#;'`, 1, 2);
+        testFail!func(`'&#x;'`, 1, 2);
+        testFail!func(`'&#AF;'`, 1, 2);
+        testFail!func(`'&#x`, 1, 5);
+        testFail!func(`"&#0`, 1, 5);
+        testFail!func(`"&#x0`, 1, 6);
+        testFail!func("'&#xA\nF;'", 1, 2);
+        testFail!func("'&amp\n;'", 1, 2);
+        testFail!func("'&\namp;'", 1, 2);
+        testFail!func("'\n&amp;&;'", 2, 6);
     }
 }
 
@@ -5346,6 +5630,280 @@ unittest
 }
 
 
+// Validates an EntityType.text field to verify that it does not contain invalid
+// characters.
+void checkText(bool allowAmpAndLT, Text)(ref Text text)
+{
+
+    static void invalidChar(dchar c, SourcePos pos, size_t line = __LINE__)
+    {
+        import std.format : format;
+        throw new XMLParsingException(format!"Character not allowed in an XML File: 0x%0x"(c), pos, __FILE__, line);
+    }
+
+    import std.utf : decodeFront, UseReplacementDchar;
+
+    auto temp = text.save;
+    while(!temp.input.empty)
+    {
+        switch(temp.input.front)
+        {
+            static if(!allowAmpAndLT)
+            {
+                case '&':
+                {
+                    immutable ampPos = temp.pos;
+                    popFrontAndIncCol(temp);
+                    if(temp.input.empty)
+                        goto failedEntityRef;
+                    // Character Reference
+                    if(temp.input.front == '#')
+                    {
+                        popFrontAndIncCol(temp);
+                        if(temp.input.empty)
+                            goto failedEntityRef;
+                        bool hex;
+                        if(temp.input.front == 'x')
+                        {
+                            hex = true;
+                            popFrontAndIncCol(temp);
+                            if(temp.input.empty)
+                                goto failedEntityRef;
+                        }
+                        bool foundChar = false;
+                        while(true)
+                        {
+                            immutable c = temp.input.front;
+                            if(c == ';')
+                            {
+                                if(!foundChar)
+                                    goto failedEntityRef;
+                                break;
+                            }
+                            import std.ascii : isDigit, isHexDigit;
+                            if(hex)
+                            {
+                                if(!isHexDigit(c))
+                                    goto failedEntityRef;
+                            }
+                            else if(!isDigit(c))
+                                goto failedEntityRef;
+                            foundChar = true;
+                            popFrontAndIncCol(temp);
+                            if(temp.input.empty)
+                                goto failedEntityRef;
+                        }
+                    }
+                    // Entity Reference
+                    else
+                    {
+                        {
+                            size_t numCodeUnits;
+                            immutable decodedC = temp.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                            if(!isNameStartChar(decodedC))
+                                goto failedEntityRef;
+                            static if(temp.config.posType == PositionType.lineAndCol)
+                                temp.pos.col += numCodeUnits;
+                        }
+                        while(true)
+                        {
+                            if(temp.input.empty)
+                                goto failedEntityRef;
+                            immutable c = temp.input.front;
+                            if(c == ';')
+                                break;
+                            size_t numCodeUnits;
+                            immutable decodedC = temp.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                            if(!isNameChar(decodedC))
+                                goto failedEntityRef;
+                            static if(temp.config.posType == PositionType.lineAndCol)
+                                temp.pos.col += numCodeUnits;
+                        }
+                    }
+                    assert(temp.input.front == ';');
+                    popFrontAndIncCol(temp);
+                    continue;
+                    failedEntityRef:
+                    {
+                        throw new XMLParsingException("& is only legal in an EntityType.text entity as part of a char " ~
+                                                      "or entity reference, and this is not a valid char or " ~
+                                                      "entity reference.", ampPos);
+                    }
+                }
+                case '<': invalidChar('<', temp.pos); assert(0);
+            }
+            case '\n':
+            {
+                static if(temp.config.posType != PositionType.none)
+                    nextLine!(temp.config)(temp.pos);
+                temp.input.popFront();
+                break;
+            }
+            default:
+            {
+                import std.ascii : isASCII;
+                immutable c = temp.input.front;
+                if(isASCII(c))
+                {
+                    if(!isXMLChar(c))
+                        invalidChar(c, temp.pos);
+                    popFrontAndIncCol(temp);
+                }
+                else
+                {
+                    size_t numCodeUnits;
+                    immutable decodedC = temp.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                    if(!isXMLChar(decodedC))
+                        invalidChar(decodedC, temp.pos);
+                    static if(temp.config.posType == PositionType.lineAndCol)
+                        temp.pos.col += numCodeUnits;
+                }
+                break;
+            }
+        }
+    }
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.exception : assertNotThrown, collectException, enforce;
+    import dxml.internal : codeLen, testRangeFuncs;
+
+    static void test(alias func, bool allow)(string text, size_t line = __LINE__)
+    {
+        auto xml = func(text);
+        static foreach(i, config; posTestConfigs)
+        {{
+            auto range = testParser!config(xml.save);
+            assertNotThrown(checkText!allow(range), "unittest failure", __FILE__, line);
+        }}
+    }
+
+    static void testFail(alias func, bool allow)(string text, int row, int col, size_t line = __LINE__)
+    {
+        auto xml = func(text);
+        static foreach(i, config; posTestConfigs)
+        {{
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = testParser!config(xml.save);
+                auto e = collectException!XMLParsingException(checkText!allow(range));
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto range = testParser!config(xml.save);
+                range.pos.line += 3;
+                static if(i == 0)
+                    range.pos.col += 7;
+                auto e = collectException!XMLParsingException(checkText!allow(range));
+                enforce!AssertError(e !is null, "unittest failure 3", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 4", __FILE__, line);
+            }
+        }}
+    }
+
+    static foreach(func; testRangeFuncs)
+    {
+        static foreach(allow; [false, true])
+        {
+            test!(func, allow)("");
+            test!(func, allow)("J",);
+            test!(func, allow)("foo");
+            test!(func, allow)("プログラミング");
+
+            test!(func, allow)("&amp;&gt;&lt;");
+            test!(func, allow)("hello&amp;&gt;&lt;world");
+            test!(func, allow)(".....&amp;&gt;&lt;.....");
+            test!(func, allow)("&foo.;");
+            test!(func, allow)("&#12487;&#12451;&#12521;&#12531;");
+            test!(func, allow)("hello&#xAF;&#0;&foo;world");
+        }
+
+        testFail!(func, false)("<", 1, 1);
+        testFail!(func, false)("&", 1, 1);
+        testFail!(func, false)("&", 1, 1);
+        testFail!(func, false)("&x", 1, 1);
+        testFail!(func, false)("&.;", 1, 1);
+        testFail!(func, false)("&&;", 1, 1);
+        testFail!(func, false)("&a", 1, 1);
+        testFail!(func, false)("&a", 1, 1);
+        testFail!(func, false)("hello&;", 1, 6);
+        testFail!(func, false)("hello&;world", 1, 6);
+        testFail!(func, false)("hello&<;world", 1, 6);
+        testFail!(func, false)("hello&world", 1, 6);
+        testFail!(func, false)("hello world&", 1, 12);
+        testFail!(func, false)("hello world&;", 1, 12);
+        testFail!(func, false)("hello world&.;", 1, 12);
+        testFail!(func, false)("hello world&foo", 1, 12);
+        testFail!(func, false)("&#;", 1, 1);
+        testFail!(func, false)("&#x;", 1, 1);
+        testFail!(func, false)("&#AF;", 1, 1);
+        testFail!(func, false)("&#x", 1, 1);
+        testFail!(func, false)("&#0", 1, 1);
+        testFail!(func, false)("&#x0", 1, 1);
+        testFail!(func, false)("&#0;foo\nbar&#;", 2, 4);
+        testFail!(func, false)("&#0;foo\nbar&#x;", 2, 4);
+        testFail!(func, false)("&#0;foo\nbar&#AF;", 2, 4);
+        testFail!(func, false)("&#0;foo\nbar&#x", 2, 4);
+        testFail!(func, false)("&#0;foo\nbar&#0", 2, 4);
+        testFail!(func, false)("&#0;foo\nbar&#x0", 2, 4);
+        testFail!(func, false)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
+        testFail!(func, false)("hello\vworld", 1, 6);
+        testFail!(func, false)("he\nllo\vwo\nrld", 2, 4);
+
+        test!(func, true)("<");
+        test!(func, true)("&");
+        test!(func, true)("&x");
+        test!(func, true)("&.;");
+        test!(func, true)("&&;");
+        test!(func, true)("&a");
+        test!(func, true)("&a");
+        test!(func, true)("hello&;");
+        test!(func, true)("hello&;world");
+        test!(func, true)("hello&<;world");
+        test!(func, true)("hello&world");
+        test!(func, true)("hello world&");
+        test!(func, true)("hello world&;");
+        test!(func, true)("hello world&.;");
+        test!(func, true)("hello world&foo");
+        test!(func, true)("&#;");
+        test!(func, true)("&#x;");
+        test!(func, true)("&#AF;");
+        test!(func, true)("&#x");
+        test!(func, true)("&#0");
+        test!(func, true)("&#x0");
+        test!(func, true)("&#0;foo\nbar&#;");
+        test!(func, true)("&#0;foo\nbar&#x;");
+        test!(func, true)("&#0;foo\nbar&#AF;");
+        test!(func, true)("&#0;foo\nbar&#x");
+        test!(func, true)("&#0;foo\nbar&#0");
+        test!(func, true)("&#0;foo\nbar&#x0");
+        test!(func, true)("プログラミング&");
+        testFail!(func, true)("hello\vworld", 1, 6);
+        testFail!(func, true)("he\nllo\vwo\nrld", 2, 4);
+    }
+}
+
+@safe unittest
+{
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {
+        static foreach(allow; [false, true])
+        {{
+            auto xml = func("foo");
+            auto text = testParser!simpleXML(xml);
+            checkText!allow(text);
+        }}
+    }
+}
+
+
 // S := (#x20 | #x9 | #xD | #XA)+
 bool isSpace(C)(C c) @safe pure nothrow @nogc
     if(isSomeChar!C)
@@ -5360,7 +5918,7 @@ bool isSpace(C)(C c) @safe pure nothrow @nogc
     }
 }
 
-unittest
+pure nothrow @safe @nogc unittest
 {
     foreach(char c; char.min .. char.max)
     {
@@ -5424,7 +5982,7 @@ bool isNameStartChar(dchar c) @safe pure nothrow @nogc
     return false;
 }
 
-unittest
+pure nothrow @safe @nogc unittest
 {
     import std.range : only;
     import std.typecons : tuple;
@@ -5472,7 +6030,7 @@ bool isNameChar(dchar c) @safe pure nothrow @nogc
            c >= 0x0300 && c <= 0x036F || c >= 0x203F && c <= 0x2040;
 }
 
-unittest
+pure nothrow @safe @nogc unittest
 {
     import std.ascii : isAlphaNum;
     import std.range : only;
@@ -5510,6 +6068,54 @@ unittest
         assert(isNameChar(t[1] - 1));
         assert(isNameChar(t[1]));
         assert(!isNameChar(t[1] + 1));
+    }
+}
+
+
+// Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+bool isXMLChar(dchar c) pure nothrow @safe @nogc
+{
+    // The rule says '\n' and not '\r', but we're not going to pass '\n' to
+    // this function, because it has to be handled separately for keeping track
+    // of SourcePos. Look at the documentation for EntityRange for the
+    // explanation of how we're treating '\r' and why.
+    import std.ascii : isASCII;
+    assert(c != '\n');
+    return isASCII(c) ? c >= ' ' || c == '\t' || c == '\r'
+                      : c > 127 && (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF));
+}
+
+pure nothrow @safe @nogc unittest
+{
+    import std.range : only;
+    import std.typecons : tuple;
+
+    foreach(c; char.min .. ' ')
+    {
+        if(c == '\n')
+            continue;
+        if(c == ' ' || c == '\t' || c == '\r')
+            assert(isXMLChar(c));
+        else
+            assert(!isXMLChar(c));
+    }
+    foreach(dchar c; ' ' .. 256)
+        assert(isXMLChar(c));
+
+    assert(isXMLChar(0xD7FF - 1));
+    assert(isXMLChar(0xD7FF));
+    assert(!isXMLChar(0xD7FF + 1));
+
+    foreach(t; only(tuple(0xE000, 0xFFFD),
+                    tuple(0x10000, 0x10FFFF)))
+    {
+        assert(!isXMLChar(t[0] - 1));
+        assert(isXMLChar(t[0]));
+        assert(isXMLChar(t[0] + 1));
+        assert(isXMLChar(t[0] + (t[1] - t[0])));
+        assert(isXMLChar(t[1] - 1));
+        assert(isXMLChar(t[1]));
+        assert(!isXMLChar(t[1] + 1));
     }
 }
 
