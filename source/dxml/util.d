@@ -594,7 +594,8 @@ Nullable!dchar parseCharRef(R)(ref R range)
     import std.algorithm.searching : startsWith;
     import std.conv : ConvException, parse, to;
     import std.range : popFrontN;
-    import std.utf : byCodeUnit, isValidDchar, nullable;
+    import std.typecons : nullable;
+    import std.utf : byCodeUnit, isValidDchar;
 
     auto orig = range.save;
 
