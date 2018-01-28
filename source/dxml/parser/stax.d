@@ -449,30 +449,29 @@ enum EntityType
     application.
 
     The parser is not @nogc, but it allocates memory very minimally. It
-    allocates some of its state on the heap so that it can retain a stack of
-    tag names so that end tags can be validated, but that stack is shared among
-    all ranges that came from the same call to parseXML (only the range
-    farthest along in parsing validates the end tags), so $(LREF save) does not
-    allocate memory. The stack itself is currently implemented using a dynamic
-    array and may be reallocated a few times as the stack grows to its maximum,
-    but for most documents, it probably won't need to reallocate more than once
-    or twice, if that. The only other time that the parser would allocate would
-    be if an exception were thrown.
+    allocates some of its state on the heap so it can validate attributes and
+    end tags. However, that state is shared among all the ranges that came from
+    the same call to parseXML (only the range farthest along in parsing
+    validates attributes or end tags), so $(LREF2 save, EntityRange) does not
+    allocate memory. The shared state currently uses a couple of dynamic arrays
+    to validate the tags and attributes, and if the document has a particularly
+    deep tag-depth or has a lot of attributes on on a start tag, then some
+    reallocations may occur until the maximum is reached, but enough is
+    reserved that for most documents, no reallocations will occur. The only
+    other times that the parser would allocate would be if an exception were
+    thrown or if the range that is passed to parseXML allocates for any reason
+    when calling any of the range primitives.
 
     If invalid XML is encountered at any point during the parsing process, an
     $(LREF XMLParsingException) will be thrown. If an exception has been thrown,
     then the parser is in an invalid state, and it is an error to call any
     functions on it.
 
-    However, note that EntityRange does not generally care about XML validation
-    beyond what is required to correctly parse what it has been told to parse.
-    In particular, any portions that are skipped (either due to the values in
-    its $(LREF Config) or because a function such as $(LREF skipContents) is
-    called) will only be validated enough to correctly determine where those
-    portions terminated. Similarly, if the functions to process the value of an
-    entity are not called (e.g. $(LREF2 attributes, _EntityRange) for
-    $(LREF EntityType.elementStart), then those portions of the XML will not be
-    validated beyond what is required to iterate to the next entity.
+    However, note that XML validation is reduced for any entities that are
+    skipped (e.g. for anything in the DTD section, validation is reduced to what
+    is required to correctly parse past it, and when
+    $(D Config.skipPI == SkipPI.yes), processing instructions are only validated
+    enough to correctly skip past them).
 
     And as the module documentation says, this parser does not provide any DTD
     support. It's not possible to properly support the DTD section while
@@ -864,8 +863,6 @@ public:
                 $(TR $(TD $(LREF2 elementEmpty, EntityType)))
             )
 
-            Throws: $(LREF XMLParsingException) on invalid XML.
-
             See_Also: $(REF normalize, dxml, util)$(BR)
                       $(REF asNormalized, dxml, util)
           +/
@@ -892,25 +889,18 @@ public:
                 {
                     import dxml.internal : stripBCU;
 
-                    immutable wasWS = stripWS(_text);
+                    stripWS(_text);
                     if(_text.input.empty)
                     {
                         empty = true;
                         return;
                     }
-                    if(!wasWS)
-                        throw new XMLParsingException("Whitespace missing before attribute name", _text.pos);
 
                     auto name = stripBCU!R(_text.takeName!'='());
                     stripWS(_text);
-
-                    checkNotEmpty(_text);
-                    if(_text.input.front != '=')
-                        throw new XMLParsingException("= missing", _text.pos);
                     popFrontAndIncCol(_text);
-
                     stripWS(_text);
-                    _front = Attribute(name, stripBCU!R(takeAttValue(_text)));
+                    _front = Attribute(name, stripBCU!R(takeEnquotedText(_text)));
                 }
 
                 @property auto save()
@@ -1021,11 +1011,7 @@ public:
                 static foreach(i, config; posTestConfigs)
                 {{
                     auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
-                    auto e = collectException!XMLParsingException(
-                        {
-                            auto range = parseXML!config(xml.save);
-                            walkLength(range.front.attributes);
-                        }());
+                    auto e = collectException!XMLParsingException(parseXML!config(xml.save));
                     enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
                     enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
                 }}
@@ -1064,6 +1050,9 @@ public:
                 test!func(`<root foo=">>>>>>"/>`, EntityType.elementEmpty, [tuple("foo", ">>>>>>")], 1, 21);
                 test!func(`<root foo=">"></root>`, EntityType.elementStart, [tuple("foo", ">")], 1, 15);
                 test!func(`<root foo=">>>>>>"></root>`, EntityType.elementStart, [tuple("foo", ">>>>>>")], 1, 20);
+
+                test!func(`<root foo="bar" foos="ball"/>`, EntityType.elementEmpty,
+                          [tuple("foo", "bar"), tuple("foos", "ball")], 1, 30);
 
                 testFail!func(`<root a="""/>`, 1, 11);
                 testFail!func(`<root a='''/>`, 1, 11);
@@ -1138,6 +1127,12 @@ public:
                 testFail!func(`<root foo="&#xG;"></root>`, 1, 12);
                 testFail!func(`<root foo="&#42"></root>`, 1, 12);
                 testFail!func(`<root foo="&#x42"></root>`, 1, 12);
+
+                testFail!func(`<root a='42' a='19'/>`, 1, 14);
+                testFail!func(`<root a='42' b='hello' a='19'/>`, 1, 24);
+                testFail!func(`<root a='42' b='hello' a='19' c=''/>`, 1, 24);
+                testFail!func(`<root a='' b='' c='' d='' e='' f='' g='' e='' h=''/>`, 1, 42);
+                testFail!func(`<root foo='bar' foo='bar'/>`, 1, 17);
             }
         }
 
@@ -1286,6 +1281,8 @@ public:
 
             static void test(alias func)(string xml, size_t line = __LINE__)
             {
+                import std.stdio;
+                scope(failure) writeln(line);
                 auto range = parseXML(func(xml));
                 auto orig = range.save;
                 for(int i = 0; !range.empty; ++i, range.popFront())
@@ -1540,13 +1537,14 @@ public:
             case splittingEmpty:
             {
                 _type = EntityType.elementEnd;
+                _tagStack.sawEntity();
                 _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
                 break;
             }
             case contentCharData1:
             {
                 assert(_type == EntityType.elementStart);
-                _tagStack.push(_name.save);
+                _tagStack.pushTag(_name.save);
                 _parseAtContentCharData();
                 break;
             }
@@ -1769,6 +1767,7 @@ private:
             else static if(config.posType == PositionType.line)
                 _entityPos = _text.pos;
             _type = EntityType.comment;
+            _tagStack.sawEntity();
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"--"();
         }
@@ -1951,6 +1950,7 @@ private:
         {
             immutable posAtName = _text.pos;
             _type = EntityType.pi;
+            _tagStack.sawEntity();
             _name = takeName!'?'(_text);
             immutable posAtWS = _text.pos;
             if(stripWS(_text))
@@ -2168,6 +2168,7 @@ private:
         else static if(config.posType == PositionType.line)
             _entityPos = _text.pos;
         _type = EntityType.cdata;
+        _tagStack.sawEntity();
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!"]]>";
         checkText!(CheckText.allowAllXMLChar)(_savedText);
@@ -2406,28 +2407,60 @@ private:
                 static if(config.splitEmpty == SplitEmpty.no)
                 {
                     _type = EntityType.elementEmpty;
+                    _tagStack.sawEntity();
                     _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
                 }
                 else
                 {
                     _type = EntityType.elementStart;
+                    _tagStack.sawEntity();
                     _grammarPos = GrammarPos.splittingEmpty;
                 }
             }
             else
             {
                 _type = EntityType.elementStart;
+                _tagStack.sawEntity();
                 _grammarPos = GrammarPos.contentCharData1;
             }
         }
         else
         {
             _type = EntityType.elementStart;
+            _tagStack.sawEntity();
             _grammarPos = GrammarPos.contentCharData1;
         }
 
         _name = _savedText.takeName();
         // The attributes should be all that's left in savedText.
+        if(_tagStack.atMax)
+        {
+            auto temp = _savedText.save;
+            auto attrChecker = _tagStack.attrChecker;
+
+            while(true)
+            {
+                immutable wasWS = stripWS(temp);
+                if(temp.input.empty)
+                    break;
+                if(!wasWS)
+                    throw new XMLParsingException("Whitespace missing before attribute name", temp.pos);
+
+                auto attrPos = temp.pos;
+                attrChecker.pushAttr(temp.takeName!'='(), attrPos);
+                stripWS(temp);
+
+                checkNotEmpty(temp);
+                if(temp.input.front != '=')
+                    throw new XMLParsingException("= missing", temp.pos);
+                popFrontAndIncCol(temp);
+
+                stripWS(temp);
+                temp.takeAttValue();
+            }
+
+            attrChecker.checkAttrs();
+        }
     }
 
     static if(compileInTests) unittest
@@ -2507,9 +2540,10 @@ private:
         else static if(config.posType == PositionType.line)
             _entityPos = _text.pos;
         _type = EntityType.elementEnd;
+        _tagStack.sawEntity();
         immutable namePos = _text.pos;
         _name = _text.takeUntilAndDrop!">"();
-        _tagStack.pop(_name.save, namePos);
+        _tagStack.popTag(_name.save, namePos);
         _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
     }
 
@@ -2530,6 +2564,7 @@ private:
             static if(config.posType != PositionType.none)
                 _entityPos = _text.pos;
             _type = EntityType.text;
+            _tagStack.sawEntity();
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"<"();
             checkText!(CheckText.disallowAmpLTAndCDATAEnd)(_savedText);
@@ -2725,35 +2760,37 @@ private:
     }
 
     // Used for keeping track of the names of start tags so that end tags can be
-    // verified. We keep track of the total number of start tags and end tags
-    // which have been parsed thus far so that only whichever EntityRange is
-    // farthest along in parsing actually adds or removes tags from the
-    // TagStack. That way, the end tags get verified, but we only have one
-    // stack. If the stack were duplicated with every call to save, then there
-    // would be a lot more allocations, which we don't want. But because we only
-    // need to verify the end tags once, we can get away with having a shared
-    // tag stack. The cost is that we have to keep track of how many tags we've
-    // parsed so that we know if an EntityRange should actually be pushing or
-    // popping tags from the stack, but that's a lot cheaper than duplicating
-    // the stack, and it's a lot less annoying then making EntityRange an input
-    // range and not a forward range or making it a cursor rather than a range.
+    // verified as well as making it possible to avoid redoing other validation.
+    // We keep track of the total number of entities which have been parsed thus
+    // far so that only whichever EntityRange is farthest along in parsing
+    // actually adds or removes tags from the TagStack, and the parser can skip
+    // some of the validation for ranges that are farther behind. That way, the
+    // end tags get verified, but we only have one stack. If the stack were
+    // duplicated with every call to save, then there would be a lot more
+    // allocations, which we don't want. But because we only need to verify the
+    // end tags once, we can get away with having a shared tag stack. The cost
+    // is that we have to keep track of how many tags we've parsed so that we
+    // know if an EntityRange should actually be pushing or popping tags from
+    // the stack, but that's a lot cheaper than duplicating the stack, and it's
+    // a lot less annoying then making EntityRange an input range and not a
+    // forward range or making it a cursor rather than a range.
     struct TagStack
     {
-        void push(Taken tagName)
+        void pushTag(Taken tagName)
         {
-            if(steps++ == state.maxSteps)
+            if(entityCount++ == state.maxEntities)
             {
-                ++state.maxSteps;
+                ++state.maxEntities;
                 state.tags ~= tagName;
             }
             ++depth;
         }
 
-        void pop(Taken tagName, SourcePos pos)
+        void popTag(Taken tagName, SourcePos pos)
         {
             import std.algorithm : equal;
             import std.format : format;
-            if(steps++ == state.maxSteps)
+            if(entityCount++ == state.maxEntities)
             {
                 assert(!state.tags.empty);
                 if(!equal(state.tags.back.save, tagName.save))
@@ -2761,17 +2798,73 @@ private:
                     enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
                     throw new XMLParsingException(format!fmt(tagName, state.tags.back), pos);
                 }
-                ++state.maxSteps;
+                ++state.maxEntities;
                 --state.tags.length;
                 () @trusted { state.tags.assumeSafeAppend(); }();
             }
             --depth;
         }
 
+        @property auto attrChecker()
+        {
+            assert(atMax);
+
+            static struct AttrChecker
+            {
+                void pushAttr(Taken attrName, SourcePos attrPos)
+                {
+                    import std.typecons : tuple;
+                    state.attrs ~= tuple(attrName, attrPos);
+                }
+
+                void checkAttrs()
+                {
+                    import std.algorithm.comparison : cmp, equal;
+                    import std.algorithm.sorting : sort;
+                    import std.conv : to;
+
+                    if(state.attrs.length < 2)
+                        return;
+
+                    sort!((a,b) => cmp(a[0].save, b[0].save) < 0)(state.attrs);
+                    auto prev = state.attrs.front;
+                    foreach(attr; state.attrs[1 .. $])
+                    {
+                        if(equal(prev[0], attr[0]))
+                            throw new XMLParsingException("Duplicate attribute name", attr[1]);
+                        prev = attr;
+                    }
+                }
+
+                ~this()
+                {
+                    state.attrs.length = 0;
+                    () @trusted { state.attrs.assumeSafeAppend(); }();
+                }
+
+                SharedState* state;
+            }
+
+            return AttrChecker(state);
+        }
+
+        void sawEntity()
+        {
+            if(entityCount++ == state.maxEntities)
+                ++state.maxEntities;
+        }
+
+        @property bool atMax()
+        {
+            return entityCount == state.maxEntities;
+        }
+
         struct SharedState
         {
+            import std.typecons : Tuple;
             Taken[] tags;
-            size_t maxSteps;
+            Tuple!(Taken, SourcePos)[] attrs;
+            size_t maxEntities;
         }
 
         static create()
@@ -2779,11 +2872,12 @@ private:
             TagStack tagStack;
             tagStack.state = new SharedState;
             tagStack.state.tags.reserve(10);
+            tagStack.state.attrs.reserve(10);
             return tagStack;
         }
 
         SharedState* state;
-        size_t steps;
+        size_t entityCount;
         int depth;
     }
 
@@ -5144,6 +5238,93 @@ unittest
         text.skipToOneOf!('o')();
         assert(equal(text.input, "oo"));
     }}
+}
+
+
+// The front of the input should be text surrounded by single or double quotes.
+// This returns a slice of the input containing that text, and the input is
+// advanced to one code unit beyond the quote.
+auto takeEnquotedText(Text)(ref Text text)
+{
+    checkNotEmpty(text);
+    immutable quote = text.input.front;
+    static foreach(quoteChar; [`"`, `'`])
+    {
+        // This would be a bit simpler if takeUntilAndDrop took a runtime
+        // argument, but in all other cases, a compile-time argument makes more
+        // sense, so this seemed like a reasonable way to handle this one case.
+        if(quote == quoteChar[0])
+        {
+            popFrontAndIncCol(text);
+            return takeUntilAndDrop!quoteChar(text);
+        }
+    }
+    throw new XMLParsingException("Expected quoted text", text.pos);
+}
+
+unittest
+{
+    import core.exception : AssertError;
+    import std.algorithm.comparison : equal;
+    import std.exception : assertThrown, enforce;
+    import std.range : only;
+    import dxml.internal : testRangeFuncs;
+
+    static void test(alias func)(string origHaystack, string expected, string remainder,
+                                 int row, int col, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        static foreach(i, config; posTestConfigs)
+        {{
+            {
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto text = testParser!config(haystack.save);
+                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+            static if(i != 2)
+            {
+                auto pos = SourcePos(row + 3, i == 0 ? (row == 1 ? col + 7 : col) : -1);
+                auto text = testParser!config(haystack.save);
+                text.pos.line += 3;
+                static if(i == 0)
+                    text.pos.col += 7;
+                enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(equal(text.input, remainder), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
+            }
+        }}
+    }
+
+    static void testFail(alias func)(string origHaystack, size_t line = __LINE__)
+    {
+        auto haystack = func(origHaystack);
+        static foreach(i, config; posTestConfigs)
+        {{
+            auto text = testParser!config(haystack.save);
+            assertThrown!XMLParsingException(text.takeEnquotedText(), "unittest failure", __FILE__, line);
+        }}
+    }
+
+    static foreach(func; testRangeFuncs)
+    {
+        foreach(quote; only("\"", "'"))
+        {
+            test!func(quote ~ quote, "", "", 1, 3);
+            test!func(quote ~ "hello world" ~ quote, "hello world", "", 1, 14);
+            test!func(quote ~ "hello world" ~ quote ~ " foo", "hello world", " foo", 1, 14);
+            {
+                import std.utf : codeLength;
+                auto haystack = quote ~ "プログラミング " ~ quote ~ "in D";
+                enum len = cast(int)codeLength!(ElementEncodingType!(typeof(func(haystack))))("プログラミング ");
+                test!func(haystack, "プログラミング ", "in D", 1, len + 3);
+            }
+        }
+
+        foreach(str; only(`hello`, `"hello'`, `"hello`, `'hello"`, `'hello`, ``, `"'`, `"`, `'"`, `'`))
+            testFail!func(str);
+    }
 }
 
 
