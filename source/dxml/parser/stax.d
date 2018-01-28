@@ -6,9 +6,7 @@
     will work with XML 1.1 documents assuming that they don't use any
     1.1-specific features). For the sake of simplicity, sanity, and efficiency,
     the $(LINK2 https://en.wikipedia.org/wiki/Document_type_definition, DTD)
-    section is not supported beyond what is required to parse past it. As such,
-    the parser parses "well-formed" XML but is not what the
-    $(LINK2 http://www.w3.org/TR/REC-xml, XML spec) calls a "validating parser."
+    section is not supported beyond what is required to parse past it.
 
     Start tags, end tags, comments, cdata sections, and processing instructions
     are all supported and reported to the application. Anything in the DTD is
@@ -28,8 +26,19 @@
     Since the DTD section is skipped, all XML documents will be treated as
     $(LINK2 http://www.w3.org/TR/REC-xml/#sec-rmd, standalone) regardless of
     what the XML declaration says (so no references will be pulled in from the
-    DTD or other XML documents, and no references will be replaced with
-    whatever they refer to).
+    DTD or other XML documents). Also, no references will be replaced with
+    whatever they refer to, and no validation will be done on whether an entity
+    reference was declared before it was used. When they are encountered in the
+    text, they are validated to ensure that they are well-formed, but that's it.
+    In all other respects, the parser treats them as normal text.
+
+    However, $(REF normalize, dxml, util) or
+    $(REF parseStdEntityRef, dxml, util) can be used to convert the predefined
+    entity references to what the refer to, and $(REF normalize, dxml, util) or
+    $(REF parseCharRef, dxml, util) can be used to convert character references
+    to what they refer to, but no support is provided for handling any other
+    kind of entity references, since that would require processing the DTD
+    section.
 
     $(LREF parseXML) is the function used to initiate the parsing of an XML
     document, and it returns an $(LREF EntityRange), which is a range-based
