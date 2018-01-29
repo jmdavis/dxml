@@ -5668,8 +5668,42 @@ auto takeAttValue(Text)(ref Text text)
                     }
                     default:
                     {
-                        ++takeLen;
-                        break;
+                        import std.ascii : isASCII;
+                        import std.format : format;
+                        import dxml.util : isXMLChar;
+
+                        immutable c = text.input.front;
+                        if(isASCII(c))
+                        {
+                            if(!isXMLChar(c))
+                            {
+                                throw new XMLParsingException(format!"Character is not legal in an XML File: 0x%0x"(c),
+                                                              text.pos);
+                            }
+                            ++takeLen;
+                            break;
+                        }
+                        import std.utf : decodeFront, UseReplacementDchar, UTFException;
+                        // Annoyngly, letting decodeFront throw is the easier way to handle this, since the
+                        // replacement character is considered valid XML, and if we decoded using it, then
+                        // all of the invalid Unicode characters would come out as the replacement character
+                        // and then be treated as valid instead of being caught, which isn't all bad, but
+                        // the spec requires that they be treated as invalid instead of playing nice and
+                        // using the replacement character.
+                        try
+                        {
+                            size_t numCodeUnits;
+                            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.no)(numCodeUnits);
+                            if(!isXMLChar(decodedC))
+                            {
+                                enum fmt = "Character is not legal in an XML File: 0x%0x";
+                                throw new XMLParsingException(format!fmt(decodedC), text.pos);
+                            }
+                            takeLen += numCodeUnits;
+                        }
+                        catch(UTFException e)
+                            throw new XMLParsingException("Invalid Unicode character", text.pos);
+                        continue;
                     }
                 }
                 text.input.popFront();
@@ -5826,6 +5860,7 @@ unittest
         testFail!func(`'foo`, 1, 1);
         testFail!func(`'foo"`, 1, 1);
         testFail!func(`'<'`, 1, 2);
+        testFail!func("'\v'", 1, 2);
         testFail!func(`'&`, 1, 2);
         testFail!func(`'&'`, 1, 2);
         testFail!func(`'&x'`, 1, 2);
@@ -5885,13 +5920,7 @@ enum CheckText
 // characters.
 void checkText(CheckText ct, Text)(ref Text orig)
 {
-
-    static void invalidChar(dchar c, SourcePos pos, size_t line = __LINE__)
-    {
-        import std.format : format;
-        throw new XMLParsingException(format!"Character not allowed in an XML File: 0x%0x"(c), pos, __FILE__, line);
-    }
-
+    import std.format : format;
     import std.utf : decodeFront, UseReplacementDchar;
 
     auto text = orig.save;
@@ -5960,7 +5989,7 @@ void checkText(CheckText ct, Text)(ref Text orig)
                                                       "entity reference.", ampPos);
                     }
                 }
-                case '<': invalidChar('<', text.pos); assert(0);
+                case '<': throw new XMLParsingException("< is not legal in EntityType.pi or EntityType.text", text.pos);
             }
             static if(ct == CheckText.disallowAmpLTAndCDATAEnd)
             {
@@ -5971,7 +6000,7 @@ void checkText(CheckText ct, Text)(ref Text orig)
                     {
                         static if(Text.config.posType == PositionType.lineAndCol)
                             text.pos.col -= 3;
-                        throw new XMLParsingException("]]> not allowed in EntityType.text", text.pos);
+                        throw new XMLParsingException("]]> is not legal in EntityType.text", text.pos);
                     }
                     break;
                 }
@@ -5991,17 +6020,35 @@ void checkText(CheckText ct, Text)(ref Text orig)
                 if(isASCII(c))
                 {
                     if(!isXMLChar(c))
-                        invalidChar(c, text.pos);
+                    {
+                        throw new XMLParsingException(format!"Character is not legal in an XML File: 0x%0x"(c),
+                                                      text.pos);
+                    }
                     popFrontAndIncCol(text);
                 }
                 else
                 {
-                    size_t numCodeUnits;
-                    immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-                    if(!isXMLChar(decodedC))
-                        invalidChar(decodedC, text.pos);
-                    static if(text.config.posType == PositionType.lineAndCol)
-                        text.pos.col += numCodeUnits;
+                    import std.utf : UTFException;
+                    // Annoyngly, letting decodeFront throw is the easier way to handle this, since the
+                    // replacement character is considered valid XML, and if we decoded using it, then
+                    // all of the invalid Unicode characters would come out as the replacement character
+                    // and then be treated as valid instead of being caught, which isn't all bad, but
+                    // the spec requires that they be treated as invalid instead of playing nice and
+                    // using the replacement character.
+                    try
+                    {
+                        size_t numCodeUnits;
+                        immutable decodedC = text.input.decodeFront!(UseReplacementDchar.no)(numCodeUnits);
+                        if(!isXMLChar(decodedC))
+                        {
+                            enum fmt = "Character is not legal in an XML File: 0x%0x";
+                            throw new XMLParsingException(format!fmt(decodedC), text.pos);
+                        }
+                        static if(text.config.posType == PositionType.lineAndCol)
+                            text.pos.col += numCodeUnits;
+                    }
+                    catch(UTFException)
+                        throw new XMLParsingException("Invalid Unicode character", text.pos);
                 }
                 break;
             }
@@ -6077,6 +6124,7 @@ unittest
         static foreach(ct; [CheckText.disallowAmpAndLT, CheckText.disallowAmpLTAndCDATAEnd])
         {
             testFail!(func, ct)("<", 1, 1);
+            testFail!(func, ct)("\v", 1, 1);
             testFail!(func, ct)("&", 1, 1);
             testFail!(func, ct)("&", 1, 1);
             testFail!(func, ct)("&x", 1, 1);
