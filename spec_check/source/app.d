@@ -20,6 +20,7 @@ enum testsDir = "xmlconf";
 void main()
 {
     xmlTest();
+    japanese();
 }
 
 void xmlTest()
@@ -79,6 +80,18 @@ void xmlTest()
     validateTests(buildPath(testsDir, "xmltest", "xmltest.xml"), ignoreList);
 }
 
+void japanese()
+{
+    auto ignoreList =
+    [
+        "xmlconf/japanese/pr-xml-utf-16.xml", // FIXME big-endian
+        "xmlconf/japanese/weekly-utf-16.xml", // FIXME big-endian
+    ];
+
+    import std.path : buildPath;
+    validateTests(buildPath(testsDir, "japanese", "japanese.xml"), ignoreList);
+}
+
 void validateTests(string mainFile, string[] ignoreList)
 {
     import std.algorithm : canFind, filter;
@@ -124,27 +137,33 @@ void validateTests(string mainFile, string[] ignoreList)
 
 void parseExpectSuccess(string file)
 {
-    import std.encoding : BOMException;
+    import std.encoding : BOM;
     import std.exception : assertNotThrown, enforce;
     import std.format : format;
-    import std.file : exists, readText;
+    import std.file : exists, readBOM, readText;
     import std.utf : UTFException;
 
     enforce(file.exists, format("%s does not exist", file));
-    try
+    immutable bom = readBOM(file).schema;
+    // FIXME This only works properly with little-endian machines right now, and 
+    // we need a way to process big endian encodings.
+    switch(bom)
     {
-        auto text = file.readText();
-        assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
-        return;
+        case BOM.none:
+        case BOM.utf8:
+        {
+            auto text = file.readText();
+            assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
+            break;
+        }
+        case BOM.utf16le:
+        {
+            auto text = file.readText!wstring();
+            assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
+            break;
+        }
+        default: throw new Exception(format("Unsupported encoding: %s, file: %s", bom, file));
     }
-    catch(BOMException)
-    {}
-    catch(UTFException)
-    {}
-    // Some of the files are UTF-16, and readText isn't currently smart enough
-    // to handle encodings other than the requested one.
-    auto text = file.readText!wstring();
-    assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
 }
 
 void parseExpectFailure(string file)
