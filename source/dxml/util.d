@@ -628,7 +628,7 @@ Nullable!dchar parseCharRef(R)(ref R range)
         try
         {
             immutable c = to!dchar(cuRange.parse!uint(hex ? 16 : 10));
-            if(!cuRange.startsWith(';') || !isXMLChar(c))
+            if(!cuRange.startsWith(';') || (c != '\n' && !isXMLChar(c)))
                 goto invalid;
             cuRange.popFront();
             static if(isNarrowString!R)
