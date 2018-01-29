@@ -2557,9 +2557,68 @@ private:
         _type = EntityType.elementEnd;
         _tagStack.sawEntity();
         immutable namePos = _text.pos;
-        _name = _text.takeUntilAndDrop!">"();
+        _name = _text.takeName!'>'();
+        stripWS(_text);
+        if(_text.input.front != '>')
+        {
+            throw new XMLParsingException("There can only be whitespace between an end tag's name and the >",
+                                          _text.pos);
+        }
+        popFrontAndIncCol(_text);
         _tagStack.popTag(_name.save, namePos);
         _grammarPos = _tagStack.depth == 0 ? GrammarPos.endMisc : GrammarPos.contentCharData2;
+    }
+
+    static if(compileInTests) unittest
+    {
+        import core.exception : AssertError;
+        import std.algorithm.comparison : equal;
+        import std.exception : assertNotThrown, collectException, enforce;
+        import dxml.internal : codeLen, testRangeFuncs;
+
+        static void test(alias func)(string text, string name, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                range.popFront();
+                enforce!AssertError(range.front.type == EntityType.elementEnd, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
+            }}
+        }
+
+        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
+        {
+            auto xml = func(text);
+            static foreach(i, config; posTestConfigs)
+            {{
+                auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col : -1);
+                auto range = parseXML!config(xml.save);
+                auto e = collectException!XMLParsingException(range.popFront());
+                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
+                enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
+            }}
+        }
+
+        static foreach(func; testRangeFuncs)
+        {
+            test!func("<a></a>", "a", 1, 8);
+            test!func("<foo></foo>", "foo", 1, 12);
+            test!func("<foo    ></foo    >", "foo", 1, 20);
+            test!func("<foo \n ></foo \n >", "foo", 3, 3);
+            test!func("<foo>\n\n\n</foo>", "foo", 4, 7);
+            test!func("<foo.></foo.>", "foo.", 1, 14);
+            test!func(`<京都市></京都市>`, "京都市", 1, codeLen!(func, `<京都市></京都市>`) + 1);
+
+            testFail!func(`<foo></ foo>`, 1, 8);
+            testFail!func(`<foo></bar>`, 1, 8);
+            testFail!func(`<foo></fo>`, 1, 8);
+            testFail!func(`<foo></food>`, 1, 8);
+            testFail!func(`<a></>`, 1, 6);
+        }
     }
 
 
