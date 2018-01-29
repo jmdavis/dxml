@@ -2253,25 +2253,19 @@ private:
         _text.skipToOneOf!('"', '\'', '[', '>')();
         switch(_text.input.front)
         {
-            case '"':
+            static foreach(quote; ['"', '\''])
             {
-                _text.skipUntilAndDrop!`"`();
-                checkNotEmpty(_text);
-                _text.skipToOneOf!('[', '>')();
-                if(_text.input.front == '[')
-                    goto case '[';
-                else
-                    goto case '>';
-            }
-            case '\'':
-            {
-                _text.skipUntilAndDrop!`'`();
-                checkNotEmpty(_text);
-                _text.skipToOneOf!('[', '>')();
-                if(_text.input.front == '[')
-                    goto case '[';
-                else
-                    goto case '>';
+                case quote:
+                {
+                    popFrontAndIncCol(_text);
+                    _text.skipUntilAndDrop!([quote])();
+                    checkNotEmpty(_text);
+                    _text.skipToOneOf!('[', '>')();
+                    if(_text.input.front == '[')
+                        goto case '[';
+                    else
+                        goto case '>';
+                }
             }
             case '[':
             {
@@ -2284,17 +2278,23 @@ private:
                     {
                         case '"':
                         {
+                            popFrontAndIncCol(_text);
                             _text.skipUntilAndDrop!`"`();
                             continue;
                         }
                         case '\'':
                         {
+                            popFrontAndIncCol(_text);
                             _text.skipUntilAndDrop!`'`();
                             continue;
                         }
                         case ']':
                         {
-                            _text.skipUntilAndDrop!`>`();
+                            popFrontAndIncCol(_text);
+                            stripWS(_text);
+                            if(_text.input.empty || _text.input.front != '>')
+                                throw new XMLParsingException("Incorrectly terminated <!DOCTYPE> section.", _text.pos);
+                            popFrontAndIncCol(_text);
                             _parseAtPrologMisc!2();
                             return;
                         }
@@ -2324,9 +2324,10 @@ private:
             static foreach(i, config; posTestConfigs)
             {{
                 auto pos = SourcePos(i < 2 ? row : -1, i == 0 ? col + cast(int)"<root/>".length : -1);
-                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(range._text.pos == pos, "unittest failure 2", __FILE__, line);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save),
+                                                                 "unittest failure 1", __FILE__, line);
+                enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
             }}
         }
 
@@ -2380,6 +2381,10 @@ private:
 
             test!func("<!DOCTYPE name [ <?pi> <!----> <!ELEMENT blah EMPTY> ]>", 1, 56);
             test!func("<!DOCTYPE \nname\n[\n<?pi> \n <!---->\n<!ENTITY foo '\n\n'\n>\n]>", 10, 3);
+
+            test!func("<!DOCTYPE doc [\n" ~
+                      "<!ENTITY e '<![CDATA[Tim Michael]]>'>\n" ~
+                      "]>\n", 4, 1);
 
             testFail!func("<!DOCTYP name>", 1, 2);
             testFail!func("<!DOCTYPEname>", 1, 10);
