@@ -1,0 +1,15 @@
+{
+    "name": "spec_check",
+    "authors": [ "Jonathan M Davis" ],
+    "description": "A program to use some of the XML spec conformance tests on dxml",
+    "copyright": "Copyright © 2018, Jonathan M Davis",
+    "license": "BSL-1.0",
+    "targetType": "executable",
+    "dependencies":
+    {
+        "dxml":
+        {
+            "path": "../"
+        }
+    }
+}

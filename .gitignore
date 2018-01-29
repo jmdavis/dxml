@@ -6,3 +6,4 @@ __dummy.html
 *.o
 *.obj
 __test__*__
+spec_check/spec_check
