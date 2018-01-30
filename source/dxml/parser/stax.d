@@ -2251,65 +2251,64 @@ private:
     // from the input.
     void _parseDoctypeDecl()
     {
-        _text.skipToOneOf!('"', '\'', '[', '>')();
-        switch(_text.input.front)
+        outer: while(true)
         {
-            static foreach(quote; ['"', '\''])
+            _text.skipToOneOf!('"', '\'', '[', '>')();
+            switch(_text.input.front)
             {
-                case quote:
+                static foreach(quote; ['"', '\''])
                 {
-                    popFrontAndIncCol(_text);
-                    _text.skipUntilAndDrop!([quote])();
-                    checkNotEmpty(_text);
-                    _text.skipToOneOf!('[', '>')();
-                    if(_text.input.front == '[')
-                        goto case '[';
-                    else
-                        goto case '>';
-                }
-            }
-            case '[':
-            {
-                popFrontAndIncCol(_text);
-                while(1)
-                {
-                    checkNotEmpty(_text);
-                    _text.skipToOneOf!('"', '\'', ']')();
-                    switch(_text.input.front)
+                    case quote:
                     {
-                        case '"':
-                        {
-                            popFrontAndIncCol(_text);
-                            _text.skipUntilAndDrop!`"`();
-                            continue;
-                        }
-                        case '\'':
-                        {
-                            popFrontAndIncCol(_text);
-                            _text.skipUntilAndDrop!`'`();
-                            continue;
-                        }
-                        case ']':
-                        {
-                            popFrontAndIncCol(_text);
-                            stripWS(_text);
-                            if(_text.input.empty || _text.input.front != '>')
-                                throw new XMLParsingException("Incorrectly terminated <!DOCTYPE> section.", _text.pos);
-                            popFrontAndIncCol(_text);
-                            _parseAtPrologMisc!2();
-                            return;
-                        }
-                        default: assert(0);
+                        popFrontAndIncCol(_text);
+                        _text.skipUntilAndDrop!([quote])();
+                        continue outer;
                     }
                 }
+                case '[':
+                {
+                    popFrontAndIncCol(_text);
+                    while(true)
+                    {
+                        checkNotEmpty(_text);
+                        _text.skipToOneOf!('"', '\'', ']')();
+                        switch(_text.input.front)
+                        {
+                            case '"':
+                            {
+                                popFrontAndIncCol(_text);
+                                _text.skipUntilAndDrop!`"`();
+                                continue;
+                            }
+                            case '\'':
+                            {
+                                popFrontAndIncCol(_text);
+                                _text.skipUntilAndDrop!`'`();
+                                continue;
+                            }
+                            case ']':
+                            {
+                                popFrontAndIncCol(_text);
+                                stripWS(_text);
+                                if(_text.input.empty || _text.input.front != '>')
+                                    throw new XMLParsingException("Incorrectly terminated <!DOCTYPE> section.", _text.pos);
+                                popFrontAndIncCol(_text);
+                                _parseAtPrologMisc!2();
+                                return;
+                            }
+                            default: assert(0);
+                        }
+                    }
+                }
+                case '>':
+                {
+                    popFrontAndIncCol(_text);
+                    _parseAtPrologMisc!2();
+                    break;
+                }
+                default: assert(0);
             }
-            case '>':
-            {
-                popFrontAndIncCol(_text);
-                _parseAtPrologMisc!2();
-                break;
-            }
-            default: assert(0);
+            break;
         }
     }
 
@@ -2391,6 +2390,15 @@ private:
             testFail!func("<!DOCTYPEname>", 1, 10);
             testFail!func("<!DOCTYPE name1><!DOCTYPE name2>", 1, 18);
             testFail!func("<!DOCTYPE\n\nname1><!DOCTYPE name2>", 3, 8);
+
+            // FIXME This really should have the exception point at the quote and
+            // say that it couldn't find the matching quote rather than point at
+            // the character after it and say that it couldn't find a quote, but
+            // that requires reworking some helper functions with better error
+            // messages in mind.
+            testFail!func(`<!DOCTYPE student SYSTEM "student".dtd"[` ~
+                          "\n<!ELEMENT student (#PCDATA)>\n" ~
+                          "]>", 1, 40);
         }
     }
 
