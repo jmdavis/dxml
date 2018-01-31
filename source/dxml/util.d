@@ -44,12 +44,20 @@ import std.typecons : Nullable;;
     that so that the application can choose to do it or not (in many cases,
     there is nothing to normalize, making the calls unnecessary).
 
-    Similarly, an application can choose to encode any character as a character
+    Similarly, an application can choose to encode a character as a character
     reference (e.g. $(D_STRING '&#65") or $(D_STRING '&#x40") for
     $(D_STRING 'A')). normalize will decode such character references to their
-    corresponding character. However, it does not handle any parsed entity
-    references or any entity references beyond the five listed below (handling
-    any others would require handling the DTD section).
+    corresponding character.
+
+    However, normalize does not handle any entity references beyond the five
+    predefined ones listed below. All others are left unprocessed. Processing
+    them properly would require handling the DTD section, which dxml does not
+    do. The parser considers any entity references other than the predefined
+    ones to be invalid XML, so unless the text being passed to normalize
+    doesn't come from one of dxml's parsers, it can't have any entity
+    references in it other than the predefined ones. Similarly, invalid
+    character references are left unprocessed as well as any character that is
+    not valid in an XML document. normalize never throws on invalid XML.
 
     Also, $(D_STRING '\r') is not supposed to appear in an XML document except
     as a character reference unless it's in a CDATA section. So, it really
@@ -69,10 +77,10 @@ import std.typecons : Nullable;;
              to the characters that they represent))
     )
 
-    Other types of references (such as entity references) are left untouched,
-    and any $(D_STRING '&') which is not used in one of the constructs listed in
-    the table as well as any malformed constructs (e.g. $(D_STRING "&Amp;" or
-    $(D_STRING &#xGGA2;") are left untouched.
+    All other entity references are left untouched, and any $(D_STRING '&')
+    which is not used in one of the constructs listed in the table as well as
+    any malformed constructs (e.g. $(D_STRING "&Amp;" or $(D_STRING &#xGGA2;")
+    are left untouched.
 
     The difference between normalize and asNormalized is that normalize returns
     a $(D string), whereas asNormalized returns a lazy range of code units. In

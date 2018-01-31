@@ -23,22 +23,21 @@
     be treated as having been encoded in UTF-32. Strings will be treated as
     ranges of their code units, not code points.
 
-    Since the DTD section is skipped, all XML documents will be treated as
-    $(LINK2 http://www.w3.org/TR/REC-xml/#sec-rmd, standalone) regardless of
-    what the XML declaration says (so no references will be pulled in from the
-    DTD or other XML documents). Also, no references will be replaced with
-    whatever they refer to, and no validation will be done on whether an entity
-    reference was declared before it was used. When they are encountered in the
-    text, they are validated to ensure that they are well-formed, but that's it.
-    In all other respects, the parser treats them as normal text.
+    Since the DTD section is skipped, entity references other than the five
+    which are predefined by the XML spec cannot be properly processed (since
+    wherever they were used in the document would be replaced by what they
+    referred to, and that could affect the parsing). As such, if any entity
+    references which are not predefined are encountered outside of the DTD
+    section, an $(REF XMLParsingException) will be thrown. The predefined
+    entity references and any character references encountered will be checked
+    to verify that they're valid, but they will not be replaced (since that
+    does not work with returning slices of the original input).
 
     However, $(REF normalize, dxml, util) or
     $(REF parseStdEntityRef, dxml, util) can be used to convert the predefined
     entity references to what the refer to, and $(REF normalize, dxml, util) or
     $(REF parseCharRef, dxml, util) can be used to convert character references
-    to what they refer to, but no support is provided for handling any other
-    kind of entity references, since that would require processing the DTD
-    section.
+    to what they refer to.
 
     $(LREF parseXML) is the function used to initiate the parsing of an XML
     document, and it returns an $(LREF EntityRange), which is a range-based
@@ -427,10 +426,12 @@ enum EntityType
         the text includes up to that entity.
 
         Note however that character references (e.g. $(D_STRING "&#42")) and
-        entity references (e.g. $(D_STRING "&Name;")) are left unprocessed in
-        the text. In order for them to be processed, the text should be passed
-        to either $(REF normalize, dxml, util) or
-        $(REF asNormalized, dxml, util).
+        the predefined entity references (e.g. $(D_STRING "&Name;")) are left
+        unprocessed in the text. In order for them to be processed, the text
+        should be passed to either $(REF normalize, dxml, util) or $(REF
+        asNormalized, dxml, util). Entity references which are not predefined
+        are considered invalid, because the DTD section is skipped and thus they
+        cannot be properly processed.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
       +/
@@ -1050,8 +1051,8 @@ public:
                 test!func(`<root foo="&#42;" a='&#x42;' hello="%foo"/>`, EntityType.elementEmpty,
                           [tuple("foo", "&#42;"), tuple("a", "&#x42;"), tuple("hello", "%foo")], 1, 44);
 
-                test!func(`<root foo="&amp;" a='vector&lt;int&gt;' c='&a.;'></root>`, EntityType.elementStart,
-                          [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"), tuple("c", "&a.;")], 1, 50);
+                test!func(`<root foo="&amp;" a='vector&lt;int&gt;'></root>`, EntityType.elementStart,
+                          [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"),], 1, 41);
 
                 test!func(`<foo 京都市="ディラン"/>`, EntityType.elementEmpty,
                           [tuple("京都市", "ディラン")], 1, codeLen!(func, `<foo 京都市="ディラン"/>`) + 1);
@@ -1092,8 +1093,7 @@ public:
                 testFail!func(`<root foo="hello&"/>`, 1, 17);
                 testFail!func(`<root foo="hello&world"/>`, 1, 17);
                 testFail!func(`<root foo="&;"/>`, 1, 12);
-                testFail!func(`<root foo="&.;"/>`, 1, 12);
-                testFail!func(`<root foo="&.a;"/>`, 1, 12);
+                testFail!func(`<root foo="&foo;"/>`, 1, 12);
                 testFail!func(`<root foo="&#;"/>`, 1, 12);
                 testFail!func(`<root foo="&#x;"/>`, 1, 12);
                 testFail!func(`<root foo="&#A;"/>`, 1, 12);
@@ -1130,8 +1130,7 @@ public:
                 testFail!func(`<root foo="hello&"></root>`, 1, 17);
                 testFail!func(`<root foo="hello&world"></root>`, 1, 17);
                 testFail!func(`<root foo="&;"></root>`, 1, 12);
-                testFail!func(`<root foo="&.;"></root>`, 1, 12);
-                testFail!func(`<root foo="&.a;"></root>`, 1, 12);
+                testFail!func(`<root foo="&foo;"></root>`, 1, 12);
                 testFail!func(`<root foo="&#;"></root>`, 1, 12);
                 testFail!func(`<root foo="&#x;"></root>`, 1, 12);
                 testFail!func(`<root foo="&#A;"></root>`, 1, 12);
@@ -5595,7 +5594,7 @@ unittest
 
 // This removes an attribute value from the front of the input, partially
 // validates it, and returns it. The validation that is not done is whether
-// the value in a character reference is valid. It's checkd for whether the
+// the value in a character reference is valid. It's checked for whether the
 // characters used in it are valid but not whether the number they form is a
 // valid Unicode character. Checking the number doesn't seem worth the extra
 // complication, and it's not required for the XML to be "well-formed."
@@ -5624,7 +5623,7 @@ auto takeAttValue(Text)(ref Text text)
                 size_t lineStart = 0;
             auto orig = text.input.save;
             size_t takeLen;
-            while(true)
+            loop: while(true)
             {
                 if(text.input.empty)
                     throw new XMLParsingException("Unterminated attribute value", quotePos);
@@ -5650,75 +5649,57 @@ auto takeAttValue(Text)(ref Text text)
                     }
                     case '&':
                     {
-                        import dxml.util : parseCharRef;
-
-                        auto temp = text.input.save;
-                        auto charRef = parseCharRef(temp);
-                        if(!charRef.isNull)
                         {
-                            static if(hasLength!(Text.Input))
+                            import dxml.util : parseCharRef;
+                            auto temp = text.input.save;
+                            auto charRef = parseCharRef(temp);
+                            if(!charRef.isNull)
                             {
-                                takeLen += text.input.length - temp.length;
-                                text.input = temp;
-                            }
-                            else
-                            {
-                                while(text.input.front != ';')
+                                static if(hasLength!(Text.Input))
                                 {
+                                    takeLen += text.input.length - temp.length;
+                                    text.input = temp;
+                                }
+                                else
+                                {
+                                    while(text.input.front != ';')
+                                    {
+                                        ++takeLen;
+                                        text.input.popFront();
+                                    }
                                     ++takeLen;
                                     text.input.popFront();
                                 }
-                                ++takeLen;
-                                text.input.popFront();
+                                continue;
                             }
-                            continue;
                         }
-                        // Entity Reference
-                        import std.utf : decodeFront, UseReplacementDchar;
 
                         static if(Text.config.posType == PositionType.lineAndCol)
                             immutable ampLen = takeLen - lineStart;
 
                         ++takeLen;
                         text.input.popFront();
-                        if(text.input.empty)
-                            goto failedEntityRef;
-                        if(text.input.front == quote)
-                            goto failedEntityRef;
 
-                        {
-                            size_t numCodeUnits;
-                            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-                            if(!isNameStartChar(decodedC))
-                                goto failedEntityRef;
-                            takeLen += numCodeUnits;
-                        }
+                        import std.algorithm.searching : startsWith;
 
-                        while(true)
+                        static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
                         {
-                            if(text.input.empty)
-                                goto failedEntityRef;
-                            immutable c = text.input.front;
-                            if(c == ';')
+                            if(text.input.save.startsWith(entRef))
                             {
-                                ++takeLen;
-                                break;
+                                takeLen += entRef.length;
+                                text.input.popFrontN(entRef.length);
+                                continue loop;
                             }
-                            size_t numCodeUnits;
-                            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-                            if(!isNameChar(decodedC))
-                                goto failedEntityRef;
-                            takeLen += numCodeUnits;
                         }
-                        break;
-                        failedEntityRef:
-                        {
-                            static if(Text.config.posType == PositionType.lineAndCol)
-                                text.pos.col += ampLen;
-                            throw new XMLParsingException("& is only legal in an attribute value as part of a char " ~
-                                                          "or entity reference, and this is not a valid char or " ~
-                                                          "entity reference.", text.pos);
-                        }
+
+                        static if(Text.config.posType == PositionType.lineAndCol)
+                            text.pos.col += ampLen;
+
+                        throw new XMLParsingException("& is only legal in an attribute value as part of a reference, " ~
+                                                      "and this parser only supports entity references if they're " ~
+                                                      "predefined by the spec. This is not a valid character " ~
+                                                      "reference or one of the predefined entity references.",
+                                                      text.pos);
                     }
                     case '<':
                     {
@@ -5868,18 +5849,18 @@ unittest
         test!func(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
 
         test!func(`"&amp;&gt;&lt;"`, "&amp;&gt;&lt;", "", 1, 16);
+        test!func(`"&apos;&quot;"`, "&apos;&quot;", "", 1, 15);
         test!func(`"hello&amp;&gt;&lt;world"`, "hello&amp;&gt;&lt;world", "", 1, 26);
         test!func(`".....&amp;&gt;&lt;....."`, ".....&amp;&gt;&lt;.....", "", 1, 26);
-        test!func(`"&foo.;"`, "&foo.;", "", 1, 9);
         test!func(`"&#12487;&#12451;&#12521;&#12531;"`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
-        test!func(`"hello&#xAF;&#77;&foo;world"`, "hello&#xAF;&#77;&foo;world", "", 1, 29);
+        test!func(`"hello&#xAF;&#77;&amp;world"`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
 
         test!func(`'&amp;&gt;&lt;'`, "&amp;&gt;&lt;", "", 1, 16);
         test!func(`'hello&amp;&gt;&lt;world'`, "hello&amp;&gt;&lt;world", "", 1, 26);
+        test!func(`'&apos;&quot;'`, "&apos;&quot;", "", 1, 15);
         test!func(`'.....&amp;&gt;&lt;.....'`, ".....&amp;&gt;&lt;.....", "", 1, 26);
-        test!func(`'&foo.;'`, "&foo.;", "", 1, 9);
         test!func(`'&#12487;&#12451;&#12521;&#12531;'`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
-        test!func(`'hello&#xAF;&#77;&foo;world'`, "hello&#xAF;&#77;&foo;world", "", 1, 29);
+        test!func(`'hello&#xAF;&#77;&amp;world'`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
 
         test!func("'hello\nworld'", "hello\nworld", "", 2, 7);
         test!func("'hello\nworld\n'", "hello\nworld\n", "", 3, 2);
@@ -5898,10 +5879,8 @@ unittest
         testFail!func(`"&`, 1, 2);
         testFail!func(`"&"`, 1, 2);
         testFail!func(`"&x"`, 1, 2);
-        testFail!func(`"&.;"`, 1, 2);
         testFail!func(`"&&;"`, 1, 2);
-        testFail!func(`"&a"`, 1, 2);
-        testFail!func(`"&a`, 1, 2);
+        testFail!func(`"&foo;"`, 1, 2);
         testFail!func(`"hello&;"`, 1, 7);
         testFail!func(`"hello&;world"`,1, 7);
         testFail!func(`"hello&<;world"`,1, 7);
@@ -5909,8 +5888,8 @@ unittest
         testFail!func(`"hello<world"`,1, 7);
         testFail!func(`"hello world&"`, 1, 13);
         testFail!func(`"hello world&;"`, 1, 13);
-        testFail!func(`"hello world&.;"`, 1, 13);
         testFail!func(`"hello world&foo"`, 1, 13);
+        testFail!func(`"hello world&foo;"`, 1, 13);
         testFail!func(`"foo<"`, 1, 5);
         testFail!func(`"&#`, 1, 2);
         testFail!func(`"&#"`, 1, 2);
@@ -5923,6 +5902,16 @@ unittest
         testFail!func(`"&#x0`, 1, 2);
         testFail!func(`"&#x0;`, 1, 2);
         testFail!func(`"&#x0;"`, 1, 2);
+        testFail!func(`"&am;"`, 1, 2);
+        testFail!func(`"&ampe;"`, 1, 2);
+        testFail!func(`"&l;"`, 1, 2);
+        testFail!func(`"&lte;"`, 1, 2);
+        testFail!func(`"&g;"`, 1, 2);
+        testFail!func(`"&gte;"`, 1, 2);
+        testFail!func(`"&apo;"`, 1, 2);
+        testFail!func(`"&aposs;"`, 1, 2);
+        testFail!func(`"&quo;"`, 1, 2);
+        testFail!func(`"&quote;"`, 1, 2);
 
         testFail!func(`'`, 1, 1);
         testFail!func(`'foo`, 1, 1);
@@ -5932,10 +5921,8 @@ unittest
         testFail!func(`'&`, 1, 2);
         testFail!func(`'&'`, 1, 2);
         testFail!func(`'&x'`, 1, 2);
-        testFail!func(`'&.;'`, 1, 2);
         testFail!func(`'&&;'`, 1, 2);
-        testFail!func(`'&a'`, 1, 2);
-        testFail!func(`'&a`, 1, 2);
+        testFail!func(`'&foo;'`, 1, 2);
         testFail!func(`'hello&;'`, 1, 7);
         testFail!func(`'hello&;world'`, 1, 7);
         testFail!func(`'hello&<;world'`, 1, 7);
@@ -5943,8 +5930,8 @@ unittest
         testFail!func(`'hello<world'`, 1, 7);
         testFail!func(`'hello world&'`, 1, 13);
         testFail!func(`'hello world&;'`, 1, 13);
-        testFail!func(`'hello world&.;'`, 1, 13);
         testFail!func(`'hello world&foo'`, 1, 13);
+        testFail!func(`'hello world&foo;'`, 1, 13);
         testFail!func(`'foo<'`, 1, 5);
         testFail!func(`'&#`, 1, 2);
         testFail!func(`'&#'`, 1, 2);
@@ -5952,11 +5939,21 @@ unittest
         testFail!func(`'&#x;'`, 1, 2);
         testFail!func(`'&#AF;'`, 1, 2);
         testFail!func(`'&#x`, 1, 2);
-        testFail!func(`"&#77`, 1, 2);
-        testFail!func(`"&#77;`, 1, 1);
-        testFail!func(`"&#x0`, 1, 2);
-        testFail!func(`"&#x0;`, 1, 2);
-        testFail!func(`"&#x0;"`, 1, 2);
+        testFail!func(`'&#77`, 1, 2);
+        testFail!func(`'&#77;`, 1, 1);
+        testFail!func(`'&#x0`, 1, 2);
+        testFail!func(`'&#x0;`, 1, 2);
+        testFail!func(`'&#x0;'`, 1, 2);
+        testFail!func(`'&am;'`, 1, 2);
+        testFail!func(`'&ampe;'`, 1, 2);
+        testFail!func(`'&l;'`, 1, 2);
+        testFail!func(`'&lte;'`, 1, 2);
+        testFail!func(`'&g;'`, 1, 2);
+        testFail!func(`'&gte;'`, 1, 2);
+        testFail!func(`'&apo;'`, 1, 2);
+        testFail!func(`'&aposs;'`, 1, 2);
+        testFail!func(`'&quo;'`, 1, 2);
+        testFail!func(`'&quote;'`, 1, 2);
         testFail!func("'&#xA\nF;'", 1, 2);
         testFail!func("'&amp\n;'", 1, 2);
         testFail!func("'&\namp;'", 1, 2);
@@ -5986,7 +5983,7 @@ void checkText(bool allowRestrictedChars, Text)(ref Text orig)
     import std.utf : decodeFront, UseReplacementDchar;
 
     auto text = orig.save;
-    while(!text.input.empty)
+    loop: while(!text.input.empty)
     {
         switch(text.input.front)
         {
@@ -5996,60 +5993,41 @@ void checkText(bool allowRestrictedChars, Text)(ref Text orig)
                 {
                     import dxml.util : parseCharRef;
 
-                    auto temp = text.input.save;
-                    auto charRef = parseCharRef(temp);
-                    if(!charRef.isNull)
                     {
-                        static if(hasLength!(Text.Input))
+                        auto temp = text.input.save;
+                        auto charRef = parseCharRef(temp);
+                        if(!charRef.isNull)
                         {
-                            static if(Text.config.posType == PositionType.lineAndCol)
-                                text.pos.col += text.input.length - temp.length;
-                            text.input = temp;
-                        }
-                        else
-                        {
-                            while(text.input.front != ';')
+                            static if(hasLength!(Text.Input))
+                            {
+                                static if(Text.config.posType == PositionType.lineAndCol)
+                                    text.pos.col += text.input.length - temp.length;
+                                text.input = temp;
+                            }
+                            else
+                            {
+                                while(text.input.front != ';')
+                                    popFrontAndIncCol(text);
                                 popFrontAndIncCol(text);
-                            popFrontAndIncCol(text);
+                            }
+                            continue;
                         }
-                        continue;
                     }
-                    // Entity Reference
+
                     immutable ampPos = text.pos;
                     popFrontAndIncCol(text);
-                    if(text.input.empty)
-                        goto failedEntityRef;
+
+                    static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
                     {
-                        size_t numCodeUnits;
-                        immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-                        if(!isNameStartChar(decodedC))
-                            goto failedEntityRef;
-                        static if(text.config.posType == PositionType.lineAndCol)
-                            text.pos.col += numCodeUnits;
+                        if(text.stripStartsWith(entRef))
+                            continue loop;
                     }
-                    while(true)
-                    {
-                        if(text.input.empty)
-                            goto failedEntityRef;
-                        immutable c = text.input.front;
-                        if(c == ';')
-                            break;
-                        size_t numCodeUnits;
-                        immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
-                        if(!isNameChar(decodedC))
-                            goto failedEntityRef;
-                        static if(text.config.posType == PositionType.lineAndCol)
-                            text.pos.col += numCodeUnits;
-                    }
-                    assert(text.input.front == ';');
-                    popFrontAndIncCol(text);
-                    continue;
-                    failedEntityRef:
-                    {
-                        throw new XMLParsingException("& is only legal in an EntityType.text entity as part of a char " ~
-                                                      "or entity reference, and this is not a valid char or " ~
-                                                      "entity reference.", ampPos);
-                    }
+
+                    throw new XMLParsingException("& is only legal in an EntitType.text entity as part of a " ~
+                                                  "reference, and this parser only supports entity references if " ~
+                                                  "they're predefined by the spec. This is not a valid character " ~
+                                                  "reference or one of the predefined entity references.",
+                                                  ampPos);
                 }
                 case '<': throw new XMLParsingException("< is not legal in EntityType.text", text.pos);
                 case ']':
@@ -6168,10 +6146,9 @@ unittest
 
             test!(func, arc)("&amp;&gt;&lt;");
             test!(func, arc)("hello&amp;&gt;&lt;world");
-            test!(func, arc)(".....&amp;&gt;&lt;.....");
-            test!(func, arc)("&foo.;");
+            test!(func, arc)(".....&apos;&quot;&amp;.....");
             test!(func, arc)("&#12487;&#12451;&#12521;&#12531;");
-            test!(func, arc)("hello&#xAF;&#42;&foo;world");
+            test!(func, arc)("hello&#xAF;&#42;&quot;world");
 
             test!(func, arc)("]]");
             test!(func, arc)("]>");
@@ -6185,17 +6162,25 @@ unittest
         testFail!(func, false)("&", 1, 1);
         testFail!(func, false)("&", 1, 1);
         testFail!(func, false)("&x", 1, 1);
-        testFail!(func, false)("&.;", 1, 1);
         testFail!(func, false)("&&;", 1, 1);
         testFail!(func, false)("&a", 1, 1);
-        testFail!(func, false)("&a", 1, 1);
+        testFail!(func, false)("&a;", 1, 1);
+        testFail!(func, false)(`&am;`, 1, 1);
+        testFail!(func, false)(`&ampe;`, 1, 1);
+        testFail!(func, false)(`&l;`, 1, 1);
+        testFail!(func, false)(`&lte;`, 1, 1);
+        testFail!(func, false)(`&g;`, 1, 1);
+        testFail!(func, false)(`&gte;`, 1, 1);
+        testFail!(func, false)(`&apo;`, 1, 1);
+        testFail!(func, false)(`&aposs;`, 1, 1);
+        testFail!(func, false)(`&quo;`, 1, 1);
+        testFail!(func, false)(`&quote;`, 1, 1);
         testFail!(func, false)("hello&;", 1, 6);
         testFail!(func, false)("hello&;world", 1, 6);
         testFail!(func, false)("hello&<;world", 1, 6);
         testFail!(func, false)("hello&world", 1, 6);
         testFail!(func, false)("hello world&", 1, 12);
         testFail!(func, false)("hello world&;", 1, 12);
-        testFail!(func, false)("hello world&.;", 1, 12);
         testFail!(func, false)("hello world&foo", 1, 12);
         testFail!(func, false)("&#;", 1, 1);
         testFail!(func, false)("&#x;", 1, 1);
@@ -6224,17 +6209,25 @@ unittest
         test!(func, true)("<");
         test!(func, true)("&");
         test!(func, true)("&x");
-        test!(func, true)("&.;");
         test!(func, true)("&&;");
         test!(func, true)("&a");
-        test!(func, true)("&a");
+        test!(func, true)("&a;");
+        test!(func, true)(`&am;`);
+        test!(func, true)(`&ampe;`);
+        test!(func, true)(`&l;`);
+        test!(func, true)(`&lte;`);
+        test!(func, true)(`&g;`);
+        test!(func, true)(`&gte;`);
+        test!(func, true)(`&apo;`);
+        test!(func, true)(`&aposs;`);
+        test!(func, true)(`&quo;`);
+        test!(func, true)(`&quote;`);
         test!(func, true)("hello&;");
         test!(func, true)("hello&;world");
         test!(func, true)("hello&<;world");
         test!(func, true)("hello&world");
         test!(func, true)("hello world&");
         test!(func, true)("hello world&;");
-        test!(func, true)("hello world&.;");
         test!(func, true)("hello world&foo");
         test!(func, true)("&#;");
         test!(func, true)("&#x;");
