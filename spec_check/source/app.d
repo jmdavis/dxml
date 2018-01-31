@@ -15,81 +15,138 @@ module main;
 import std.range.primitives;
 import dxml.parser.stax;
 
-enum testsDir = "xmlconf";
-
 void main()
 {
-    xmlTest();
+    xmltest();
     japanese();
+    ibm();
 }
 
-void xmlTest()
+void xmltest()
 {
-    // Unfortunately, because we ignore the DTD section and only validate it
-    // enough to parse past it, we fail a number of the tests, because they
-    // test that the parser reports an error for invalid DTD stuff, which we
-    // don't care about. We also fail several tests, because they use an entity
-    // reference without declaring it first, and we don't care about that,
-    // because detecting that requires processing the DTD section. We also fail
-    // some tests related to the XML declaration at the top of the file, since
-    // we skip that too.
+    // Unfortunately, because we skip passed the XML declaration and the DTD
+    // section, we fail many tests - either because they validate those sections
+    // or because they include entity references in the main body of the XML
+    // which are not predefined entities (we consider them to be invalid XML,
+    // because we can't process them properly without processing the DTD
+    // section).
     auto ignoreList =
     [
         "xmlconf/xmltest/not-wf/sa/054.xml", "xmlconf/xmltest/not-wf/sa/056.xml", "xmlconf/xmltest/not-wf/sa/057.xml",
         "xmlconf/xmltest/not-wf/sa/058.xml", "xmlconf/xmltest/not-wf/sa/059.xml", "xmlconf/xmltest/not-wf/sa/060.xml",
         "xmlconf/xmltest/not-wf/sa/061.xml", "xmlconf/xmltest/not-wf/sa/062.xml", "xmlconf/xmltest/not-wf/sa/064.xml",
         "xmlconf/xmltest/not-wf/sa/065.xml", "xmlconf/xmltest/not-wf/sa/066.xml", "xmlconf/xmltest/not-wf/sa/067.xml",
-        "xmlconf/xmltest/not-wf/sa/068.xml", "xmlconf/xmltest/not-wf/sa/069.xml", "xmlconf/xmltest/not-wf/sa/071.xml",
-        "xmlconf/xmltest/not-wf/sa/072.xml", "xmlconf/xmltest/not-wf/sa/073.xml", "xmlconf/xmltest/not-wf/sa/074.xml",
-        "xmlconf/xmltest/not-wf/sa/075.xml", "xmlconf/xmltest/not-wf/sa/076.xml", "xmlconf/xmltest/not-wf/sa/077.xml",
-        "xmlconf/xmltest/not-wf/sa/078.xml", "xmlconf/xmltest/not-wf/sa/079.xml", "xmlconf/xmltest/not-wf/sa/080.xml",
-        "xmlconf/xmltest/not-wf/sa/081.xml", "xmlconf/xmltest/not-wf/sa/082.xml", "xmlconf/xmltest/not-wf/sa/083.xml",
+        "xmlconf/xmltest/not-wf/sa/068.xml", "xmlconf/xmltest/not-wf/sa/069.xml", "xmlconf/xmltest/not-wf/sa/078.xml",
+        "xmlconf/xmltest/not-wf/sa/079.xml", "xmlconf/xmltest/not-wf/sa/080.xml", "xmlconf/xmltest/not-wf/sa/082.xml",
         "xmlconf/xmltest/not-wf/sa/084.xml", "xmlconf/xmltest/not-wf/sa/085.xml", "xmlconf/xmltest/not-wf/sa/086.xml",
-        "xmlconf/xmltest/not-wf/sa/087.xml", "xmlconf/xmltest/not-wf/sa/089.xml", "xmlconf/xmltest/not-wf/sa/090.xml",
-        "xmlconf/xmltest/not-wf/sa/091.xml", "xmlconf/xmltest/not-wf/sa/092.xml", "xmlconf/xmltest/not-wf/sa/094.xml",
-        "xmlconf/xmltest/not-wf/sa/095.xml", "xmlconf/xmltest/not-wf/sa/096.xml", "xmlconf/xmltest/not-wf/sa/097.xml",
-        "xmlconf/xmltest/not-wf/sa/098.xml", "xmlconf/xmltest/not-wf/sa/099.xml", "xmlconf/xmltest/not-wf/sa/100.xml",
-        "xmlconf/xmltest/not-wf/sa/101.xml", "xmlconf/xmltest/not-wf/sa/102.xml", "xmlconf/xmltest/not-wf/sa/103.xml",
-        "xmlconf/xmltest/not-wf/sa/113.xml", "xmlconf/xmltest/not-wf/sa/114.xml", "xmlconf/xmltest/not-wf/sa/115.xml",
-        "xmlconf/xmltest/not-wf/sa/116.xml", "xmlconf/xmltest/not-wf/sa/117.xml", "xmlconf/xmltest/not-wf/sa/119.xml",
-        "xmlconf/xmltest/not-wf/sa/120.xml", "xmlconf/xmltest/not-wf/sa/121.xml", "xmlconf/xmltest/not-wf/sa/121.xml",
-        "xmlconf/xmltest/not-wf/sa/122.xml", "xmlconf/xmltest/not-wf/sa/123.xml", "xmlconf/xmltest/not-wf/sa/124.xml",
-        "xmlconf/xmltest/not-wf/sa/125.xml", "xmlconf/xmltest/not-wf/sa/126.xml", "xmlconf/xmltest/not-wf/sa/127.xml",
-        "xmlconf/xmltest/not-wf/sa/128.xml", "xmlconf/xmltest/not-wf/sa/129.xml", "xmlconf/xmltest/not-wf/sa/130.xml",
-        "xmlconf/xmltest/not-wf/sa/131.xml", "xmlconf/xmltest/not-wf/sa/132.xml", "xmlconf/xmltest/not-wf/sa/133.xml",
-        "xmlconf/xmltest/not-wf/sa/134.xml", "xmlconf/xmltest/not-wf/sa/135.xml", "xmlconf/xmltest/not-wf/sa/136.xml",
-        "xmlconf/xmltest/not-wf/sa/137.xml", "xmlconf/xmltest/not-wf/sa/138.xml", "xmlconf/xmltest/not-wf/sa/139.xml",
-        "xmlconf/xmltest/not-wf/sa/140.xml", "xmlconf/xmltest/not-wf/sa/141.xml", "xmlconf/xmltest/not-wf/sa/149.xml",
-        "xmlconf/xmltest/not-wf/sa/152.xml", "xmlconf/xmltest/not-wf/sa/153.xml", "xmlconf/xmltest/not-wf/sa/158.xml",
-        "xmlconf/xmltest/not-wf/sa/159.xml", "xmlconf/xmltest/not-wf/sa/160.xml", "xmlconf/xmltest/not-wf/sa/161.xml",
+        "xmlconf/xmltest/not-wf/sa/087.xml", "xmlconf/xmltest/not-wf/sa/089.xml", "xmlconf/xmltest/not-wf/sa/091.xml",
+        "xmlconf/xmltest/not-wf/sa/094.xml", "xmlconf/xmltest/not-wf/sa/095.xml", "xmlconf/xmltest/not-wf/sa/096.xml",
+        "xmlconf/xmltest/not-wf/sa/097.xml", "xmlconf/xmltest/not-wf/sa/098.xml", "xmlconf/xmltest/not-wf/sa/099.xml",
+        "xmlconf/xmltest/not-wf/sa/100.xml", "xmlconf/xmltest/not-wf/sa/101.xml", "xmlconf/xmltest/not-wf/sa/102.xml",
+        "xmlconf/xmltest/not-wf/sa/113.xml", "xmlconf/xmltest/not-wf/sa/114.xml", "xmlconf/xmltest/not-wf/sa/121.xml",
+        "xmlconf/xmltest/not-wf/sa/121.xml", "xmlconf/xmltest/not-wf/sa/122.xml", "xmlconf/xmltest/not-wf/sa/123.xml",
+        "xmlconf/xmltest/not-wf/sa/124.xml", "xmlconf/xmltest/not-wf/sa/125.xml", "xmlconf/xmltest/not-wf/sa/126.xml",
+        "xmlconf/xmltest/not-wf/sa/127.xml", "xmlconf/xmltest/not-wf/sa/128.xml", "xmlconf/xmltest/not-wf/sa/129.xml",
+        "xmlconf/xmltest/not-wf/sa/130.xml", "xmlconf/xmltest/not-wf/sa/131.xml", "xmlconf/xmltest/not-wf/sa/132.xml",
+        "xmlconf/xmltest/not-wf/sa/133.xml", "xmlconf/xmltest/not-wf/sa/134.xml", "xmlconf/xmltest/not-wf/sa/135.xml",
+        "xmlconf/xmltest/not-wf/sa/136.xml", "xmlconf/xmltest/not-wf/sa/137.xml", "xmlconf/xmltest/not-wf/sa/138.xml",
+        "xmlconf/xmltest/not-wf/sa/139.xml", "xmlconf/xmltest/not-wf/sa/149.xml", "xmlconf/xmltest/not-wf/sa/152.xml",
+        "xmlconf/xmltest/not-wf/sa/158.xml", "xmlconf/xmltest/not-wf/sa/160.xml", "xmlconf/xmltest/not-wf/sa/161.xml",
         "xmlconf/xmltest/not-wf/sa/162.xml", "xmlconf/xmltest/not-wf/sa/165.xml", "xmlconf/xmltest/not-wf/sa/175.xml",
-        "xmlconf/xmltest/not-wf/sa/180.xml", "xmlconf/xmltest/not-wf/sa/182.xml", "xmlconf/xmltest/not-wf/sa/183.xml",
-        "xmlconf/xmltest/not-wf/sa/184.xml", "xmlconf/xmltest/not-wf/sa/185.xml",
+        "xmlconf/xmltest/not-wf/sa/180.xml", "xmlconf/xmltest/not-wf/sa/183.xml", "xmlconf/xmltest/not-wf/sa/184.xml",
         "xmlconf/xmltest/not-wf/not-sa/001.xml", "xmlconf/xmltest/not-wf/not-sa/002.xml",
         "xmlconf/xmltest/not-wf/not-sa/003.xml", "xmlconf/xmltest/not-wf/not-sa/004.xml",
         "xmlconf/xmltest/not-wf/not-sa/005.xml", "xmlconf/xmltest/not-wf/not-sa/006.xml",
         "xmlconf/xmltest/not-wf/not-sa/007.xml", "xmlconf/xmltest/not-wf/not-sa/008.xml",
-        "xmlconf/xmltest/not-wf/not-sa/009.xml",
-        "xmlconf/xmltest/not-wf/ext-sa/001.xml", "xmlconf/xmltest/not-wf/ext-sa/002.xml",
-        "xmlconf/xmltest/not-wf/ext-sa/003.xml",
-        "xmlconf/xmltest/invalid/002.xml", "xmlconf/xmltest/invalid/005.xml", "xmlconf/xmltest/invalid/006.xml",
-        "xmlconf/xmltest/invalid/not-sa/022.xml",
+        "xmlconf/xmltest/not-wf/not-sa/009.xml", "xmlconf/xmltest/invalid/002.xml", "xmlconf/xmltest/invalid/005.xml",
+        "xmlconf/xmltest/invalid/006.xml", "xmlconf/xmltest/invalid/not-sa/022.xml",
+        "xmlconf/xmltest/valid/sa/023.xml", "xmlconf/xmltest/valid/sa/024.xml", "xmlconf/xmltest/valid/sa/053.xml",
+        "xmlconf/xmltest/valid/sa/066.xml", "xmlconf/xmltest/valid/sa/068.xml", "xmlconf/xmltest/valid/sa/085.xml",
+        "xmlconf/xmltest/valid/sa/086.xml", "xmlconf/xmltest/valid/sa/087.xml", "xmlconf/xmltest/valid/sa/088.xml",
+        "xmlconf/xmltest/valid/sa/089.xml", "xmlconf/xmltest/valid/sa/108.xml", "xmlconf/xmltest/valid/sa/110.xml",
+        "xmlconf/xmltest/valid/sa/114.xml", "xmlconf/xmltest/valid/sa/115.xml", "xmlconf/xmltest/valid/sa/117.xml",
+        "xmlconf/xmltest/valid/sa/118.xml", "xmlconf/xmltest/valid/not-sa/031.xml",
+        "xmlconf/xmltest/valid/ext-sa/001.xml", "xmlconf/xmltest/valid/ext-sa/002.xml",
+        "xmlconf/xmltest/valid/ext-sa/003.xml", "xmlconf/xmltest/valid/ext-sa/004.xml",
+        "xmlconf/xmltest/valid/ext-sa/005.xml", "xmlconf/xmltest/valid/ext-sa/006.xml",
+        "xmlconf/xmltest/valid/ext-sa/007.xml", "xmlconf/xmltest/valid/ext-sa/008.xml",
+        "xmlconf/xmltest/valid/ext-sa/009.xml", "xmlconf/xmltest/valid/ext-sa/010.xml",
+        "xmlconf/xmltest/valid/ext-sa/011.xml", "xmlconf/xmltest/valid/ext-sa/012.xml",
+        "xmlconf/xmltest/valid/ext-sa/013.xml", "xmlconf/xmltest/valid/ext-sa/014.xml",
     ];
 
-    import std.path : buildPath;
-    validateTests(buildPath(testsDir, "xmltest", "xmltest.xml"), ignoreList);
+    validateTests("xmlconf/xmltest/xmltest.xml", ignoreList);
 }
 
 void japanese()
 {
     auto ignoreList =
     [
-        "xmlconf/japanese/pr-xml-utf-16.xml", // FIXME big-endian
+        "xmlconf/japanese/pr-xml-little-endian.xml",
+        "xmlconf/japanese/pr-xml-utf-16.xml",
+        "xmlconf/japanese/pr-xml-utf-8.xml",
         "xmlconf/japanese/weekly-utf-16.xml", // FIXME big-endian
     ];
 
-    import std.path : buildPath;
-    validateTests(buildPath(testsDir, "japanese", "japanese.xml"), ignoreList);
+    validateTests("xmlconf/japanese/japanese.xml", ignoreList);
+}
+
+void ibm()
+{
+    // Unfortunately, because we skip passed the XML declaration and the DTD
+    // section, we fail many tests - either because they validate those sections
+    // or because they include entity references in the main body of the XML
+    // which are not predefined entities (we consider them to be invalid XML,
+    // because we can't process them properly without processing the DTD
+    // section).
+    auto ignoreList =
+    [
+        "xmlconf/ibm/invalid/P28/ibm28i01.xml", "xmlconf/ibm/invalid/P32/ibm32i01.xml",
+        "xmlconf/ibm/invalid/P32/ibm32i03.xml", "xmlconf/ibm/invalid/P32/ibm32i04.xml",
+        "xmlconf/ibm/invalid/P39/ibm39i01.xml", "xmlconf/ibm/invalid/P39/ibm39i02.xml",
+        "xmlconf/ibm/invalid/P39/ibm39i03.xml", "xmlconf/ibm/invalid/P39/ibm39i04.xml",
+        "xmlconf/ibm/invalid/P41/ibm41i01.xml", "xmlconf/ibm/invalid/P41/ibm41i02.xml",
+        "xmlconf/ibm/invalid/P45/ibm45i01.xml", "xmlconf/ibm/invalid/P49/ibm49i01.xml",
+        "xmlconf/ibm/invalid/P50/ibm50i01.xml", "xmlconf/ibm/invalid/P51/ibm51i01.xml",
+        "xmlconf/ibm/invalid/P51/ibm51i03.xml", "xmlconf/ibm/invalid/P56/ibm56i01.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i02.xml", "xmlconf/ibm/invalid/P56/ibm56i03.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i05.xml", "xmlconf/ibm/invalid/P56/ibm56i06.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i07.xml", "xmlconf/ibm/invalid/P56/ibm56i08.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i09.xml", "xmlconf/ibm/invalid/P56/ibm56i10.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i11.xml", "xmlconf/ibm/invalid/P56/ibm56i12.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i13.xml", "xmlconf/ibm/invalid/P56/ibm56i14.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i15.xml", "xmlconf/ibm/invalid/P56/ibm56i16.xml",
+        "xmlconf/ibm/invalid/P56/ibm56i17.xml", "xmlconf/ibm/invalid/P56/ibm56i18.xml",
+        "xmlconf/ibm/invalid/P58/ibm58i01.xml", "xmlconf/ibm/invalid/P58/ibm58i02.xml",
+        "xmlconf/ibm/invalid/P59/ibm59i01.xml", "xmlconf/ibm/invalid/P60/ibm60i01.xml",
+        "xmlconf/ibm/invalid/P60/ibm60i02.xml", "xmlconf/ibm/invalid/P60/ibm60i03.xml",
+        "xmlconf/ibm/invalid/P60/ibm60i04.xml", "xmlconf/ibm/invalid/P68/ibm68i01.xml",
+        "xmlconf/ibm/invalid/P68/ibm68i02.xml", "xmlconf/ibm/invalid/P68/ibm68i03.xml",
+        "xmlconf/ibm/invalid/P68/ibm68i04.xml", "xmlconf/ibm/invalid/P69/ibm69i01.xml",
+        "xmlconf/ibm/invalid/P69/ibm69i02.xml", "xmlconf/ibm/invalid/P69/ibm69i03.xml",
+        "xmlconf/ibm/invalid/P69/ibm69i04.xml", "xmlconf/ibm/invalid/P76/ibm76i01.xml",
+        "xmlconf/ibm/not-wf/P23/ibm23n01.xml", "xmlconf/ibm/not-wf/P23/ibm23n02.xml",
+        "xmlconf/ibm/not-wf/P23/ibm23n03.xml", "xmlconf/ibm/not-wf/P24/ibm24n01.xml",
+        "xmlconf/ibm/not-wf/P24/ibm24n03.xml", "xmlconf/ibm/not-wf/P24/ibm24n04.xml",
+        "xmlconf/ibm/not-wf/P24/ibm24n05.xml", "xmlconf/ibm/not-wf/P24/ibm24n06.xml",
+        "xmlconf/ibm/not-wf/P24/ibm24n07.xml", "xmlconf/ibm/not-wf/P24/ibm24n08.xml",
+        "xmlconf/ibm/not-wf/P24/ibm24n09.xml", "xmlconf/ibm/not-wf/P25/ibm25n01.xml",
+        "xmlconf/ibm/not-wf/P25/ibm25n02.xml", "xmlconf/ibm/not-wf/P26/ibm26n01.xml",
+        "xmlconf/ibm/not-wf/P28/ibm28n01.xml", "xmlconf/ibm/not-wf/P28/ibm28n03.xml",
+        "xmlconf/ibm/not-wf/P29/ibm29n01.xml", "xmlconf/ibm/not-wf/P29/ibm29n02.xml",
+        "xmlconf/ibm/not-wf/P29/ibm29n03.xml", "xmlconf/ibm/not-wf/P29/ibm29n05.xml",
+        "xmlconf/ibm/not-wf/P29/ibm29n06.xml", "xmlconf/ibm/not-wf/P29/ibm29n07.xml",
+        "xmlconf/ibm/not-wf/P30/ibm30n01.xml", "xmlconf/ibm/not-wf/P31/ibm31n01.xml",
+        "xmlconf/ibm/not-wf/P32/ibm32n01.xml", "xmlconf/ibm/not-wf/P32/ibm32n02.xml",
+        "xmlconf/ibm/not-wf/P32/ibm32n03.xml", "xmlconf/ibm/not-wf/P32/ibm32n04.xml",
+        "xmlconf/ibm/not-wf/P32/ibm32n05.xml", "xmlconf/ibm/not-wf/P32/ibm32n06.xml",
+        "xmlconf/ibm/not-wf/P32/ibm32n07.xml", "xmlconf/ibm/not-wf/P32/ibm32n08.xml",
+        "xmlconf/ibm/not-wf/P45/ibm45n01.xml",
+    ];
+
+    validateTests("xmlconf/ibm/ibm_oasis_invalid.xml", ignoreList);
+    validateTests("xmlconf/ibm/ibm_oasis_not-wf.xml", ignoreList);
+    validateTests("xmlconf/ibm/ibm_oasis_valid.xml", ignoreList);
 }
 
 void validateTests(string mainFile, string[] ignoreList)
