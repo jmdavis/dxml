@@ -877,7 +877,7 @@ public:
             static void test(alias func)(string text, EntityType type, Tuple!(string, string)[] expected,
                                          int row, int col, size_t line = __LINE__)
             {
-                auto range = assertNotThrown!XMLParsingException(parseXML!config(func(text)),
+                auto range = assertNotThrown!XMLParsingException(parseXML(func(text)),
                                                                  "unittest 1", __FILE__, line);
                 enforce!AssertError(range.front.type == type, "unittest failure 2", __FILE__, line);
                 enforce!AssertError(equal!cmpAttr(range.front.attributes, expected),
@@ -887,8 +887,7 @@ public:
 
             static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
             {
-                auto xml = func(text);
-                auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+                auto e = collectException!XMLParsingException(parseXML(func(text)));
                 enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
             }
@@ -1534,7 +1533,7 @@ private:
 
         static void test(alias func)(string xml, int row, int col, size_t line = __LINE__)
         {
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(func(xml)));
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(xml)));
             enforce!AssertError(range._type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
             enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
@@ -1655,8 +1654,7 @@ private:
 
         static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(text ~ "<root/>")));
             enforce!AssertError(range.front.type == EntityType.comment, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.text, expected), "unittest failure 2", __FILE__, line);
             enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
@@ -1664,8 +1662,7 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
-            auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+            auto e = collectException!XMLParsingException(parseXML(func(text ~ "<root/>")));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
@@ -1848,8 +1845,7 @@ private:
         static void test(alias func)(string text, string name, string expected,
                                      int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save),
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(text ~ "<root/>")),
                                                              "unittest failure 1", __FILE__, line);
             enforce!AssertError(range.front.type == EntityType.pi, "unittest failure 2", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 3", __FILE__, line);
@@ -1859,8 +1855,7 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
-            auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+            auto e = collectException!XMLParsingException(parseXML(func(text ~ "<root/>")));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
@@ -2019,9 +2014,8 @@ private:
 
         static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func("<root>" ~ text ~ "<root/>");
             auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
-            auto range = parseXML!config(xml.save);
+            auto range = parseXML(func("<root>" ~ text ~ "<root/>"));
             assertNotThrown!XMLParsingException(range.popFront());
             enforce!AssertError(range.front.type == EntityType.cdata, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.text, expected), "unittest failure 2", __FILE__, line);
@@ -2030,9 +2024,8 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func("<root>" ~ text ~ "<root/>");
             auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
-            auto range = parseXML!config(xml.save);
+            auto range = parseXML(func("<root>" ~ text ~ "<root/>"));
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
@@ -2138,9 +2131,8 @@ private:
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
             auto pos = TextPos(row, col + cast(int)"<root/>".length);
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save),
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(text ~ "<root/>")),
                                                              "unittest failure 1", __FILE__, line);
             enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 2", __FILE__, line);
             enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
@@ -2148,8 +2140,7 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text ~ "<root/>");
-            auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+            auto e = collectException!XMLParsingException(parseXML(func(text ~ "<root/>")));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
@@ -2306,8 +2297,7 @@ private:
         static void test(alias func)(string text, EntityType type, string name,
                                      int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text);
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(text)));
             enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
             enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
@@ -2316,7 +2306,7 @@ private:
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text);
-            auto e = collectException!XMLParsingException(parseXML!config(xml.save));
+            auto e = collectException!XMLParsingException(parseXML(func(text)));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
@@ -2385,8 +2375,7 @@ private:
 
         static void test(alias func)(string text, string name, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text);
-            auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+            auto range = assertNotThrown!XMLParsingException(parseXML(func(text)));
             range.popFront();
             enforce!AssertError(range.front.type == EntityType.elementEnd, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
@@ -2395,8 +2384,7 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func(text);
-            auto range = parseXML!config(xml.save);
+            auto range = parseXML(func(text));
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
@@ -2473,9 +2461,8 @@ private:
 
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func("<root>" ~ text ~ "</root>");
             auto pos = TextPos(row, col + (cast(int)(row == 1 ? "<root></" : "</").length));
-            auto range = parseXML!config(xml.save);
+            auto range = parseXML(func("<root>" ~ text ~ "</root>"));
             assertNotThrown!XMLParsingException(range.popFront());
             enforce!AssertError(range.front.type == EntityType.text, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.text, text), "unittest failure 2", __FILE__, line);
@@ -2484,9 +2471,8 @@ private:
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
-            auto xml = func("<root>" ~ text ~ "</root>");
             auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
-            auto range = parseXML!config(xml.save);
+            auto range = parseXML(func("<root>" ~ text ~ "</root>"));
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
@@ -2754,8 +2740,9 @@ private:
             auto xml = func(text);
             static foreach(config; someTestConfigs)
             {{
-                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
-                assertNotThrown!XMLParsingException(walkLength(range), "unittest failure", __FILE__, line);
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure 1",
+                                                                 __FILE__, line);
+                assertNotThrown!XMLParsingException(walkLength(range), "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -2764,10 +2751,11 @@ private:
             auto xml = func(text);
             static foreach(config; someTestConfigs)
             {{
-                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
+                auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save), "unittest failure 1",
+                                                                 __FILE__, line);
                 auto e = collectException!XMLParsingException(walkLength(range));
-                enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(e !is null, "unittest failure 2", __FILE__, line);
+                enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
             }}
         }
 
