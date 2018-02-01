@@ -1561,8 +1561,7 @@ public:
             case contentCharData2: _parseAtContentCharData(); break;
             case endTag: _parseElementEnd(); break;
             case endMisc: _parseAtEndMisc(); break;
-            case documentEnd:
-                assert(0, "It's illegal to call popFront() on an empty EntityRange.");
+            case documentEnd: assert(0, "It's illegal to call popFront() on an empty EntityRange.");
         }
     }
 
@@ -2379,6 +2378,7 @@ private:
             testFail!func("<!DOCTYPEname>", 1, 10);
             testFail!func("<!DOCTYPE name1><!DOCTYPE name2>", 1, 18);
             testFail!func("<!DOCTYPE\n\nname1><!DOCTYPE name2>", 3, 8);
+            testFail!func("<!DOCTYPE name [ ]<!--comment-->", 1, 19);
 
             // FIXME This really should have the exception point at the quote and
             // say that it couldn't find the matching quote rather than point at
@@ -2616,6 +2616,7 @@ private:
             testFail!func(`<foo></fo>`, 1, 8);
             testFail!func(`<foo></food>`, 1, 8);
             testFail!func(`<a></>`, 1, 6);
+            testFail!func(`<a></a b='42'>`, 1, 8);
         }
     }
 
@@ -5908,6 +5909,7 @@ unittest
         testFail!func(`'foo"`, 1, 1);
         testFail!func(`'<'`, 1, 2);
         testFail!func("'\v'", 1, 2);
+        testFail!func("'\uFFFE'", 1, 2);
         testFail!func(`'&`, 1, 2);
         testFail!func(`'&'`, 1, 2);
         testFail!func(`'&x'`, 1, 2);
@@ -5949,6 +5951,20 @@ unittest
         testFail!func("'&\namp;'", 1, 2);
         testFail!func("'\n&amp;&;'", 2, 6);
     }
+
+    // These can't be tested with testFail, because attempting to convert
+    // invalid Unicode results in UnicodeExceptions before parseXML even
+    // gets called.
+    import std.meta : AliasSeq;
+    static foreach(str; AliasSeq!("'" ~ cast(string)[255] ~ "'",
+                                  "'"w ~ cast(wstring)[0xD800] ~ "'",
+                                  "'"d ~ cast(dstring)[0xD800] ~ "'"))
+    {{
+        auto text = testParser!(Config.init)(str);
+        auto e = collectException!XMLParsingException(text.takeAttValue());
+        assert(e ! is null);
+        assert(e.pos == SourcePos(1, 2));
+    }}
 }
 
 @safe pure unittest
@@ -6145,10 +6161,14 @@ unittest
             test!(func, arc)("foo]]bar");
             test!(func, arc)("foo]>bar");
             test!(func, arc)("]] >");
+
+            testFail!(func, arc)("\v", 1, 1);
+            testFail!(func, arc)("\uFFFE", 1, 1);
+            testFail!(func, arc)("hello\vworld", 1, 6);
+            testFail!(func, arc)("he\nllo\vwo\nrld", 2, 4);
         }
 
         testFail!(func, false)("<", 1, 1);
-        testFail!(func, false)("\v", 1, 1);
         testFail!(func, false)("&", 1, 1);
         testFail!(func, false)("&", 1, 1);
         testFail!(func, false)("&x", 1, 1);
@@ -6187,8 +6207,6 @@ unittest
         testFail!(func, false)("&#42;foo\nbar&#42", 2, 4);
         testFail!(func, false)("&#42;foo\nbar&#x42", 2, 4);
         testFail!(func, false)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
-        testFail!(func, false)("hello\vworld", 1, 6);
-        testFail!(func, false)("he\nllo\vwo\nrld", 2, 4);
 
         testFail!(func, false)("]]>", 1, 1);
         testFail!(func, false)("foo]]>bar", 1, 4);
@@ -6234,8 +6252,21 @@ unittest
         test!(func, true)("&#42;foo\nbar&#42");
         test!(func, true)("&#42;foo\nbar&#x42");
         test!(func, true)("プログラミング&");
-        testFail!(func, true)("hello\vworld", 1, 6);
-        testFail!(func, true)("he\nllo\vwo\nrld", 2, 4);
+    }
+
+    // These can't be tested with testFail, because attempting to convert
+    // invalid Unicode results in UnicodeExceptions before parseXML even
+    // gets called.
+    import std.meta : AliasSeq;
+    static foreach(str; AliasSeq!(cast(string)[255], cast(wstring)[0xD800], cast(dstring)[0xD800]))
+    {
+        static foreach(arc; [false, true])
+        {{
+            auto text = testParser!(Config.init)(str);
+            auto e = collectException!XMLParsingException(text.checkText!arc());
+            assert(e ! is null);
+            assert(e.pos == SourcePos(1, 1));
+        }}
     }
 }
 
