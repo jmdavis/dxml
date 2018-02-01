@@ -70,11 +70,11 @@ class XMLParsingException : Exception
     /++
         The position in the XML input where the problem is.
       +/
-    SourcePos pos;
+    TextPos pos;
 
 package:
 
-    this(string msg, SourcePos sourcePos, string file = __FILE__, size_t line = __LINE__) @safe pure
+    this(string msg, TextPos sourcePos, string file = __FILE__, size_t line = __LINE__) @safe pure
     {
         import std.format : format;
         pos = sourcePos;
@@ -94,14 +94,14 @@ package:
     Where in the XML text an entity is.
 
     The primary use case for this is $(LREF XMLParsingException), but an
-    application may have other uses for it. The $(LREF SourcePos) for an
+    application may have other uses for it. The $(LREF TextPos) for an
     $(LREF2 Entity, EntityRange.Entity) can be obtained from
     $(LREF2 Entity.pos, EntityRange.Entity.pos).
 
     See_Also: $(LREF XMLParsingException.pos)$(BR)
               $(LREF EntityRange.Entity.pos)
   +/
-struct SourcePos
+struct TextPos
 {
     /// A line number in the XML file.
     int line = 1;
@@ -452,7 +452,7 @@ enum EntityType
     the original text and not mutating it at all. So, for the purposes of
     parsing, this parser treats all carriage returns as if they were newlines or
     spaces (though they won't count as newlines when counting the lines for
-    $(LREF SourcePos) for error messages). However, they $(I will) appear in any
+    $(LREF TextPos) for error messages). However, they $(I will) appear in any
     text fields or attribute values if they are in the document (since the text
     fields and attribute values are slices of the original text).
     $(REF normalize, dxml, util) can be used to strip them along with converting
@@ -587,10 +587,10 @@ public:
         /++
             The position in the the original text where the entity starts.
 
-            See_Also: $(LREF SourcePos)($BR)
+            See_Also: $(LREF TextPos)($BR)
                       $(LREF XMLParsingException.pos)
           +/
-        @property SourcePos pos() @safe const pure nothrow @nogc
+        @property TextPos pos() @safe const pure nothrow @nogc
         {
             return _pos;
         }
@@ -607,12 +607,12 @@ public:
             auto range = parseXML(xml);
             assert(range.front.type == EntityType.elementStart);
             assert(range.front.name == "root");
-            assert(range.front.pos == SourcePos(1, 1));
+            assert(range.front.pos == TextPos(1, 1));
             range.popFront();
 
             assert(range.front.type == EntityType.elementStart);
             assert(range.front.name == "foo");
-            assert(range.front.pos == SourcePos(2, 5));
+            assert(range.front.pos == TextPos(2, 5));
             range.popFront();
 
             assert(range.front.type == EntityType.text);
@@ -620,17 +620,17 @@ public:
                    "\n" ~
                    "        Foo and bar. Always foo and bar...\n" ~
                    "    ");
-            assert(range.front.pos == SourcePos(2, 10));
+            assert(range.front.pos == TextPos(2, 10));
             range.popFront();
 
             assert(range.front.type == EntityType.elementEnd);
             assert(range.front.name == "foo");
-            assert(range.front.pos == SourcePos(4, 5));
+            assert(range.front.pos == TextPos(4, 5));
             range.popFront();
 
             assert(range.front.type == EntityType.elementEnd);
             assert(range.front.name == "root");
-            assert(range.front.pos == SourcePos(5, 1));
+            assert(range.front.pos == TextPos(5, 1));
             range.popFront();
 
             assert(range.empty);
@@ -645,7 +645,7 @@ public:
             {
                 enforce!AssertError(!range.empty, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(range.front.type == type, "unittest failure 2", __FILE__, line);
-                enforce!AssertError(range.front.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+                enforce!AssertError(range.front.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
                 range.popFront();
             }
 
@@ -882,7 +882,7 @@ public:
                 enforce!AssertError(range.front.type == type, "unittest failure 2", __FILE__, line);
                 enforce!AssertError(equal!cmpAttr(range.front.attributes, expected),
                                     "unittest failure 3", __FILE__, line);
-                enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 4", __FILE__, line);
+                enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 4", __FILE__, line);
             }
 
             static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -890,7 +890,7 @@ public:
                 auto xml = func(text);
                 auto e = collectException!XMLParsingException(parseXML!config(xml.save));
                 enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
             }
 
             static foreach(func; testRangeFuncs)
@@ -1362,7 +1362,7 @@ public:
         }
 
         EntityType _type;
-        SourcePos _pos;
+        TextPos _pos;
         Taken _name;
         typeof(EntityRange._savedText) _savedText;
     }
@@ -1536,7 +1536,7 @@ private:
         {
             auto range = assertNotThrown!XMLParsingException(parseXML!config(func(xml)));
             enforce!AssertError(range._type == EntityType.elementEmpty, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -1630,7 +1630,7 @@ private:
             _text.skipUntilAndDrop!"--"();
         else
         {
-            _entityPos = SourcePos(_text.pos.line, _text.pos.col - 4);
+            _entityPos = TextPos(_text.pos.line, _text.pos.col - 4);
             _type = EntityType.comment;
             _tagStack.sawEntity();
             _savedText.pos = _text.pos;
@@ -1659,7 +1659,7 @@ private:
             auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(range.front.type == EntityType.comment, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.text, expected), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -1667,7 +1667,7 @@ private:
             auto xml = func(text ~ "<root/>");
             auto e = collectException!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -1796,7 +1796,7 @@ private:
     // Parses a processing instruction. < was already removed from the input.
     void _parsePI()
     {
-        _entityPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+        _entityPos = TextPos(_text.pos.line, _text.pos.col - 1);
         assert(_text.input.front == '?');
         popFrontAndIncCol(_text);
         static if(config.skipPI == SkipPI.yes)
@@ -1854,7 +1854,7 @@ private:
             enforce!AssertError(range.front.type == EntityType.pi, "unittest failure 2", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 3", __FILE__, line);
             enforce!AssertError(equal(range.front.text, expected), "unittest failure 4", __FILE__, line);
-            enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 5", __FILE__, line);
+            enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 5", __FILE__, line);
         }
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -1862,7 +1862,7 @@ private:
             auto xml = func(text ~ "<root/>");
             auto e = collectException!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -2001,7 +2001,7 @@ private:
     // Parses a CDATA. <![CDATA[ was already removed from the front of the input.
     void _parseCDATA()
     {
-        _entityPos = SourcePos(_text.pos.line, _text.pos.col - cast(int)"<![CDATA[".length);
+        _entityPos = TextPos(_text.pos.line, _text.pos.col - cast(int)"<![CDATA[".length);
         _type = EntityType.cdata;
         _tagStack.sawEntity();
         _savedText.pos = _text.pos;
@@ -2020,7 +2020,7 @@ private:
         static void test(alias func)(string text, string expected, int row, int col, size_t line = __LINE__)
         {
             auto xml = func("<root>" ~ text ~ "<root/>");
-            auto pos = SourcePos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
+            auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
             auto range = parseXML!config(xml.save);
             assertNotThrown!XMLParsingException(range.popFront());
             enforce!AssertError(range.front.type == EntityType.cdata, "unittest failure 1", __FILE__, line);
@@ -2031,7 +2031,7 @@ private:
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func("<root>" ~ text ~ "<root/>");
-            auto pos = SourcePos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
+            auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
             auto range = parseXML!config(xml.save);
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
@@ -2139,7 +2139,7 @@ private:
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func(text ~ "<root/>");
-            auto pos = SourcePos(row, col + cast(int)"<root/>".length);
+            auto pos = TextPos(row, col + cast(int)"<root/>".length);
             auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save),
                                                              "unittest failure 1", __FILE__, line);
             enforce!AssertError(range.front.type == EntityType.elementEmpty, "unittest failure 2", __FILE__, line);
@@ -2151,7 +2151,7 @@ private:
             auto xml = func(text ~ "<root/>");
             auto e = collectException!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -2220,7 +2220,7 @@ private:
     // < was already removed from the front of the input.
     void _parseElementStart()
     {
-        _entityPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+        _entityPos = TextPos(_text.pos.line, _text.pos.col - 1);
         _savedText.pos = _text.pos;
         _savedText.input = _text.takeUntilAndDrop!(">", true)();
 
@@ -2310,7 +2310,7 @@ private:
             auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(range.front.type == type, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -2318,7 +2318,7 @@ private:
             auto xml = func(text);
             auto e = collectException!XMLParsingException(parseXML!config(xml.save));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -2345,11 +2345,11 @@ private:
                 auto range = assertNotThrown!XMLParsingException(parseXML!simpleXML(func("<root/>")));
                 assert(range.front.type == EntityType.elementStart);
                 assert(equal(range.front.name, "root"));
-                assert(range._text.pos == SourcePos(1, 8));
+                assert(range._text.pos == TextPos(1, 8));
                 assertNotThrown!XMLParsingException(range.popFront());
                 assert(range.front.type == EntityType.elementEnd);
                 assert(equal(range.front.name, "root"));
-                assert(range._text.pos == SourcePos(1, 8));
+                assert(range._text.pos == TextPos(1, 8));
             }
         }
     }
@@ -2360,7 +2360,7 @@ private:
     // </ was already removed from the front of the input.
     void _parseElementEnd()
     {
-        _entityPos = SourcePos(_text.pos.line, _text.pos.col - 2);
+        _entityPos = TextPos(_text.pos.line, _text.pos.col - 2);
         _type = EntityType.elementEnd;
         _tagStack.sawEntity();
         immutable namePos = _text.pos;
@@ -2390,7 +2390,7 @@ private:
             range.popFront();
             enforce!AssertError(range.front.type == EntityType.elementEnd, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.name, name), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(range._text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
 
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
@@ -2399,7 +2399,7 @@ private:
             auto range = parseXML!config(xml.save);
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
 
         static foreach(func; testRangeFuncs)
@@ -2474,7 +2474,7 @@ private:
         static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func("<root>" ~ text ~ "</root>");
-            auto pos = SourcePos(row, col + (cast(int)(row == 1 ? "<root></" : "</").length));
+            auto pos = TextPos(row, col + (cast(int)(row == 1 ? "<root></" : "</").length));
             auto range = parseXML!config(xml.save);
             assertNotThrown!XMLParsingException(range.popFront());
             enforce!AssertError(range.front.type == EntityType.text, "unittest failure 1", __FILE__, line);
@@ -2485,7 +2485,7 @@ private:
         static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
         {
             auto xml = func("<root>" ~ text ~ "</root>");
-            auto pos = SourcePos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
+            auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
             auto range = parseXML!config(xml.save);
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
@@ -2550,7 +2550,7 @@ private:
                     _parseCDATA();
                 else
                 {
-                    immutable bangPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+                    immutable bangPos = TextPos(_text.pos.line, _text.pos.col - 1);
                     throw new XMLParsingException("Expected Comment or CDATA section", bangPos);
                 }
                 break;
@@ -2605,7 +2605,7 @@ private:
                         _parseAtEndMisc();
                     break;
                 }
-                immutable bangPos = SourcePos(_text.pos.line, _text.pos.col - 1);
+                immutable bangPos = TextPos(_text.pos.line, _text.pos.col - 1);
                 throw new XMLParsingException("Expected Comment", bangPos);
             }
             // PI ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
@@ -2647,7 +2647,7 @@ private:
             ++depth;
         }
 
-        void popTag(Taken tagName, SourcePos pos)
+        void popTag(Taken tagName, TextPos pos)
         {
             import std.algorithm : equal;
             import std.format : format;
@@ -2672,7 +2672,7 @@ private:
 
             static struct AttrChecker
             {
-                void pushAttr(Taken attrName, SourcePos attrPos)
+                void pushAttr(Taken attrName, TextPos attrPos)
                 {
                     import std.typecons : tuple;
                     state.attrs ~= tuple(attrName, attrPos);
@@ -2724,7 +2724,7 @@ private:
         {
             import std.typecons : Tuple;
             Taken[] tags;
-            Tuple!(Taken, SourcePos)[] attrs;
+            Tuple!(Taken, TextPos)[] attrs;
             size_t maxEntities;
         }
 
@@ -2767,7 +2767,7 @@ private:
                 auto range = assertNotThrown!XMLParsingException(parseXML!config(xml.save));
                 auto e = collectException!XMLParsingException(walkLength(range));
                 enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-                enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+                enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
             }}
         }
 
@@ -2864,7 +2864,7 @@ private:
         alias Input = R;
 
         Input input;
-        SourcePos pos;
+        TextPos pos;
 
         @property save() { return typeof(this)(input.save, pos); }
     }
@@ -2874,7 +2874,7 @@ private:
 
 
     EntityType _type;
-    SourcePos _entityPos;
+    TextPos _entityPos;
     auto _grammarPos = GrammarPos.documentStart;
 
     Taken _name;
@@ -3101,7 +3101,7 @@ unittest
                         range.popFront();
                 }());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }}
     }
 
@@ -4372,10 +4372,10 @@ unittest
             auto text = testParser(haystack.save);
             enforce!AssertError(text.stripStartsWith(needle) == startsWith, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equalCU(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4467,10 +4467,10 @@ unittest
             auto text = testParser(haystack.save);
             enforce!AssertError(text.stripWS() == stripped, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equalCU(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4528,10 +4528,10 @@ unittest
             enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), expected),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4550,10 +4550,10 @@ unittest
             auto text = testParser(haystack.save);
             auto e = collectException!XMLParsingException(text.takeUntilAndDrop!(needle, sqt)());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4652,10 +4652,10 @@ unittest
             assertNotThrown!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)(), "unittest failure 1",
                                                 __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4674,10 +4674,10 @@ unittest
             auto text = testParser(haystack.save);
             auto e = collectException!XMLParsingException(text.skipUntilAndDrop!(needle, sqt)());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4937,10 +4937,10 @@ unittest
             auto text = testParser(haystack.save);
             assertNotThrown!XMLParsingException(text.skipToOneOf!delims(), "unittest 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -4957,10 +4957,10 @@ unittest
             auto text = testParser(haystack.save);
             auto e = collectException!XMLParsingException(text.skipToOneOf!delims());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5037,10 +5037,10 @@ unittest
             auto text = testParser(haystack.save);
             enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5160,10 +5160,10 @@ unittest
             enforce!AssertError(equal(text.takeName!delim(), expected),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5181,10 +5181,10 @@ unittest
             auto text = testParser(haystack.save);
             auto e = collectException!XMLParsingException(text.takeName!delim());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5432,10 +5432,10 @@ unittest
             enforce!AssertError(equal(text.takeAttValue(), expected),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
-            enforce!AssertError(text.pos == SourcePos(row, col), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5453,10 +5453,10 @@ unittest
             auto text = testParser(haystack.save);
             auto e = collectException!XMLParsingException(text.takeAttValue());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
@@ -5606,7 +5606,7 @@ unittest
         auto text = testParser(str);
         auto e = collectException!XMLParsingException(text.takeAttValue());
         assert(e ! is null);
-        assert(e.pos == SourcePos(1, 2));
+        assert(e.pos == TextPos(1, 2));
     }}
 }
 
@@ -5758,10 +5758,10 @@ unittest
             auto range = testParser(xml.save);
             auto e = collectException!XMLParsingException(checkText!arc(range));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
-            enforce!AssertError(e.pos == SourcePos(row, col), "unittest failure 2", __FILE__, line);
+            enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
-            auto pos = SourcePos(row + 3, row == 1 ? col + 7 : col);
+            auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
             auto range = testParser(xml);
             range.pos.line += 3;
             range.pos.col += 7;
@@ -5895,7 +5895,7 @@ unittest
             auto text = testParser(str);
             auto e = collectException!XMLParsingException(text.checkText!arc());
             assert(e ! is null);
-            assert(e.pos == SourcePos(1, 1));
+            assert(e.pos == TextPos(1, 1));
         }}
     }
 }
@@ -6090,7 +6090,7 @@ pragma(inline, true) void popFrontAndIncCol(Text)(ref Text text)
     ++text.pos.col;
 }
 
-pragma(inline, true) void nextLine(Config config)(ref SourcePos pos)
+pragma(inline, true) void nextLine(Config config)(ref TextPos pos)
 {
     ++pos.line;
     pos.col = 1;
