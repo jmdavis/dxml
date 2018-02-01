@@ -1962,17 +1962,8 @@ private:
             _tagStack.sawEntity();
             _name = takeName!'?'(_text);
             immutable posAtWS = _text.pos;
-            if(stripWS(_text))
-            {
-                checkNotEmpty(_text);
-                if(_text.input.front == '?')
-                {
-                    throw new XMLParsingException("There cannot be whitespace after the name if there is no text " ~
-                                                  "before the terminating ?>", posAtWS);
-                }
-            }
-            else
-                checkNotEmpty(_text);
+            stripWS(_text);
+            checkNotEmpty(_text);
             _savedText.pos = _text.pos;
             _savedText.input = _text.takeUntilAndDrop!"?>"();
             checkText!true(_savedText);
@@ -2054,6 +2045,9 @@ private:
             test!func("<?京都市 ディラン?>", "京都市", "ディラン", 1, codeLen!(func, "<?京都市 ディラン?>") + 1);
             test!func("<?foo bar&baz?>", "foo", "bar&baz", 1, 16);
             test!func("<?foo bar<baz?>", "foo", "bar<baz", 1, 16);
+            test!func("<?pi ?>", "pi", "", 1, 8);
+            test!func("<?pi\n?>", "pi", "", 2, 3);
+            test!func("<?foo ??>", "foo", "?", 1, 10);
             test!func("<?pi some data ? > <??>", "pi", "some data ? > <?", 1, 24);
 
             testFail!func("<??>", 1, 3);
@@ -2064,10 +2058,6 @@ private:
             testFail!func("<?foo>", 1, 6);
             testFail!func("<? foo?>", 1, 3);
             testFail!func("<?\nfoo?>", 1, 3);
-            testFail!func("<?foo ?>", 1, 6);
-            testFail!func("<?foo   ?>", 1, 6);
-            testFail!func("<?foo\n?>", 1, 6);
-            testFail!func("<?foo ??>", 1, 6);
             testFail!func("<??foo?>", 1, 3);
             testFail!func("<?.foo?>", 1, 3);
             testFail!func("<?foo bar\vbaz?>", 1, 10);
