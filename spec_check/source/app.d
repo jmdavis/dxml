@@ -13,6 +13,7 @@
 module main;
 
 import std.range.primitives;
+import std.traits;
 import dxml.parser.stax;
 
 void main()
@@ -452,14 +453,14 @@ void validateTests(string mainFile, string[] ignoreList)
 
 void parseExpectSuccess(string file)
 {
-    import std.encoding : BOM;
+    import std.encoding : BOM, getBOM;
     import std.exception : assertNotThrown, enforce;
     import std.format : format;
-    import std.file : exists, readBOM, readText;
+    import std.file : exists, read, readText;
     import std.utf : UTFException;
 
     enforce(file.exists, format("%s does not exist", file));
-    immutable bom = readBOM(file).schema;
+    immutable bom = getBOM(cast(ubyte[])read(file)).schema;
     // FIXME This only works properly with little-endian machines right now, and 
     // we need a way to process big endian encodings.
     switch(bom)
@@ -467,13 +468,13 @@ void parseExpectSuccess(string file)
         case BOM.none:
         case BOM.utf8:
         {
-            auto text = file.readText();
+            auto text = stripBOM(file.readText());
             assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
             break;
         }
         case BOM.utf16le:
         {
-            auto text = file.readText!wstring();
+            auto text = stripBOM(file.readText!wstring());
             assertNotThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
             break;
         }
@@ -483,12 +484,32 @@ void parseExpectSuccess(string file)
 
 void parseExpectFailure(string file)
 {
+    import std.encoding : BOM, getBOM;
     import std.exception : assertThrown, enforce;
     import std.format : format;
-    import std.file : exists;
+    import std.file : exists, read;
     enforce(file.exists, format("%s does not exist", file));
-    auto text = file.unvalidatedReadText();
-    assertThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
+
+    immutable bom = getBOM(cast(ubyte[])read(file)).schema;
+    // FIXME This only works properly with little-endian machines right now, and 
+    // we need a way to process big endian encodings.
+    switch(bom)
+    {
+        case BOM.none:
+        case BOM.utf8:
+        {
+            auto text = stripBOM(cast(string)file.read());
+            assertThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
+            break;
+        }
+        case BOM.utf16le:
+        {
+            auto text = stripBOM(cast(wstring)file.read());
+            assertThrown!XMLParsingException(parseEverything(text), format("%s failed", file));
+            break;
+        }
+        default: throw new Exception(format("Unsupported encoding: %s, file: %s", bom, file));
+    }
 }
 
 void parseEverything(S)(S xml)
@@ -527,16 +548,15 @@ void parseEverything(S)(S xml)
     }
 }
 
-// We should probably consider making dxml work with ranges of ubyte, ushort,
-// and uint, since char, wchar, and dchar are supposed to be valid Unicode, but
-// for now it doesn't. In any case, we need this function, because readText
-// validates the characters, and at least one of the tests has invalid Unicode
-// in it - and the parser is set up such that it should be catching such a
-// character if it's given it, so I'd just as soon test it this way rather than
-// skipping the test on the theory that any string would have already been
-// validated as far as Unicode goes.
-string unvalidatedReadText(string file)
+
+// To be replaced by std.utf.stripBOM once it's available.
+R stripBOM(R)(R range)
+if (isForwardRange!R && isSomeChar!(ElementType!R))
 {
-    import std.file : read;
-    return cast(string)read(file);
+    import std.utf : decodeFront, UseReplacementDchar;
+    if (range.empty)
+        return range;
+    auto orig = range.save;
+    immutable c = range.decodeFront!(UseReplacementDchar.yes)();
+    return c == '\uFEFF' ? range : orig;
 }
