@@ -28,7 +28,7 @@
     wherever they were used in the document would be replaced by what they
     referred to, and that could affect the parsing). As such, if any entity
     references which are not predefined are encountered outside of the DTD
-    section, an $(REF XMLParsingException) will be thrown. The predefined
+    section, an $(LREF XMLParsingException) will be thrown. The predefined
     entity references and any character references encountered will be checked
     to verify that they're valid, but they will not be replaced (since that
     does not work with returning slices of the original input).
@@ -39,19 +39,72 @@
     $(REF parseCharRef, dxml, util) can be used to convert character references
     to what they refer to.
 
-    $(LREF parseXML) is the function used to initiate the parsing of an XML
-    document, and it returns an $(LREF EntityRange), which is a range-based
-    StAX parser. $(LREF Config) can be used to configure some of the parser's
-    behavior (e.g. $(LREF SkipComments.yes) would tell it to not report comments
-    to the application). $(LREF makeConfig) is a helper function to create
-    custom $(LREF Config)s more easily, and $(LREF simpleXML) is a
-    $(LREF Config) which provides simpler defaults than
-    $(D $(LREF Config).init).
+    $(H3 Primary Symbols)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF parseXML))
+             $(TD The function used to initiate the parsing of an XML
+                  document.))
+        $(TR $(TD $(LREF EntityRange))
+             $(TD The range returned by $(LREF parseXML).))
+        $(TR $(TD $(LREF EntityRange.Entity))
+             $(TD The element type of $(LREF EntityRange).))
+    )
+
+    $(H3 Parser Configuration Helpers)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF Config))
+             $(TD Used to configure how $(LREF EntityRange) parses the XML.))
+        $(TR $(TD $(LREF simpleXML))
+             $(TD A user-friendly configuration for when the application just
+                  wants the element tags and the data in between them.))
+        $(TR $(TD $(LREF makeConfig))
+             $(TD A convenience function for constructing a $(LREF Config).))
+        $(TR $(TD $(LREF SkipComments))
+             $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
+                  to tell the parser to skip comments.))
+        $(TR $(TD $(LREF SkipPI))
+             $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
+                  to tell the parser to skip parsing instructions.))
+        $(TR $(TD $(LREF SplitEmpty))
+             $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
+                  to configure how the parser deals with empty element tags.))
+    )
+
+    $(H3 Helper Types Used When Parsing)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF EntityType))
+             $(TD The type of an entity in the XML (e.g. a
+                  $(LREF_ALT_TEXT start tag, EntityType.elementStart) or a
+                  $(LREF_ALT_TEXT comment, EntityType.comment)).))
+        $(TR $(TD $(LREF TextPos))
+             $(TD Gives the line and column number in the XML document.))
+        $(TR $(TD $(LREF XMLParsingException))
+             $(TD Thrown by $(LREF EntityRange) when it tries to parse invalid
+                  XML.))
+    )
+
+    $(H3 Helper Functions Used When Parsing)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF skipContents))
+             $(TD Skips from a start tag to its matching end tag.))
+        $(TR $(TD $(LREF skipToPath))
+             $(TD Used to navigate from one start tag to another as if the start
+                  tag names formed a file path.))
+        $(TR $(TD $(LREF skipToEntityType))
+             $(TD Skips to the next entity of the given type in the range.))
+        $(TR $(TD $(LREF skipToParentDepth))
+             $(TD Skips entities until it reaches one which is at the same depth
+                  as the parent of the current entity.))
+    )
 
     Copyright: Copyright 2017 - 2018
-    License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
-    Authors:   Jonathan M Davis
-    Source:    $(LINK_TO_SRC dxml/parser/_cursor.d)
+    License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+    Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
+    Source:    $(LINK_TO_SRC dxml/parser/_stax.d)
 
     See_Also: $(LINK2 http://www.w3.org/TR/REC-xml/, Official Specification for XML 1.0)
   +/
@@ -94,7 +147,7 @@ package:
     Where in the XML text an entity is.
 
     The primary use case for this is $(LREF XMLParsingException), but an
-    application may have other uses for it. The $(LREF TextPos) for an
+    application may have other uses for it. The TextPos for an
     $(LREF2 Entity, EntityRange.Entity) can be obtained from
     $(LREF2 Entity.pos, EntityRange.Entity.pos).
 
@@ -311,9 +364,10 @@ unittest
 
 
 /++
-    This config is intended for making it easy to parse XML that does not
-    contain some of the more advanced XML features such as DTDs. It skips
-    everything that can be configured to skip.
+    This config is intended for making it easy to parse XML by skipping
+    everything that isn't the actual data as well as making it simpler to deal
+    with empty element tags by treating them the same as a start tag and end
+    tag with nothing but whitespace between them.
   +/
 enum simpleXML = makeConfig(SkipComments.yes, SkipPI.yes, SplitEmpty.yes);
 
@@ -417,7 +471,7 @@ enum EntityType
     allocates some of its state on the heap so it can validate attributes and
     end tags. However, that state is shared among all the ranges that came from
     the same call to parseXML (only the range farthest along in parsing
-    validates attributes or end tags), so $(LREF2 save, EntityRange) does not
+    validates attributes or end tags), so $(LREF2 save, _EntityRange) does not
     allocate memory. The shared state currently uses a couple of dynamic arrays
     to validate the tags and attributes, and if the document has a particularly
     deep tag-depth or has a lot of attributes on on a start tag, then some
@@ -458,8 +512,6 @@ enum EntityType
     $(REF normalize, dxml, util) can be used to strip them along with converting
     any character references in the text. Alternatively, the application can
     remove them all before calling parseXML, but it's not necessary.
-
-    See_Also: $(MREF dxml, parser, dom)
   +/
 struct EntityRange(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -481,21 +533,26 @@ public:
         is a string or supports slicing, then SliceOfR is the same as $(D R);
         otherwise, it's the result of calling
         $(PHOBOS_REF takeExactly, std, range) on the input.
+
+        ---
+        import std.algorithm : filter;
+        import std.range : takeExactly;
+
+        static assert(is(EntityRange!(Config.init, string).SliceOfR == string));
+
+        auto range = filter!(a => true)("some xml");
+
+        static assert(is(EntityRange!(Config.init, typeof(range)).SliceOfR ==
+                         typeof(takeExactly(range, 42))));
+        ---
       +/
     static if(isDynamicArray!R || hasSlicing!R)
         alias SliceOfR = R;
     else
         alias SliceOfR = typeof(takeExactly(R.init, 42));
 
-    // TODO re-enable these. Whenever EntityRange doesn't compile correctly due
-    // to a change, these static assertions fail, and the actual errors are masked.
-    // So, rather than continuing to deal with that whenever I change somethnig,
-    // I'm leaving these commented out for now.
-    // Also, unfortunately, https://issues.dlang.org/show_bug.cgi?id=11133
-    // currently prevents this from showing up in the docs, and I don't know of
-    // a workaround that works.
-    /+
-    ///
+    // https://issues.dlang.org/show_bug.cgi?id=11133 prevents this from being
+    // a ddoc-ed unit test.
     static if(compileInTests) @safe unittest
     {
         import std.algorithm : filter;
@@ -506,9 +563,8 @@ public:
         auto range = filter!(a => true)("some xml");
 
         static assert(is(EntityRange!(Config.init, typeof(range)).SliceOfR ==
-                         typeof(takeExactly(range, 4))));
+                         typeof(takeExactly(range, 42))));
     }
-    +/
 
 
     /++
@@ -1497,7 +1553,7 @@ public:
 
     /++
         Returns an empty range. This corresponds to
-        $(PHOBOS_REF takeNone, std, range) except that it doesn't create a
+        $(PHOBOS_REF _takeNone, std, range) except that it doesn't create a
         wrapper type.
       +/
     auto takeNone()

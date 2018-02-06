@@ -13,14 +13,3 @@ $(COMMENT The link to the root of the source tree so that LINK_TO_SRC can be
           "https://github.com/jmdavis/dxml/blob/master/dxml/parser/range.d".)
 PROJECT_SRC_ROOT=https://github.com/jmdavis/dxml/blob/master
 _=
-
-$(COMMENT Look in main.ddoc to see exactly where these fit into the
-          <head> and <body> tags, but EXTRA_HEADERS goes right before
-          </head>, BODY_PREFIX goes right before $(BODY) in the <body>,
-          BODY_POSTFIX goes right after $(BODY), and EXTRA_FOOTERS goes
-          before </body>.)
-EXTRA_HEADERS=
-BODY_PREFIX=
-BODY_POSTFIX=
-EXTRA_FOOTERS=
-_=

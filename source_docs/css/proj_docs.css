@@ -1,17 +1,18 @@
 body
 {
-    background: #F5F5F5;
+    background: #DDDDDD;
     color: #000000;
-    font-size: 93.75%;
-    line-height: 1.4;
-    margin: 15px;
-    padding: 15px;
-    text-align: justify;
+    margin: 0;
 }
 
 /* This is needed so that sidebar-underbar stretches to the bottom of the page */
 body > .container
 {
+    font-size: 93.75%;
+    line-height: 1.4;
+    margin: 15px;
+    padding: 15px;
+    text-align: justify;
     position: relative;
 }
 
@@ -19,12 +20,12 @@ body > .container
 .d_code
 {
     font-family: "Courier New", monospace;
-    background: #DFDFDF;
+    background: #CCCCCC;
     border-radius: 4px;
     padding: 1ex;
     margin: 1em 0 1em 0;
     line-height: normal;
-    border: 1px solid #CCCCCC;
+    border: 1px solid #000099;
     width: auto;
 }
 
@@ -32,6 +33,7 @@ body > .container
 .d_inlinecode
 {
     font-weight: bold;
+    background: #CCCCCC;
 }
 
 /* SPAN: Formats D_COMMENT */
@@ -115,7 +117,8 @@ body > .container
 
 .ddoc_constraint:hover
 {
-    color: #C16400;
+    background: #BBBBBB;
+    color: #0000FF;
     text-weight: bold;
     opacity: 1;
 }
@@ -148,8 +151,10 @@ body > .container
 /* TD: Formats DDOC_DECL */
 .ddoc_decl
 {
-    background: #E6E6E6;
+    background: #EEEEEE;
     border-left: 5px solid #130AAD;
+    border-top: 1px solid #9999CC;
+    border-right: 1px solid #9999CC;
     text-align: left;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
@@ -157,22 +162,15 @@ body > .container
 
 .ddoc_decl > div
 {
-    border: 1px solid #D6D6D6;
     border-top-right-radius: 4px;
     padding: 0.6em 1em;
 }
 
 .ddoc_decl + dd
 {
-    border: 1px solid #D6D6D6;
-    border-top: none;
+    border: 1px solid #9999CC;
     border-bottom-left-radius: 4px;
     border-bottom-right-radius: 4px;
-}
-
-/* TD: Formats DDOC_DECL_DD */
-.ddoc_decl_dd
-{
     margin: 0;
     margin-bottom: 2em;
     padding: 1ex;
@@ -370,6 +368,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* DIV: Formats the entire DDOC_SEE_ALSO section*/
 .ddoc_see_also
 {
+    margin: 1em 0;
 }
 
 /* SPAN: Formats the DDOC_STANDARDS section's title */
@@ -445,7 +444,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* These are for the jump links */
 .quickindex
 {
-    background: #E6E6E6;
+    background: #BBBBBB;
     font-weight: normal;
 }
 
@@ -454,15 +453,16 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
     text-decoration: none;
 }
 
-.quickindex a:hover {
+.quickindex a:hover
+{
     text-decoration: underline;
 }
 
 /* These are for the navigation bar on the side with the module menu */
 .sidebar, .sidebar-underbar
 {
-    background: #F5F5F5;
-    border: 0 solid #CCCCCC;
+    background: #BBBBBB;
+    border: 0 solid #000099;
     border-width: 1px 1px 1px;
     padding-left: 1em;
     padding-right: 1em;
@@ -496,7 +496,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 
 .sidebar h2
 {
-    border-bottom: 1px solid #CCCCCC;
+    border-bottom: 1px solid #000099;
     font-size: 1em;
     margin-right: -1em;
 }
@@ -536,8 +536,6 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
     color: #444444;
 }
 
-/* */
-
 .expand-container > .expand-toggle::after
 {
     content: " \f0d7"; /* caret down */
@@ -567,19 +565,19 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* These add the lines to the sidebar */
 .sidebar ul ul ul
 {
-    border-left: 1px solid #CCCCCC;
+    border-left: 1px solid #000099;
 }
 
 .sidebar li li > a > span,
 .sidebar li li > h7 > span
 {
-    border-left: 1px solid #CCCCCC;
+    border-left: 1px solid #000099;
 }
 
 .sidebar ul ul li > a > span::before,
 .sidebar ul ul li > h7 > span::before
 {
-    border-bottom: 1px solid #CCCCCC;
+    border-bottom: 1px solid #000099;
     content: "";
     display: inline-block;
     width: 0.5ex;
@@ -604,7 +602,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 .sidebar ul ul li:last-child > a > span::before,
 .sidebar ul ul li:last-child > h7 > span::before
 {
-    border-left: 1px solid #CCCCCC;
+    border-left: 1px solid #000099;
 }
 
 /* The modules listed on the index page */

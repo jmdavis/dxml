@@ -7,15 +7,22 @@ LINK_TO_SRC=$(SPANC link_to_source, $(LINK2 $(PROJECT_SRC_ROOT)/$1, $1))
 _=
 
 $(COMMENT Used to generate links within the same documentation page.
-          e.g. $(LREF MyClass) would link to the MyClass symbol on the same page.)
+          e.g. $(LREF MyClass) would link to the MyClass symbol in the same module.)
 LREF=<a href="#.$1">$(D $1)</a>
 _=
 
 $(COMMENT Used to generate links within the same documentation page but only show
           the symbol name in the link text and not the fully-qualified symbol name.
-          e.g. $(LREF2 prop, MyClass) would link to the MyClass.prop symbol on the
-          same page.)
+          e.g. $(LREF2 prop, MyClass) would link to the MyClass.prop symbol in the
+          same module.)
 LREF2=<a href="#.$+.$1">$(D $1)</a>
+_=
+
+$(COMMENT Used to generate links within the same documentation page but show text
+          other than what is being linked to.
+          e.g. $(LREF_ALT_TEXT MyClass' property, MyClass.prop) would link to the
+          MyClass.prop symbol in the same module.)
+LREF_ALT_TEXT=<a href="#.$+">$(D $1)</a>
 _=
 
 $(COMMENT Used to generate links to symbols in other documentation pages for the same project.

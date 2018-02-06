@@ -5,9 +5,9 @@
     parser or writer.
 
     Copyright: Copyright 2018
-    License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
-    Authors:   Jonathan M Davis
-    Source:    $(LINK_TO_SRC dxml/parser/_cursor.d)
+    License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
+    Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
+    Source:    $(LINK_TO_SRC dxml/_util.d)
 
     See_Also: $(LINK2 http://www.w3.org/TR/REC-xml/, Official Specification for XML 1.0)
   +/
@@ -1198,7 +1198,7 @@ bool isXMLChar(dchar c) pure nothrow @safe @nogc
 {
     // The rule says '\n' and not '\r', but we're not going to pass '\n' to
     // this function, because it has to be handled separately for keeping track
-    // of SourcePos. Look at the documentation for EntityRange for the
+    // of TextPos. Look at the documentation for EntityRange for the
     // explanation of how we're treating '\r' and why.
     import std.ascii : isASCII;
     assert(c != '\n');
