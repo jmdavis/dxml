@@ -22,7 +22,7 @@ $(T html,
                 $(DIVCID quickindex, quickindex, )
                 $(BODY_PREFIX)
                 $(BODY)
-                $(FOOTER)
+                $(BODY_POSTFIX)
             )
         )
         $(COMMENT listanchors generates the jump links)
