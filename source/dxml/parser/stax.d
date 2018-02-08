@@ -127,10 +127,10 @@ class XMLParsingException : Exception
 
 package:
 
-    this(string msg, TextPos sourcePos, string file = __FILE__, size_t line = __LINE__) @safe pure
+    this(string msg, TextPos textPos, string file = __FILE__, size_t line = __LINE__) @safe pure
     {
         import std.format : format;
-        pos = sourcePos;
+        pos = textPos;
         if(pos.line != -1)
         {
             if(pos.col != -1)
@@ -795,7 +795,9 @@ public:
         /++
             Returns a lazy range of attributes for a start tag where each
             attribute is represented as a
-            $(D Tuple!($(LREF2 SliceOfR, EntityRange), "name", $(LREF2 SliceOfR, EntityRange), "value")).
+            $(D Tuple!($(LREF2 SliceOfR, EntityRange), "name",
+                       $(LREF2 SliceOfR, EntityRange), "value"),
+                       $(LREF TextPos, pos)).
 
             $(TABLE
                 $(TR $(TH Supported $(LREF EntityType)s:))
@@ -816,7 +818,7 @@ public:
             // EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
 
             import std.typecons : Tuple;
-            alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value");
+            alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value", TextPos,  "pos");
 
             static struct AttributeRange
             {
@@ -836,17 +838,18 @@ public:
                         return;
                     }
 
+                    immutable pos = _text.pos;
                     auto name = stripBCU!R(_text.takeName!'='());
                     stripWS(_text);
                     popFrontAndIncCol(_text);
                     stripWS(_text);
-                    _front = Attribute(name, stripBCU!R(takeEnquotedText(_text)));
+                    _front = Attribute(name, stripBCU!R(takeEnquotedText(_text)), pos);
                 }
 
                 @property auto save()
                 {
                     auto retval = this;
-                    retval._front = Attribute(_front[0].save, _front[1].save);
+                    retval._front = Attribute(_front[0].save, _front[1].save, _front[2]);
                     retval._text.input = retval._text.input.save;
                     return retval;
                 }
@@ -887,12 +890,15 @@ public:
                 auto attrs = range.front.attributes;
                 assert(attrs.front.name == "a");
                 assert(attrs.front.value == "42");
+                assert(attrs.front.pos == TextPos(1, 7));
                 attrs.popFront();
                 assert(attrs.front.name == "q");
                 assert(attrs.front.value == "29");
+                assert(attrs.front.pos == TextPos(1, 14));
                 attrs.popFront();
                 assert(attrs.front.name == "w");
                 assert(attrs.front.value == "hello");
+                assert(attrs.front.pos == TextPos(1, 21));
                 attrs.popFront();
                 assert(attrs.empty);
             }
@@ -905,12 +911,15 @@ public:
                 auto attrs = range.front.attributes;
                 assert(equal(attrs.front.name, "a"));
                 assert(equal(attrs.front.value, "42"));
+                assert(attrs.front.pos == TextPos(1, 7));
                 attrs.popFront();
                 assert(equal(attrs.front.name, "q"));
                 assert(equal(attrs.front.value, "29"));
+                assert(attrs.front.pos == TextPos(1, 14));
                 attrs.popFront();
                 assert(equal(attrs.front.name, "w"));
                 assert(equal(attrs.front.value, "hello"));
+                assert(attrs.front.pos == TextPos(1, 21));
                 attrs.popFront();
                 assert(attrs.empty);
             }
