@@ -67,11 +67,11 @@ import std.typecons : Nullable;;
     Specifically, what normalize and asNormalized do is
 
     $(TABLE
-        $(TR $(TD convert $(D_STRING "&amp;") to $(D_STRING '&')))
-        $(TR $(TD convert $(D_STRING "&gt;") to $(D_STRING '>')))
-        $(TR $(TD convert $(D_STRING "&lt;") to $(D_STRING '<')))
-        $(TR $(TD convert $(D_STRING "&apos;") to $(D_STRING '\'')))
-        $(TR $(TD convert $(D_STRING "&quot;") to $(D_STRING '"')))
+        $(TR $(TD convert $(D_STRING "$(AMP)amp;") to $(D_STRING '&')))
+        $(TR $(TD convert $(D_STRING "$(AMP)gt;") to $(D_STRING '>')))
+        $(TR $(TD convert $(D_STRING "$(AMP)lt;") to $(D_STRING '<')))
+        $(TR $(TD convert $(D_STRING "$(AMP)apos;") to $(D_STRING '\'')))
+        $(TR $(TD convert $(D_STRING "$(AMP)quot;") to $(D_STRING '"')))
         $(TR $(TD remove all instances of $(D_STRING '\r')))
         $(TR $(TD convert all character references (e.g. $(D_STRING "&#xA;"))
              to the characters that they represent))
@@ -79,7 +79,7 @@ import std.typecons : Nullable;;
 
     All other entity references are left untouched, and any $(D_STRING '&')
     which is not used in one of the constructs listed in the table as well as
-    any malformed constructs (e.g. $(D_STRING "&Amp;" or $(D_STRING &#xGGA2;")
+    any malformed constructs (e.g. $(D_STRING "&Amp;") or $(D_STRING &#xGGA2;")
     are left untouched.
 
     The difference between normalize and asNormalized is that normalize returns
@@ -434,11 +434,11 @@ unittest
 
     $(TABLE
         $(TR $(TH Std Entity Ref)$(TH Converts To))
-        $(TR $(TD $(D_STRING "&amp;"))$(TD $(D_STRING '&')))
-        $(TR $(TD $(D_STRING "&gt;"))$(TD $(D_STRING '>')))
-        $(TR $(TD $(D_STRING "&lt;"))$(TD $(D_STRING '<')))
-        $(TR $(TD $(D_STRING "&apos;"))$(TD $(D_STRING '\'')))
-        $(TR $(TD $(D_STRING "&quot;"))$(TD $(D_STRING '"')))
+        $(TR $(TD $(D_STRING "$(AMP)amp;"))$(TD $(D_STRING '&')))
+        $(TR $(TD $(D_STRING "$(AMP)gt;"))$(TD $(D_STRING '>')))
+        $(TR $(TD $(D_STRING "$(AMP)lt;"))$(TD $(D_STRING '<')))
+        $(TR $(TD $(D_STRING "$(AMP)apos;"))$(TD $(D_STRING '\'')))
+        $(TR $(TD $(D_STRING "$(AMP)quot;"))$(TD $(D_STRING '"')))
     )
 
     Any other entity references would require processing a DTD section in order

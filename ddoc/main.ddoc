@@ -14,7 +14,7 @@ $(T body,
     $(LAYOUT_PREFIX)
     $(DIVC container,
         $(SIDEBAR)
-        $(DIVID content,
+        $(DIVC content,
             $(H1 $(TITLE))
             $(COMMENT quickindex is for the jump links)
             $(DIVCID quickindex, quickindex, )

@@ -63,7 +63,7 @@ body > .container
 /* SPAN: Formats D_STRING */
 .d_string
 {
-    color: red;
+    color: #DC4040;
 }
 
 /* SPAN: Formats the DDOC_AUTHORS section's title */
@@ -152,9 +152,9 @@ body > .container
 .ddoc_decl
 {
     background: #EEEEEE;
-    border-left: 5px solid #130AAD;
     border-top: 1px solid #9999CC;
     border-right: 1px solid #9999CC;
+    border-left: 5px solid #130AAD;
     text-align: left;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
@@ -526,7 +526,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
     text-decoration: underline;
 }
 
-.sidebar + #content
+.sidebar + .content
 {
     margin-left: 19em;
 }
