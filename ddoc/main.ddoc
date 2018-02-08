@@ -1,34 +1,37 @@
 _=Main entry point
 
-DDOC = $(T html,
-$(T head,
-    <META http-equiv="content-type" content="text/html; charset=utf-8">
-    <link rel="stylesheet" type="text/css" href="css/proj_docs.css">
-    $(SCRIPTLOAD https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js)
-    $(SCRIPTLOAD js/sidebar.js)
-    $(SCRIPTLOAD js/listanchors.js)
-    $(T title, $(TITLE))
-    $(EXTRA_HEADERS)
-)
-$(T body,
-    $(LAYOUT_PREFIX)
-    $(DIVC container,
-        $(SIDEBAR)
-        $(DIVC content,
-            $(H1 $(TITLE))
-            $(COMMENT quickindex is for the jump links)
-            $(DIVCID quickindex, quickindex, )
-            $(BODY_PREFIX)
-            $(BODY)
-            $(FOOTER)
-        )
+DDOC =
+<!DOCTYPE html>
+$(T html,
+    $(T head,
+        <META http-equiv="content-type" content="text/html; charset=utf-8">
+        <link rel="stylesheet" type="text/css" href="css/proj_docs.css">
+        $(SCRIPTLOAD https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js)
+        $(SCRIPTLOAD js/sidebar.js)
+        $(SCRIPTLOAD js/listanchors.js)
+        $(T title, $(TITLE))
+        $(EXTRA_HEADERS)
     )
-    $(COMMENT listanchors generates the jump links)
-    $(SCRIPT jQuery(document).ready(listanchors);)
-    $(EXTRA_FOOTERS)
-    $(LAYOUT_SUFFIX)
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
- ))$(LF)
+    $(T body,
+        $(LAYOUT_PREFIX)
+        $(DIVC container,
+            $(SIDEBAR)
+            $(DIVC content,
+                $(H1 $(TITLE))
+                $(COMMENT quickindex is for the jump links)
+                $(DIVCID quickindex, quickindex, )
+                $(BODY_PREFIX)
+                $(BODY)
+                $(FOOTER)
+            )
+        )
+        $(COMMENT listanchors generates the jump links)
+        $(SCRIPT jQuery(document).ready(listanchors);)
+        $(EXTRA_FOOTERS)
+        $(LAYOUT_SUFFIX)
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+     )
+)
 _=
 
 SIDEBAR=
