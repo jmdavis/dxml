@@ -38,7 +38,7 @@
     Note that this program does assume that all module names match their file
     names and that all package names match their folder names.
 
-    Copyright: Copyright 2017
+    Copyright: Copyright 2017 - 2018
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Author:   Jonathan M Davis
   +/
