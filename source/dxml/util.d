@@ -19,22 +19,23 @@ import std.typecons : Nullable;;
 
 
 /++
-    "Normalizes" the given text and transforms character references to the
+    "Normalizes" the given text and transforms character references into the
     characters that they represent. normalize combines $(LREF parseStdEntityRef)
-    and $(LREF parseCharRef) along with processing for $(D_STRING '\r') to
+    and $(LREF parseCharRef) along with processing for $(DCODE_STRING '\r') to
     normalize an entire character range. It's intended to be used on on the text
     fields of entities and on the values of start tag attributes.
 
     There are a number of characters that either can't be directly represented
     in the text fields or attribute values in XML or which can sometimes be
     directly represented but not always (e.g. an attribute value can contain
-    either $(D_STRING '\'') or $(D_STRING '"'), but it can't contain both at the
+    either a single quote or a double quote, but it can't contain both at the
     same time, because one of them would match the opening quote). So, those
-    characters have alternate representations in order to be allowed
-    (e.g. $(D_STRING "&lt;") for $(D_STRING '>'), because $(D_STRING '>') would
-    normally be the end of an entity). Technically, they're entity references,
-    but the ones handled by normalize are the predefined ones mentioned in the
-    XML standard and which don't require a DTD section.
+    characters have alternate representations in order to be allowed (e.g.
+    $(D_CODE_STRING "$(AMP)lt;") for $(D_CODE_STRING '>'), because
+    $(D_CODE_STRING '>') would normally be the end of an entity). Technically,
+    they're entity references, but the ones handled by normalize are the
+    ones explicitly defined in the XML standard and which don't require a DTD
+    section.
 
     Ideally, the parser would transform all such alternate representations to
     what they represent when providing the text to the application, but that
@@ -45,9 +46,9 @@ import std.typecons : Nullable;;
     there is nothing to normalize, making the calls unnecessary).
 
     Similarly, an application can choose to encode a character as a character
-    reference (e.g. $(D_STRING '&#65") or $(D_STRING '&#x40") for
-    $(D_STRING 'A')). normalize will decode such character references to their
-    corresponding character.
+    reference (e.g. $(D_CODE_STRING '$(AMP)#65") or
+    $(D_CODE_STRING '$(AMP)#x40") for $(D_CODE_STRING 'A')). normalize will
+    decode such character references to their corresponding characters.
 
     However, normalize does not handle any entity references beyond the five
     predefined ones listed below. All others are left unprocessed. Processing
@@ -59,45 +60,49 @@ import std.typecons : Nullable;;
     character references are left unprocessed as well as any character that is
     not valid in an XML document. normalize never throws on invalid XML.
 
-    Also, $(D_STRING '\r') is not supposed to appear in an XML document except
-    as a character reference unless it's in a CDATA section. So, it really
-    should be stripped out before being handed off to the application, but
-    again, that doesn't work with slices. So, normalize also handles that.
+    Also, $(D_CODE_STRING '\r') is not supposed to appear in an XML document
+    except as a character reference unless it's in a CDATA section. So, it
+    really should be stripped out before being handed off to the application,
+    but again, that doesn't work with slices. So, normalize also handles that.
 
     Specifically, what normalize and asNormalized do is
 
     $(TABLE
-        $(TR $(TD convert $(D_STRING "$(AMP)amp;") to $(D_STRING '&')))
-        $(TR $(TD convert $(D_STRING "$(AMP)gt;") to $(D_STRING '>')))
-        $(TR $(TD convert $(D_STRING "$(AMP)lt;") to $(D_STRING '<')))
-        $(TR $(TD convert $(D_STRING "$(AMP)apos;") to $(D_STRING '\'')))
-        $(TR $(TD convert $(D_STRING "$(AMP)quot;") to $(D_STRING '"')))
-        $(TR $(TD remove all instances of $(D_STRING '\r')))
-        $(TR $(TD convert all character references (e.g. $(D_STRING "&#xA;"))
-             to the characters that they represent))
+        $(TR $(TD convert $(D_CODE_STRING $(AMP)amp;) to $(D_CODE_STRING &)))
+        $(TR $(TD convert $(D_CODE_STRING $(AMP)gt;) to $(D_CODE_STRING >)))
+        $(TR $(TD convert $(D_CODE_STRING $(AMP)lt;) to $(D_CODE_STRING <)))
+        $(TR $(TD convert $(D_CODE_STRING $(AMP)apos;) to $(D_CODE_STRING ')))
+        $(TR $(TD convert $(D_CODE_STRING $(AMP)quot;) to $(D_CODE_STRING ")))
+        $(TR $(TD remove all instances of $(D_CODE_STRING '\r')))
+        $(TR $(TD convert all character references (e.g.
+                  $(D_CODE_STRING "$(AMP)#xA;")) to the characters that they
+                  represent))
     )
 
-    All other entity references are left untouched, and any $(D_STRING '&')
+    All other entity references are left untouched, and any $(D_CODE_STRING '&')
     which is not used in one of the constructs listed in the table as well as
-    any malformed constructs (e.g. $(D_STRING "&Amp;") or $(D_STRING &#xGGA2;")
-    are left untouched.
+    any malformed constructs (e.g. $(D_CODE_STRING "&Amp;") or
+    $(D_CODE_STRING "&#xGGA2;")) are left untouched.
 
     The difference between normalize and asNormalized is that normalize returns
-    a $(D string), whereas asNormalized returns a lazy range of code units. In
-    the case where a $(D string) is passed to normalize, it will simply return
-    the original string if there is no text to normalize (whereas in other
-    cases, normalize and asNormalized are forced to return new ranges even if
-    there is no un-normalized text).
+    a $(K_STRING), whereas asNormalized returns a lazy range of code
+    units. In the case where a $(K_STRING) is passed to normalize, it
+    will simply return the original string if there is no text to normalize
+    (whereas in other cases, normalize and asNormalized are forced to return
+    new ranges even if there is no un-normalized text).
 
-    Returns: The normalized text. normalize returns a $(D string), whereas
+    Params:
+        range = The range of characters to normalize.
+
+    Returns: The normalized text. normalize returns a $(K_STRING), whereas
              asNormalized returns a lazy range of code units (so it could be a
-             range of $(D char) or $(D wchar) and not just $(D dchar) - which
-             it is depends on the code units of the range being passed in).
+             range of $(K_CHAR) or $(K_WCHAR) and not just $(K_DCHAR); which it
+             is depends on the code units of the range being passed in).
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseStdEntityRef)$(BR)
               $(LREF parseCharRef)$(BR)
-              $(REF EntityRange.Entity.attributes, dxml, parser, stax)($BR)
+              $(REF EntityRange.Entity.attributes, dxml, parser, stax)$(BR)
               $(REF EntityRange.Entity.text, dxml, parser, stax)
   +/
 string normalize(R)(R range)
@@ -423,27 +428,34 @@ unittest
 
 /++
     This parses one of the five, predefined entity references mention in the XML
-    spec from the front of a range.
+    spec from the front of a range of characters.
 
-    If the given range starts with one of the five, predefined entity references,
-    then it is removed from the range, and the corresponding character is
-    returned.
+    If the given range starts with one of the five, predefined entity
+    references, then it is removed from the range, and the corresponding
+    character is returned.
 
     If the range does not start with one of those references, then the return
     value is null, and the range is unchanged.
 
     $(TABLE
         $(TR $(TH Std Entity Ref)$(TH Converts To))
-        $(TR $(TD $(D_STRING "$(AMP)amp;"))$(TD $(D_STRING '&')))
-        $(TR $(TD $(D_STRING "$(AMP)gt;"))$(TD $(D_STRING '>')))
-        $(TR $(TD $(D_STRING "$(AMP)lt;"))$(TD $(D_STRING '<')))
-        $(TR $(TD $(D_STRING "$(AMP)apos;"))$(TD $(D_STRING '\'')))
-        $(TR $(TD $(D_STRING "$(AMP)quot;"))$(TD $(D_STRING '"')))
+        $(TR $(TD $(D_CODE_STRING $(AMP)amp;))$(TD $(D_CODE_STRING &)))
+        $(TR $(TD $(D_CODE_STRING $(AMP)gt;))$(TD $(D_CODE_STRING >)))
+        $(TR $(TD $(D_CODE_STRING $(AMP)lt;))$(TD $(D_CODE_STRING $(LT))))
+        $(TR $(TD $(D_CODE_STRING $(AMP)apos;))$(TD $(D_CODE_STRING ')))
+        $(TR $(TD $(D_CODE_STRING $(AMP)quot;))$(TD $(D_CODE_STRING ")))
     )
 
     Any other entity references would require processing a DTD section in order
-    to be handled and are untouched by parseStdEntity as are any other types
+    to be handled and are untouched by parseStdEntityRef as are any other types
     of references.
+
+    Params:
+        range = A range of characters.
+
+    Returns: The character represented by the predefined entity reference that
+             was parsed from the front of the given range or null if the range
+             did not start with one of the five predefined entity references.
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseCharRef)$(BR)
@@ -593,6 +605,13 @@ unittest
 
     If the range does not start with a valid, XML, character reference, then
     the return value is null, and the range is unchanged.
+
+    Params:
+        range = A range of characters.
+
+    Returns: The character represented by the character reference that was
+             parsed from the front of the given range or null if the range did
+             not start with a valid, XML, character reference.
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-CharRef)$(BR)
               $(LREF parseStdEntityRef)$(BR)
@@ -753,24 +772,28 @@ unittest
     Strips the indent from a character range (most likely from
     $(REF_ALTTEXT Entity.text, EntityRange.Entity.text, dxml, parser, stax)).
     The idea is that if the XML is formatted to be human-readable, and it's
-    multiple lines long, it's likely going to be indented so that it's to the
-    right of the tags containing it (even on the lines that the tags aren't on),
-    but the application probably doesn't want that extra whitespace. So,
-    stripIndent and withoutIndent attempt to intelligently strip off the leading
+    multiple lines long, the lines are likely to be indented, but the
+    application probably doesn't want that extra whitespace. So, stripIndent
+    and withoutIndent attempt to intelligently strip off the leading
     whitespace.
+
+    For these functions, whitespace is considered to be some combination of
+    $(D_CODE_STRING ' '), $(D_CODE_STRING '\t'), and $(D_CODE_STRING '\r')
+    (as $(D_CODE_STRING '\n') is used to delineate lines, so it's not
+    considered whitespace).
 
     Whitespace characters are stripped from the start of the first line, and
     then those same number of whitespace characters are stripped from the
     beginning of each subsequent line (or up to the first non-whitespace
-    character). If there is no whitespace at the start of the range,
-    then nothing will be stripped.
-
-    For these functions, $(D_STRING ' '), $(D_STRING '\t'), and $(D_STRING '\r')
-    are considered whitespace.
+    character if the line starts with fewer whitespace characters).
 
     If the first line has no leading whitespace, then the leading whitespace on
-    the second line is treated as the indent. If it has no leading whitespace,
-    then no whitespace is stripped.
+    the second line is treated as the indent. This is done to handle case where
+    there is text immediately after a start tag and then subsequent lines are
+    indented rather than the text starting on the line after the start tag.
+
+    If neither of the first two lines has any leading whitespace, then no
+    whitespace is stripped.
 
     So, if the text is well-formatted, then the indent should be cleanly
     removed, and if it's unformatted or badly formatted, then no characters
@@ -780,16 +803,19 @@ unittest
     indent or to leave the text as-is.
 
     The difference between stripIndent and withoutIndent is that stripIndent
-    returns a $(D string), whereas withoutIndent returns a lazy range of code
-    units. In the case where a $(D string) is passed to stripIndent, it will
-    simply return the original string if the indent is determined to be zero
-    (whereas in other cases, stripIndent and withoutIndent are forced to return
-    new ranges).
+    returns a $(K_STRING), whereas withoutIndent returns a lazy range
+    of code units. In the case where a $(K_STRING) is passed to
+    stripIndent, it will simply return the original string if the indent is
+    determined to be zero (whereas in other cases, stripIndent and
+    withoutIndent are forced to return new ranges).
+
+    Params:
+        range = A range of characters.
 
     Returns: The text with the indent stripped from each line. stripIndent
-             returns a $(D string), whereas withoutIndent returns a lazy range
-             of code units (so it could be a range of $(D char) or $(D wchar)
-             and not just $(D dchar) - which it is depends on the code units of
+             returns a $(K_STRING), whereas withoutIndent returns a lazy range
+             of code units (so it could be a range of $(K_CHAR) or $(K_WCHAR)
+             and not just $(K_DCHAR); which it is depends on the code units of
              the range being passed in).
 
     See_Also: $(REF EntityRange.Entity.text, dxml, parser, stax)
@@ -883,7 +909,7 @@ string stripIndent(R)(R range)
     }
 }
 
-///
+/// Ditto
 auto withoutIndent(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
