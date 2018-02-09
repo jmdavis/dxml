@@ -18,8 +18,8 @@
     not).
 
     Regardless of what the XML declaration says (if present), any range of
-    $(D char) will be treated as being encoded in UTF-8, any range of $(D wchar)
-    will be treated as being encoded in UTF-16, and any range of $(D dchar) will
+    $(K_CHAR) will be treated as being encoded in UTF-8, any range of $(K_WCHAR)
+    will be treated as being encoded in UTF-16, and any range of $(K_DCHAR) will
     be treated as having been encoded in UTF-32. Strings will be treated as
     ranges of their code units, not code points.
 
@@ -33,11 +33,13 @@
     to verify that they're valid, but they will not be replaced (since that
     does not work with returning slices of the original input).
 
-    However, $(REF normalize, dxml, util) or
-    $(REF parseStdEntityRef, dxml, util) can be used to convert the predefined
-    entity references to what the refer to, and $(REF normalize, dxml, util) or
-    $(REF parseCharRef, dxml, util) can be used to convert character references
-    to what they refer to.
+    However, $(REF_ALTTEXT normalize, normalize, dxml, util) or
+    $(REF_ALTTEXT parseStdEntityRef, parseStdEntityRef, dxml, util) from
+    $(MREF dxml, util) can be used to convert the predefined entity references
+    to what the refer to, and $(REF_ALTTEXT normalize, normalize, dxml, util) or
+    $(REF_ALTTEXT parseCharRef, parseCharRef, dxml, util) from
+    $(MREF dxml, util) can be used to convert character references to what they
+    refer to.
 
     $(H3 Primary Symbols)
     $(TABLE
@@ -60,7 +62,8 @@
              $(TD A user-friendly configuration for when the application just
                   wants the element tags and the data in between them.))
         $(TR $(TD $(LREF makeConfig))
-             $(TD A convenience function for constructing a $(LREF Config).))
+             $(TD A convenience function for constructing a custom
+                  $(LREF Config).))
         $(TR $(TD $(LREF SkipComments))
              $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
                   to tell the parser to skip comments.))
@@ -77,12 +80,12 @@
         $(TR $(TH Symbol) $(TH Description))
         $(TR $(TD $(LREF EntityType))
              $(TD The type of an entity in the XML (e.g. a
-                  $(LREF_ALT_TEXT start tag, EntityType.elementStart) or a
-                  $(LREF_ALT_TEXT comment, EntityType.comment)).))
+                  $(LREF_ALTTEXT start tag, EntityType.elementStart) or a
+                  $(LREF_ALTTEXT comment, EntityType.comment)).))
         $(TR $(TD $(LREF TextPos))
              $(TD Gives the line and column number in the XML document.))
         $(TR $(TD $(LREF XMLParsingException))
-             $(TD Thrown by $(LREF EntityRange) when it tries to parse invalid
+             $(TD Thrown by $(LREF EntityRange) when it encounters invalid
                   XML.))
     )
 
@@ -90,15 +93,17 @@
     $(TABLE
         $(TR $(TH Symbol) $(TH Description))
         $(TR $(TD $(LREF skipContents))
-             $(TD Skips from a start tag to its matching end tag.))
+             $(TD Iterates an $(LREF EntityRange) from a start tag to its
+                  matching end tag.))
         $(TR $(TD $(LREF skipToPath))
              $(TD Used to navigate from one start tag to another as if the start
                   tag names formed a file path.))
         $(TR $(TD $(LREF skipToEntityType))
              $(TD Skips to the next entity of the given type in the range.))
-        $(TR $(TD $(LREF skipToParentDepth))
-             $(TD Skips entities until it reaches one which is at the same depth
-                  as the parent of the current entity.))
+        $(TR $(TD $(LREF skipToParentEndTag))
+             $(TD Iterates an $(LREF EntityRange) until it reaches the end tag
+                  that matches the start tag which is the parent of of the
+                  current entity.))
     )
 
     Copyright: Copyright 2017 - 2018
@@ -3391,13 +3396,13 @@ unittest
 
     Returns: The given range with front now at the first entity found which is
              at the same depth as the entity which was front when
-             skipToParentDepth was called. If the requested depth is not found
-             (which means that the depth was 0 when skipToParentDepth was
+             skipToParentEndTag was called. If the requested depth is not found
+             (which means that the depth was 0 when skipToParentEndTag was
              called), then an empty range is returned.
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
-R skipToParentDepth(R)(R entityRange)
+R skipToParentEndTag(R)(R entityRange)
     if(isInstanceOf!(EntityRange, R))
 {
     with(EntityType) final switch(entityRange._type)
@@ -3454,15 +3459,15 @@ unittest
         assert(range.front.type == EntityType.comment);
         assert(range.front.text == " comment ");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.front.type == EntityType.elementEnd);
         assert(range.front.name == "foo");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.front.type == EntityType.elementEnd);
         assert(range.front.name == "root");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.empty);
     }
     {
@@ -3486,11 +3491,11 @@ unittest
         assert(range.front.type == EntityType.text);
         assert(range.front.text == "exam");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.front.type == EntityType.elementEnd);
         assert(range.front.name == "bar");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.front.type == EntityType.elementEnd);
         assert(range.front.name == "foo");
 
@@ -3498,17 +3503,17 @@ unittest
         assert(range.front.type == EntityType.comment);
         assert(range.front.text == " another comment ");
 
-        range = range.skipToParentDepth();
+        range = range.skipToParentEndTag();
         assert(range.front.type == EntityType.elementEnd);
         assert(range.front.name == "root");
 
-        assert(range.skipToParentDepth().empty);
+        assert(range.skipToParentEndTag().empty);
     }
     {
         auto range = parseXML("<root><foo>bar</foo></root>");
         assert(range.front.type == EntityType.elementStart);
         assert(range.front.name == "root");
-        assert(range.skipToParentDepth().empty);
+        assert(range.skipToParentEndTag().empty);
     }
 }
 
@@ -3543,7 +3548,7 @@ unittest
             popAndCheck(range, EntityType.cdata);
             assert(equal(range.front.text, " cdata run "));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3551,7 +3556,7 @@ unittest
             popAndCheck(range, EntityType.cdata);
             assert(equal(range.front.text, " cdata have its bits flipped "));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3559,7 +3564,7 @@ unittest
             range = range.skipContents();
             popAndCheck(range, EntityType.cdata);
             assert(equal(range.front.text, " cdata play violin "));
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
         }
@@ -3577,7 +3582,7 @@ unittest
                        "<!-- end -->";
 
             auto text = func(xml);
-            assert(parseXML(text.save).skipToParentDepth().empty);
+            assert(parseXML(text.save).skipToParentEndTag().empty);
             {
                 auto range = parseXML(text.save);
                 assert(range.front.type == EntityType.comment);
@@ -3585,7 +3590,7 @@ unittest
                 popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " comment 1 "));
                 {
-                    auto temp = range.save.skipToParentDepth();
+                    auto temp = range.save.skipToParentEndTag();
                     assert(temp._type == EntityType.elementEnd);
                     assert(equal(temp.front.name, "root"));
                 }
@@ -3593,7 +3598,7 @@ unittest
                 popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " comment 2 "));
                 {
-                    auto temp = range.save.skipToParentDepth();
+                    auto temp = range.save.skipToParentEndTag();
                     assert(temp._type == EntityType.elementEnd);
                     assert(equal(temp.front.name, "root"));
                 }
@@ -3601,7 +3606,7 @@ unittest
                 range = range.skipContents();
                 popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " comment 3 "));
-                range = range.skipToParentDepth();
+                range = range.skipToParentEndTag();
                 assert(range._type == EntityType.elementEnd);
                 assert(equal(range.front.name, "root"));
             }
@@ -3612,10 +3617,10 @@ unittest
                 range = range.skipContents();
                 popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " after "));
-                assert(range.save.skipToParentDepth().empty);
+                assert(range.save.skipToParentEndTag().empty);
                 popAndCheck(range, EntityType.comment);
                 assert(equal(range.front.text, " end "));
-                assert(range.skipToParentDepth().empty);
+                assert(range.skipToParentEndTag().empty);
             }
         }
         // elementStart
@@ -3637,18 +3642,18 @@ unittest
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.elementStart);
             assert(equal(range.front.name, "root"));
-            assert(range.save.skipToParentDepth().empty);
+            assert(range.save.skipToParentEndTag().empty);
             popAndCheck(range, EntityType.elementStart);
             assert(equal(range.front.name, "a"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
             popAndCheck(range, EntityType.elementStart);
             assert(equal(range.front.name, "b"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "a"));
             }
@@ -3659,7 +3664,7 @@ unittest
             popAndCheck(range, EntityType.elementStart);
             assert(equal(range.front.name, "c"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3668,10 +3673,10 @@ unittest
             assert(equal(range.front.name, "d"));
             popAndCheck(range, EntityType.elementStart);
             assert(equal(range.front.name, "e"));
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "d"));
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
         }
@@ -3691,14 +3696,14 @@ unittest
             popAndCheck(range, EntityType.elementEnd);
             assert(equal(range.front.name, "b"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "a"));
             }
             popAndCheck(range, EntityType.elementEnd);
             assert(equal(range.front.name, "a"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3707,18 +3712,18 @@ unittest
             popAndCheck(range, EntityType.elementEnd);
             assert(equal(range.front.name, "c"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
             popAndCheck(range, EntityType.elementEnd);
-            assert(range.skipToParentDepth().empty);
+            assert(range.skipToParentEndTag().empty);
         }
         // elementEmpty
         {
             auto range = parseXML(func("<root/>"));
             assert(range.front.type == EntityType.elementEmpty);
-            assert(range.skipToParentDepth().empty);
+            assert(range.skipToParentEndTag().empty);
         }
         {
             auto xml = "<root>\n" ~
@@ -3741,7 +3746,7 @@ unittest
                 popAndCheck(temp, EntityType.elementEmpty);
                 assert(equal(temp.front.name, "whatever"));
             }
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
         }
@@ -3761,12 +3766,12 @@ unittest
             auto range = parseXML(func(xml));
             assert(range.front.type == EntityType.pi);
             assert(equal(range.front.name, "Sherlock"));
-            assert(range.save.skipToParentDepth().empty);
+            assert(range.save.skipToParentEndTag().empty);
             popAndCheck(range, EntityType.elementStart);
             popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Foo"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3774,7 +3779,7 @@ unittest
             popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Bar"));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3782,15 +3787,15 @@ unittest
             popAndCheck(range, EntityType.elementEnd);
             popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Baz"));
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
             popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Poirot"));
-            assert(range.save.skipToParentDepth().empty);
+            assert(range.save.skipToParentEndTag().empty);
             popAndCheck(range, EntityType.pi);
             assert(equal(range.front.name, "Conan"));
-            assert(range.skipToParentDepth().empty);
+            assert(range.skipToParentEndTag().empty);
         }
         // text
         {
@@ -3807,7 +3812,7 @@ unittest
             popAndCheck(range, EntityType.text);
             assert(equal(range.front.text, "\n    nothing to say\n    "));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3815,7 +3820,7 @@ unittest
             popAndCheck(range, EntityType.text);
             assert(equal(range.front.text, "\n    nothing whatsoever\n    "));
             {
-                auto temp = range.save.skipToParentDepth();
+                auto temp = range.save.skipToParentEndTag();
                 assert(temp._type == EntityType.elementEnd);
                 assert(equal(temp.front.name, "root"));
             }
@@ -3823,7 +3828,7 @@ unittest
             range = range.skipContents();
             popAndCheck(range, EntityType.text);
             assert(equal(range.front.text, "\n    but he keeps talking\n"));
-            range = range.skipToParentDepth();
+            range = range.skipToParentEndTag();
             assert(range._type == EntityType.elementEnd);
             assert(equal(range.front.name, "root"));
         }
@@ -3936,7 +3941,7 @@ R skipToPath(R)(R entityRange, string path)
                     pieces.popFront();
                     if(pieces.empty)
                         return entityRange.takeNone();
-                    entityRange = entityRange.skipToParentDepth();
+                    entityRange = entityRange.skipToParentEndTag();
                     if(entityRange.empty)
                         return entityRange;
                 }
