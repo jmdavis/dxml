@@ -32,7 +32,7 @@ _=
 
 $(COMMENT Variant of REF which takes the link's text as its first argument.
           e.g. $(REF_ALTTEXT XML parser, parseXML, dxml, parser, range) for dxml.parser.range.parseXML)
-REF_ALTTEXT=<a href="$3$(UNDERSCORE_PREFIXED_SKIP2 $+).html#.$2">$1</a>
+REF_ALTTEXT=<a href="$3$(UNDERSCORE_PREFIXED_SKIP2 $+).html#.$2">$(D $1)</a>
 
 $(COMMENT Used to generate links to the documentation page for a specific module in the same project.
           e.g. $(MREF dxml, parser, range) for dxml.parser.range)
@@ -42,3 +42,32 @@ _=
 $(COMMENT Used to generate links to the documentation for a symbol in Phobos.
           e.g. $(PHOBOS_REF takeExactly, std, range) for std.range.takeExactly)
 PHOBOS_REF=<a href="https://dlang.org/phobos/$2$(UNDERSCORE_PREFIXED_SKIP $+).html#.$1">$(D $2$(DOT_PREFIXED_SKIP $+, $1))</a>
+_=
+
+$(COMMENT Macro for when a string should be treated as inline code but still highlighted as a string.)
+D_CODE_STRING=$(D $(D_STRING $0))
+_=
+
+$(COMMENT These are to make it easier to have keywords highlighted as keywords inside a ddoc comment,
+          wherease by default, they only get highlighted in code examples.)
+K_STRING=$(D_KEYWORD string)
+K_WSTRING=$(D_KEYWORD wstring)
+K_DSTRING=$(D_KEYWORD dstring)
+K_CHAR=$(D_KEYWORD char)
+K_WCHAR=$(D_KEYWORD wchar)
+K_DCHAR=$(D_KEYWORD dchar)
+K_BYTE=$(D_KEYWORD byte)
+K_UBYTE=$(D_KEYWORD ubyte)
+K_SHORT=$(D_KEYWORD short)
+K_USHORT=$(D_KEYWORD ushort)
+K_INT=$(D_KEYWORD int)
+K_UINT=$(D_KEYWORD uint)
+K_LONG=$(D_KEYWORD long)
+K_ULONG=$(D_KEYWORD ulong)
+K_CENT=$(D_KEYWORD cent)
+K_UCENT=$(D_KEYWORD ucent)
+K_BOOL=$(D_KEYWORD bool)
+K_FLOAT=$(D_KEYWORD float)
+K_DOUBLE=$(D_KEYWORD double)
+K_REAL=$(D_KEYWORD real)
+_=

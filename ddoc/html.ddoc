@@ -96,6 +96,7 @@ _=HTML named entities, ordered approximately as in https://dlang.org/entity.html
 QUOT=&quot;
 AMP=&amp;
 PERCENT=%
+LT=&lt;
 _=
 
 OELIG_CAP=&OElig;

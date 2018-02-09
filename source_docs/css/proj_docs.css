@@ -20,7 +20,7 @@ body > .container
 .d_code
 {
     font-family: "Courier New", monospace;
-    background: #CCCCCC;
+    background: #D4D4D4;
     border-radius: 4px;
     padding: 1ex;
     margin: 1em 0 1em 0;
@@ -33,7 +33,7 @@ body > .container
 .d_inlinecode
 {
     font-weight: bold;
-    background: #CCCCCC;
+    background: #D4D4D4;
 }
 
 /* SPAN: Formats D_COMMENT */
@@ -51,19 +51,19 @@ body > .container
 /* SPAN: Formats D_PARAM */
 .d_param
 {
-    font-style: italic;
 }
 
 /* SPAN: Formats D_PSYMBOL */
 .d_psymbol
 {
-    font-weight: bold;
+    font-style: italic;
+    color: #006F14;
 }
 
 /* SPAN: Formats D_STRING */
 .d_string
 {
-    color: #DC4040;
+    color: red;
 }
 
 /* SPAN: Formats the DDOC_AUTHORS section's title */
@@ -283,7 +283,6 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* SPAN: Formats DDOC_PARAM */
 .ddoc_param
 {
-    font-style: italic;
 }
 
 /* SPAN: Formats the DDOC_PARAMS section's title */
