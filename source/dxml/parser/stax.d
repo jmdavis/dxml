@@ -121,7 +121,7 @@ import std.typecons : Flag;
 
 
 /++
-    The exception type thrown when the XML parser runs into invalid XML.
+    The exception type thrown when the XML parser encounters invalid XML.
   +/
 class XMLParsingException : Exception
 {
@@ -149,9 +149,11 @@ package:
 
 
 /++
-    Where in the XML text an entity is.
+    Where in the XML document an entity is.
 
-    The primary use case for this is $(LREF XMLParsingException), but an
+    The line and column numbers are 1-based.
+
+    The primary use case for TextPos is $(LREF XMLParsingException), but an
     application may have other uses for it. The TextPos for an
     $(LREF2 Entity, EntityRange.Entity) can be obtained from
     $(LREF2 Entity.pos, EntityRange.Entity.pos).
@@ -181,15 +183,18 @@ struct TextPos
 
     See_Also:
         $(LREF makeConfig)$(BR)
-        $(LREF parseXML)
+        $(LREF parseXML)$(BR)
+        $(LREF simpleXML)
   +/
 struct Config
 {
     /++
         Whether the comments should be skipped while parsing.
 
-        If $(D true), any entities of type $(LREF EntityType.comment) will be
-        omitted from the parsing results.
+        If $(D skipComments == SkipComments.yes), any entities of type
+        $(LREF EntityType.comment) will be omitted from the parsing results,
+        and they will not be validated beyond what is required to parse past
+        them.
 
         Defaults to $(D SkipComments.no).
       +/
@@ -198,8 +203,9 @@ struct Config
     /++
         Whether processing instructions should be skipped.
 
-        If $(D true), any entities with the type
-        $(LREF EntityType.pi) will be skipped.
+        If $(D skipPI == SkipPI.yes), any entities of type
+        $(LREF EntityType.pi) will be skipped, and they will not be validated
+        beyond what is required to parse past them.
 
         Defaults to $(D SkipPI.no).
       +/
@@ -209,17 +215,16 @@ struct Config
         Whether the parser should report empty element tags as if they were a
         start tag followed by an end tag with nothing in between.
 
-        If $(D true), then whenever an $(LREF EntityType.elementEmpty) is
-        encountered, the parser will claim that that entity is an
-        $(LREF EntityType.elementStart), and then it will provide an
-        $(LREF EntityType.elementEnd) as the next entity before the entity that
-        actually follows it.
+        If $(D splitEmpty == SplitEmpty.yes),  then whenever an
+        $(LREF EntityType.elementEmpty) is encountered, the parser will claim
+        that that entity is an $(LREF EntityType.elementStart), and then it
+        will provide an $(LREF EntityType.elementEnd) as the next entity before
+        the entity that actually follows it.
 
         The purpose of this is to simplify the code using the parser, since most
         code does not care about the difference between an empty tag and a start
         and end tag with nothing in between. But since some code may care about
-        the difference, the behavior is configurable rather than simply always
-        treating them as the same.
+        the difference, the behavior is configurable.
 
         Defaults to $(D SplitEmpty.no).
       +/
@@ -369,7 +374,7 @@ unittest
 
 
 /++
-    This config is intended for making it easy to parse XML by skipping
+    This $(LREF Config) is intended for making it easy to parse XML by skipping
     everything that isn't the actual data as well as making it simpler to deal
     with empty element tags by treating them the same as a start tag and end
     tag with nothing but whitespace between them.
@@ -386,7 +391,7 @@ enum simpleXML = makeConfig(SkipComments.yes, SkipPI.yes, SplitEmpty.yes);
 
 
 /++
-    Represents the type of an XML entity. Used by EntityRange.
+    Represents the type of an XML entity. Used by $(LREF EntityRange.Entity).
   +/
 enum EntityType
 {
@@ -419,7 +424,8 @@ enum EntityType
     elementEnd,
 
     /++
-        The tag for an element with no contents. e.g. `<foo name="value"/>`.
+        The tag for an element with no contents or matching end tag. e.g.
+        `<foo name="value"/>`.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
       +/
@@ -427,7 +433,7 @@ enum EntityType
 
     /++
         A processing instruction such as `<?foo?>`. Note that the
-        `<?xml ... ?>` is skipped and not treated as an $(LREF EntityType.pi).
+        `<?xml ... ?>` is skipped and not treated as an $(LREF EntityType._pi).
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-pi)
       +/
@@ -439,22 +445,28 @@ enum EntityType
         If there is an entity other than the end tag following the text, then
         the text includes up to that entity.
 
-        Note however that character references (e.g. $(D_STRING "&#42")) and
-        the predefined entity references (e.g. $(D_STRING "&Name;")) are left
-        unprocessed in the text. In order for them to be processed, the text
-        should be passed to either $(REF normalize, dxml, util) or $(REF
-        asNormalized, dxml, util). Entity references which are not predefined
-        are considered invalid, because the DTD section is skipped and thus they
-        cannot be properly processed.
+        Note however that character references (e.g.
+        $(D_CODE_STRING "$(AMP)#42")) and the predefined entity references (e.g.
+        $(D_CODE_STRING "$(AMP)apos;")) are left unprocessed in the text. In
+        order for them to be processed, the text should be passed to either
+        $(REF_ALTTEXT normalize, normalize, dxml, util) or
+        $(REF_ALTTEXT asNormalized, asNormalized, dxml, util). Entity references
+        which are not predefined are considered invalid XML, because the DTD
+        section is skipped, and thus they cannot be processed properly.
 
-        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)($BR)
+                  $(REF normalize, dxml, util)$(BR)
+                  $(REF asNormalized, dxml, util)$(BR)
+                  $(REF parseStdEntityRef, dxml, util)$(BR)
+                  $(REF parseCharRef, dxml, util)$(BR)
+                  $(LREF EntityRange.Entity._text)
       +/
     text,
 }
 
 
 /++
-    Lazily parses the given XML.
+    Lazily parses the given range of characters as an XML document.
 
     EntityRange is essentially a
     $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX) parser, though it evolved
@@ -463,28 +475,30 @@ enum EntityType
     implementations. The basic concept should be the same though.
 
     One of the core design goals of this parser is to slice the original input
-    rather than having to allocate strings for the output or wrap it in a range
-    that produces a mutated version of the data. So, all of the text that the
-    parser provides is either a slice or $(PHOBOS_REF takeExactly, std, range)
-    of the input. However, in some cases, for the parser to be fully compliant,
+    rather than having to allocate strings for the output or wrap it in a lazy
+    range that produces a mutated version of the data. So, all of the text that
+    the parser provides is either a slice or
+    $(PHOBOS_REF takeExactly, std, range) of the input. However, in some cases,
+    for the parser to be fully compliant with the XML spec,
     $(REF normalize, dxml, util) must be called on the text to mutate certain
-    constructs (e.g. removing any $(D_STRING '\r') in the text or converting
-    $(D_STRING "&lt") to $(D_STRING '<')). But that's left up to the
-    application.
+    constructs (e.g. removing any $(D_CODE_STRING '\r') in the text or
+    converting $(D_CODE_STRING "$(AMP)lt;") to $(D_CODE_STRING '<')). But
+    that's left up to the application.
 
-    The parser is not @nogc, but it allocates memory very minimally. It
+    The parser is not $(K_NOGC), but it allocates memory very minimally. It
     allocates some of its state on the heap so it can validate attributes and
     end tags. However, that state is shared among all the ranges that came from
     the same call to parseXML (only the range farthest along in parsing
     validates attributes or end tags), so $(LREF2 save, _EntityRange) does not
-    allocate memory. The shared state currently uses a couple of dynamic arrays
-    to validate the tags and attributes, and if the document has a particularly
-    deep tag-depth or has a lot of attributes on on a start tag, then some
-    reallocations may occur until the maximum is reached, but enough is
-    reserved that for most documents, no reallocations will occur. The only
-    other times that the parser would allocate would be if an exception were
-    thrown or if the range that is passed to parseXML allocates for any reason
-    when calling any of the range primitives.
+    allocate memory unless $(D save) on the underlying range allocates memory.
+    The shared state currently uses a couple of dynamic arrays to validate the
+    tags and attributes, and if the document has a particularly deep tag-depth
+    or has a lot of attributes on on a start tag, then some reallocations may
+    occur until the maximum is reached, but enough is reserved that for most
+    documents, no reallocations will occur. The only other times that the
+    parser would allocate would be if an exception were thrown or if the range
+    that is passed to parseXML allocates for any reason when calling any of the
+    range primitives.
 
     If invalid XML is encountered at any point during the parsing process, an
     $(LREF XMLParsingException) will be thrown. If an exception has been thrown,
@@ -497,13 +511,10 @@ enum EntityType
     $(D Config.skipPI == SkipPI.yes), processing instructions are only validated
     enough to correctly skip past them).
 
-    And as the module documentation says, this parser does not provide any DTD
+    As the module documentation says, this parser does not provide any DTD
     support. It's not possible to properly support the DTD section while
     returning slices of the original input, and the DTD portion of the spec
-    makes parsing XML exponentially more complicated. Support for that may or
-    may not be added in the future with a separate parser (possibly one that
-    parses the DTD section to create an object to then validate an EntityRange),
-    but for now at least, dxml isn't getting involved in that mess.
+    makes parsing XML far, far more complicated.
 
     A quick note about carriage returns$(COLON) per the XML spec, they're all
     supposed to either be stripped out or replaced with newlines before the XML
@@ -511,9 +522,9 @@ enum EntityType
     the original text and not mutating it at all. So, for the purposes of
     parsing, this parser treats all carriage returns as if they were newlines or
     spaces (though they won't count as newlines when counting the lines for
-    $(LREF TextPos) for error messages). However, they $(I will) appear in any
-    text fields or attribute values if they are in the document (since the text
-    fields and attribute values are slices of the original text).
+    $(LREF TextPos)). However, they $(I will) appear in any text fields or
+    attribute values if they are in the document (since the text fields and
+    attribute values are slices of the original text).
     $(REF normalize, dxml, util) can be used to strip them along with converting
     any character references in the text. Alternatively, the application can
     remove them all before calling parseXML, but it's not necessary.
@@ -575,11 +586,11 @@ public:
     /++
         Represents an entity in the XML document.
 
-        Note that the $(LREF2 type, EntityRange.Entity.type) determines which
+        Note that the $(LREF2 type, EntityRange._Entity.type) determines which
         properties can be used, and it can determine whether functions which
-        an Entity or EntityRange is passed to are allowed to be called. Each
-        function lists which $(LREF EntityType)s are allowed, and it is an error
-        to call them with any other $(LREF EntityType).
+        an Entity or $(LREF EntityRange) is passed to are allowed to be called.
+        Each function lists which $(LREF EntityType)s are allowed, and it is an
+        error to call them with any other $(LREF EntityType).
       +/
     struct Entity
     {
@@ -648,8 +659,8 @@ public:
         /++
             The position in the the original text where the entity starts.
 
-            See_Also: $(LREF TextPos)($BR)
-                      $(LREF XMLParsingException.pos)
+            See_Also: $(LREF TextPos)$(BR)
+                      $(LREF XMLParsingException._pos)
           +/
         @property TextPos pos() @safe const pure nothrow @nogc
         {
@@ -750,7 +761,9 @@ public:
 
             Note that this is the direct name in the XML for this entity and
             does not contain any of the names of any of the parent entities that
-            this entity has.
+            this entity has. If an application wants the full "path" of the
+            entity, then it will have to keep track of that itself. The parser
+            does not do that as it would require allocating memory.
 
             $(TABLE
                 $(TR $(TH Supported $(LREF EntityType)s:))
@@ -799,10 +812,11 @@ public:
 
         /++
             Returns a lazy range of attributes for a start tag where each
-            attribute is represented as a
-            $(D Tuple!($(LREF2 SliceOfR, EntityRange), "name",
-                       $(LREF2 SliceOfR, EntityRange), "value"),
-                       $(LREF TextPos, pos)).
+            attribute is represented as a$(BR)
+            $(D $(PHOBOS_REF_ALTTEXT Tuple, Tuple, std, typecons)!(
+                      $(LREF2 SliceOfR, EntityRange), $(D_STRING "name"),
+                      $(LREF2 SliceOfR, EntityRange), $(D_STRING "value"),
+                      $(LREF TextPos, pos), $(D_STRING "pos"))).
 
             $(TABLE
                 $(TR $(TH Supported $(LREF EntityType)s:))
@@ -1187,7 +1201,7 @@ public:
             $(PHOBOS_REF equals, std, algorithm, comparison) is used to compare
             the text (since even with the same range types where the values are
             the same, sometimes, comparing them with $(D ==) doesn't return
-            $(D true)).
+            true).
           +/
         bool opEquals()(auto ref Entity rhs)
         {
@@ -1464,8 +1478,8 @@ public:
 
         The next entity is the next one that is linearly in the XML document.
         So, if the current entity has child entities, the next entity will be
-        the child entity, whereas if it has no child entities, it will be the
-        next entity at the same level.
+        the first child entity, whereas if it has no child entities, it will be
+        the next entity at the same level.
 
         Throws: $(LREF XMLParsingException) on invalid XML.
       +/
@@ -1506,16 +1520,15 @@ public:
         invalid XML, it's actually possible to call
         $(LREF2 front, EntityRange.front) and
         $(LREF2 popFront, EntityRange.popFront) without checking empty if the
-        only way that empty would be $(D true) is if the XML were invalid (e.g.
-        if at a start tag, it's a given that there's at least one end tag left
-        in the document unless it's invalid XML).
+        only way that empty would be true is if the XML were invalid (e.g. if at
+        a start tag, it's a given that there's at least one end tag left in the
+        document unless it's invalid XML).
 
         However, of course, caution should be used to ensure that incorrect
         assumptions are not made that allow the document to reach its end
         earlier than predicted without throwing an $(LREF XMLParsingException),
-        since it's still illegal to call $(LREF2 front, EntityRange.front) or
-        $(LREF2 popFront, EntityRange.popFront) if empty would return
-        $(D false).
+        since it's still an error to call $(LREF2 front, EntityRange.front) or
+        $(LREF2 popFront, EntityRange.popFront) if empty would return false.
       +/
     @property bool empty() @safe const pure nothrow @nogc
     {
@@ -1570,7 +1583,7 @@ public:
         $(PHOBOS_REF _takeNone, std, range) except that it doesn't create a
         wrapper type.
       +/
-    auto takeNone()
+    EntityRange takeNone()
     {
         auto retval = save;
         retval._grammarPos = GrammarPos.documentEnd;
@@ -3265,8 +3278,8 @@ version(unittest)
         $(TR $(TD $(LREF2 elementStart, EntityType)))
     )
 
-    Returns: The range with front now at the end tag corresponding to the start
-             tag that was front when the function was called.
+    Returns: The range with its $(D front) now at the end tag corresponding to
+             the start tag that was $(D front) when the function was called.
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
@@ -3339,11 +3352,18 @@ unittest
     $(LREF EntityType).
 
     This is essentially a slightly optimized equivalent to
-    $(D range.find!((a, b) => a.type == b.type)(entityTypes)).
 
-    Returns: The given range with front now at the first entity which matched
-             one of the given $(LREF EntityType)s or an empty range if none were
-             found.
+    ---
+    if(!range.empty())
+    {
+        range.popFront();
+        range = range.find!((a, b) => a.type == b.type)(entityTypes);
+    }
+    ---
+
+    Returns: The given range with its $(D front) now at the first entity which
+             matched one of the given $(LREF EntityType)s or an empty range if
+             none were found.
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
@@ -3391,14 +3411,15 @@ unittest
 
 
 /++
-    Skips entities until an entity is reached that is at the same depth as the
-    parent of the current entity. That entity will be an end tag.
+    Skips entities until the end tag is reached that corresponds to the start
+    tag that is the parent of the current entity.
 
-    Returns: The given range with front now at the first entity found which is
-             at the same depth as the entity which was front when
-             skipToParentEndTag was called. If the requested depth is not found
-             (which means that the depth was 0 when skipToParentEndTag was
-             called), then an empty range is returned.
+    Returns: The given range with its $(D front) now at the end tag which
+             corresponds to the parent start tag of the entity that was
+             $(D front) when skipToParentEndTag was called. If the current
+             entity does not have a parent start tag (which means that it's
+             either the root element or a comment or PI outside of the root
+             element), then an empty range is returned.
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
@@ -3839,8 +3860,8 @@ unittest
 /++
     Treats the given string like a file path except that each directory
     corresponds to the name of a start tag. Note that this does $(I not) try to
-    implement XPath as that would be quite complicated, it really doesn't fit
-    with a StAX parser.
+    implement XPath as that would be quite complicated, and it really doesn't
+    fit with a StAX parser.
 
     A start tag should be thought of as a directory, with its child start tags
     as the directories it contains.
@@ -3850,14 +3871,15 @@ unittest
     the beginning of the document. As such, absolute paths are treated as
     invalid paths.
 
-    $(D_STRING "./") and $(D_STRING "../") are supported. Repeated slashes such
-    as in $(D_STRING "foo//bar") is not supported is treated as an invalid path.
+    $(D_CODE_STRING "./") and $(D_CODE_STRING "../") are supported. Repeated
+    slashes such as in $(D_CODE_STRING "foo//bar") are not supported and are
+    treated as an invalid path.
 
     If $(D range.front.type == EntityType.elementStart), then
     $(D range._skiptoPath($(D_STRING "foo"))) will search for the first child
     start tag (be it $(LREF EntityType.elementStart) or
     $(LREF EntityType.elementEmpty)) with the $(LREF2 name, EntityRange.Entity)
-    $(D_STRING "foo"). That start tag must be a direct child of the current
+    $(D_CODE_STRING "foo"). That start tag must be a direct child of the current
     start tag.
 
     If $(D range.front.type) is any other $(LREF EntityType), then
@@ -3866,9 +3888,9 @@ unittest
 
     For any $(LREF EntityType), $(D range._skipToPath($(D_STRING "../foo")))
     will search for the first start tag with the
-    $(LREF2 name, EntityRange.Entity) $(D_STRING "foo") at the same level as the
-    current entity. If the current entity is a start tag with the name
-    $(D_STRING "foo"), it will not be considered a match.
+    $(LREF2 name, EntityRange.Entity) $(D_CODE_STRING "foo") at the same level
+    as the current entity. If the current entity is a start tag with the name
+    $(D_CODE_STRING "foo"), it will not be considered a match.
 
     $(D range._skiptoPath($(D_STRING "./"))) is a no-op. However,
     $(D range._skipToPath($(D_STRING "../"))) will result in the empty range
@@ -3879,8 +3901,8 @@ unittest
     and $(D range._skipToPath($(D_STRING "../foo/bar"))) is equivalent to
     $(D range._skipToPath($(D_STRING "../foo"))._skipToPath($(D_STRING "bar"))).
 
-    Returns: The given range with front now at the requested entity if the path
-             is valid; otherwise, an empty range is returned.
+    Returns: The given range with its $(D front) now at the requested entity if
+             the path is valid; otherwise, an empty range is returned.
 
     Throws: $(LREF XMLParsingException) on invalid XML.
   +/
