@@ -3,7 +3,7 @@ _=This contains helper macros which are intended to be used in the documentation
 $(COMMENT This is for linking to the source code for the current module.
           e.g. $(LINK_TO_SRC dxml/parser/_range.d) would generate a link to the
           source code using the $(PROJECT_SRC_ROOT) macro.)
-LINK_TO_SRC=$(SPANC link_to_source, $(LINK2 $(PROJECT_SRC_ROOT)/$1, $1))
+LINK_TO_SRC=$(SPANC link_to_source, $(LINK $(PROJECT_SRC_ROOT)/$1))
 _=
 
 $(COMMENT Used to generate links within the same documentation page.

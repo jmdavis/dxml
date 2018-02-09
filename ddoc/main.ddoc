@@ -39,7 +39,7 @@ $(DIVC sidebar-underbar)
 $(DIVC sidebar,
     $(DIVC head,
         $(H2 $(PROJECT_NAME))
-        $(P $(SPANC smallprint, $(PROJECT_VERSION) $(SPANC separator, $(BR))
+        $(P $(SPANC smallprint, $(B version:) $(PROJECT_VERSION) $(SPANC separator, $(BR))
             )
         )
         $(P $(LINK2 index.html, overview))
