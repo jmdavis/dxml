@@ -454,7 +454,7 @@ enum EntityType
         which are not predefined are considered invalid XML, because the DTD
         section is skipped, and thus they cannot be processed properly.
 
-        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)($BR)
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)$(BR)
                   $(REF normalize, dxml, util)$(BR)
                   $(REF asNormalized, dxml, util)$(BR)
                   $(REF parseStdEntityRef, dxml, util)$(BR)
