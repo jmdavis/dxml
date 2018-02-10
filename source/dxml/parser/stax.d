@@ -539,7 +539,7 @@ public:
     import std.typecons : Nullable;
     import std.utf : byCodeUnit;
 
-    private enum compileInTests = is(R == EntityCompileTests);
+    private enum compileInTests = is(R == EntityRangeCompileTests);
 
     /// The Config used for when parsing the XML.
     alias config = cfg;
@@ -3254,9 +3254,9 @@ unittest
     }}
 }
 
-// This is purely to provide a way to trigger the unittest blocks in Entity
+// This is purely to provide a way to trigger the unittest blocks in EntityRange
 // without compiling them in normally.
-private struct EntityCompileTests
+private struct EntityRangeCompileTests
 {
     @property bool empty() @safe pure nothrow @nogc { assert(0); }
     @property char front() @safe pure nothrow @nogc { assert(0); }
@@ -3265,7 +3265,7 @@ private struct EntityCompileTests
 }
 
 version(unittest)
-    EntityRange!(Config.init, EntityCompileTests) _entityRangeTests;
+    EntityRange!(Config.init, EntityRangeCompileTests) _entityRangeTests;
 
 
 /++
