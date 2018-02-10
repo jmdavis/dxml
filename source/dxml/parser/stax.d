@@ -816,7 +816,7 @@ public:
             $(D $(PHOBOS_REF_ALTTEXT Tuple, Tuple, std, typecons)!(
                       $(LREF2 SliceOfR, EntityRange), $(D_STRING "name"),
                       $(LREF2 SliceOfR, EntityRange), $(D_STRING "value"),
-                      $(LREF TextPos, pos), $(D_STRING "pos"))).
+                      $(LREF TextPos), $(D_STRING "pos"))).
 
             $(TABLE
                 $(TR $(TH Supported $(LREF EntityType)s:))
