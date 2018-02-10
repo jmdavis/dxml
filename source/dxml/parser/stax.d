@@ -1196,145 +1196,6 @@ public:
         }
 
 
-        /++
-            Overloads opEquals so that
-            $(PHOBOS_REF equals, std, algorithm, comparison) is used to compare
-            the text (since even with the same range types where the values are
-            the same, sometimes, comparing them with $(D ==) doesn't return
-            true).
-          +/
-        bool opEquals()(auto ref Entity rhs)
-        {
-            import std.algorithm.comparison : equal;
-
-            if(_type != rhs._type)
-                return false;
-
-            with(EntityType) final switch(_type)
-            {
-                case cdata: break;
-                case comment: break;
-                case elementStart:
-                {
-                    if(!equal(_name.save, rhs._name.save))
-                        return false;
-                    break;
-                }
-                case elementEnd: goto case elementStart;
-                case elementEmpty: goto case elementStart;
-                case text: break;
-                case pi: goto case elementStart;
-            }
-
-            return _type == EntityType.elementEnd || equal(_savedText.input.save, rhs._savedText.input.save);
-        }
-
-        static if(compileInTests) unittest
-        {
-            import core.exception : AssertError;
-            import std.algorithm.comparison : equal;
-            import std.array : replace;
-            import std.exception : enforce;
-            import std.stdio : writefln;
-            import dxml.internal : testRangeFuncs;
-
-            static void test(alias func)(string xml, size_t line = __LINE__)
-            {
-                auto range = parseXML(func(xml));
-                auto orig = range.save;
-                for(int i = 0; !range.empty; ++i, range.popFront())
-                {
-                    // End tags are equal too easily for this test to work with
-                    // them, so we'll test them separately.
-                    if(range.front.type == EntityType.elementEnd)
-                        continue;
-                    auto other = orig.save;
-                    for(int j = 0; !other.empty; ++j, other.popFront())
-                    {
-                        scope(failure) writefln("i: %s, j: %s", i, j);
-                        if(i == j)
-                            enforce!AssertError(range.front == other.front, "unittest failure 1", __FILE__, line);
-                        else
-                            enforce!AssertError(range.front != other.front, "unittest failure 2", __FILE__, line);
-                    }
-                }
-            }
-
-            static foreach(func; testRangeFuncs)
-            {
-                 test!func("<root>\n" ~
-                           "    <![CDATA[here is some data]]>\n" ~
-                           "    <![CDATA[here is some other data]]>\n" ~
-                           "</root>");
-                 test!func("<root>\n" ~
-                           "    <!-- comment -->\n" ~
-                           "    <!-- other comment -->\n" ~
-                           "</root>");
-                 test!func("<root>\n" ~
-                           "    <foo></foo>\n" ~
-                           "    <foo/>\n" ~
-                           "    <foo a='42'></foo>\n" ~
-                           "    <foo a='42' b='56'></foo>\n" ~
-                           "    <bar>\n" ~
-                           "        <baz/>\n" ~
-                           "        <baz a='42'/>\n" ~
-                           "        <baz a='42' b='56'/>\n" ~
-                           "        <bar/>\n" ~
-                           "    </bar>\n" ~
-                           "</root>");
-                 test!func("<root>\n" ~
-                           "    <foo>silly bear</foo>\n" ~
-                           "    <bar>silly programmer</bar>\n" ~
-                           "</root>");
-                 test!func("<root>\n" ~
-                           "    <?Sherlock isn't here?>\n" ~
-                           "    <?Poirot isn't either?>\n" ~
-                           "    <?Conan?>\n" ~
-                           "    <?Edogawa?>\n" ~
-                           "</root>");
-
-                 {
-                     auto xml = "<root>\n" ~
-                                "    <foo></foo>\n" ~
-                                "    <foo></foo>\n" ~
-                                "<root>";
-                     auto range = parseXML(func(xml));
-                     range.popFront();
-                     auto other = range.save;
-                     assert(range.front == other.front);
-                     range.popFront();
-                     range.popFront();
-                     assert(range.front == other.front);
-                     range.popFront();
-                     other.popFront();
-                     assert(range.front == other.front);
-                     other.popFront();
-                     other.popFront();
-                     assert(range.front == other.front);
-                 }
-                 {
-                     auto xml = "<root>\n" ~
-                                "    <foo></foo>\n" ~
-                                "    <fou></fou>\n" ~
-                                "<root>";
-                     auto range = parseXML(func(xml));
-                     range.popFront();
-                     auto other = range.save;
-                     assert(range.front == other.front);
-                     range.popFront();
-                     range.popFront();
-                     assert(range.front != other.front);
-                     range.popFront();
-                     other.popFront();
-                     assert(range.front != other.front);
-                     other.popFront();
-                     other.popFront();
-                     assert(range.front == other.front);
-                 }
-            }
-        }
-
-
         // Reduce the chance of bugs if reference-type ranges are involved.
         static if(!isDynamicArray!R) this(this)
         {
@@ -1384,28 +1245,26 @@ public:
                      {
                          auto entity = range.front;
                          auto entity2 = entity;
-                         assert(entity == entity2);
-                         assert(entity == entity2);
+                         assert(entity.pos == entity2.pos);
                          assert(equal(entity.name, entity2.name));
                          assert(equal(entity.name, entity2.name));
                          assert(equal!cmpAttr(entity.attributes, entity2.attributes));
                          assert(equal!cmpAttr(entity.attributes, entity2.attributes));
                          range.popFront();
-                         assert(entity == entity2);
-                         assert(entity != range.front);
+                         assert(entity.pos == entity2.pos);
+                         assert(entity.pos != range.front.pos);
                      }
                      range.popFront();
                      range.popFront();
                      {
                          auto entity = range.front;
                          auto entity2 = entity;
-                         assert(entity == entity2);
-                         assert(entity == entity2);
+                         assert(entity.pos == entity2.pos);
                          assert(equal(entity.text, entity2.text));
                          assert(equal(entity.text, entity2.text));
                          range.popFront();
-                         assert(entity == entity2);
-                         assert(entity != range.front);
+                         assert(entity.pos == entity2.pos);
+                         assert(entity.pos != range.front.pos);
                      }
                 }}
             }
@@ -1425,8 +1284,42 @@ public:
                     {
                         auto entity = range.front;
                         auto entity2 = entity;
-                        assert(entity == range.front);
-                        assert(entity == entity2);
+
+                        assert(entity.pos == range.front.pos);
+                        assert(entity.pos == entity2.pos);
+                        assert(entity.type == range.front.type);
+                        assert(entity.type == entity2.type);
+
+                        with(EntityType) final switch(entity.type)
+                        {
+                            case cdata: goto case text;
+                            case comment: goto case text;
+                            case elementStart:
+                            {
+                                assert(equal!cmpAttr(entity.attributes, range.front.attributes));
+                                assert(equal!cmpAttr(entity.attributes, entity2.attributes));
+                                goto case elementEnd;
+                            }
+                            case elementEnd:
+                            {
+                                assert(equal(entity.name, range.front.name));
+                                assert(equal(entity.name, entity2.name));
+                                break;
+                            }
+                            case elementEmpty: goto case elementStart;
+                            case text:
+                            {
+                                assert(equal(entity.text, range.front.text));
+                                assert(equal(entity.text, entity2.text));
+                                break;
+                            }
+                            case pi:
+                            {
+                                assert(equal(entity.name, range.front.name));
+                                assert(equal(entity.name, entity2.name));
+                                goto case text;
+                            }
+                        }
                     }
                 }
             }
@@ -1555,6 +1448,45 @@ public:
         import std.exception : assertNotThrown;
         import dxml.internal : testRangeFuncs;
 
+        static bool cmpAttr(T)(T lhs, T rhs)
+        {
+            return equal(lhs.name.save, rhs.name.save) &&
+                   equal(lhs.value.save, rhs.value.save);
+        }
+
+        static void testEqual(ER)(ER one, ER two)
+        {
+             while(!one.empty && !two.empty)
+             {
+                 auto left = one.front;
+                 auto right = two.front;
+
+                 assert(left.pos == right.pos);
+                 assert(left.type == right.type);
+
+                 with(EntityType) final switch(left.type)
+                 {
+                     case cdata: goto case text;
+                     case comment: goto case text;
+                     case elementStart:
+                     {
+                         assert(equal!cmpAttr(left.attributes, right.attributes));
+                         goto case elementEnd;
+                     }
+                     case elementEnd: assert(equal(left.name, right.name)); break;
+                     case elementEmpty: goto case elementStart;
+                     case text: assert(equal(left.text, right.text)); break;
+                     case pi: assert(equal(left.name, right.name)); goto case text;
+                 }
+
+                 one.popFront();
+                 two.popFront();
+             }
+
+             assert(one.empty);
+             assert(two.empty);
+        }
+
          auto xml = "<root>\n" ~
                     "    <!-- comment -->\n" ~
                     "    <something>\n" ~
@@ -1566,14 +1498,9 @@ public:
         static foreach(i, func; testRangeFuncs)
         {{
              auto text = func(xml);
-             assert(equal(parseXML(text.save), parseXML(text.save)));
+             testEqual(parseXML(text.save), parseXML(text.save));
              auto range = parseXML(text.save);
-             immutable len1 = assertNotThrown!XMLParsingException(walkLength(range.save));
-             immutable len2 = assertNotThrown!XMLParsingException(walkLength(range.save));
-             assert(len1 == len2);
-             assert(len1 != 0);
-             assert(equal(range.save, range.save));
-             assert(walkLength(range) == len1);
+             testEqual(range.save, range.save);
         }}
     }
 
