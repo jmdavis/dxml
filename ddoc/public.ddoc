@@ -98,3 +98,7 @@ K_SAFE=$(D_KEYWORD @safe)
 K_SYSTEM=$(D_KEYWORD @system)
 K_TRUSTED=$(D_KEYWORD @trusted)
 _=
+
+K_REF=$(D_KEYWORD ref)
+K_STATIC=$(D_KEYWORD static)
+_=

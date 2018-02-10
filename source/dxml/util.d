@@ -1,8 +1,8 @@
 // Written in the D programming language
 
 /++
-    This module contains helper functions which aren't specific to a particular
-    parser or writer.
+    This module contains helper functions which aren't specific to the parser,
+    the DOM, or the writer.
 
     Copyright: Copyright 2018
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
@@ -55,10 +55,10 @@ import std.typecons : Nullable;;
     them properly would require handling the DTD section, which dxml does not
     do. The parser considers any entity references other than the predefined
     ones to be invalid XML, so unless the text being passed to normalize
-    doesn't come from one of dxml's parsers, it can't have any entity
-    references in it other than the predefined ones. Similarly, invalid
-    character references are left unprocessed as well as any character that is
-    not valid in an XML document. normalize never throws on invalid XML.
+    doesn't come from dxml's parser, it can't have any entity references in it
+    other than the predefined ones. Similarly, invalid character references are
+    left unprocessed as well as any character that is not valid in an XML
+    document. normalize never throws on invalid XML.
 
     Also, $(D_CODE_STRING '\r') is not supposed to appear in an XML document
     except as a character reference unless it's in a CDATA section. So, it
