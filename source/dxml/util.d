@@ -102,8 +102,8 @@ import std.typecons : Nullable;;
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseStdEntityRef)$(BR)
               $(LREF parseCharRef)$(BR)
-              $(REF EntityRange.Entity.attributes, dxml, parser, stax)$(BR)
-              $(REF EntityRange.Entity.text, dxml, parser, stax)
+              $(REF EntityRange.Entity.attributes, dxml, parser)$(BR)
+              $(REF EntityRange.Entity.text, dxml, parserx)
   +/
 string normalize(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -303,7 +303,7 @@ unittest
     }
 
     {
-        import dxml.parser.stax;
+        import dxml.parser;
         auto xml = "<root>\n" ~
                    "    <function return='vector&lt;int&gt;' name='foo'>\r\n" ~
                    "        <doc_comment>This function does something really\r\n" ~
@@ -770,7 +770,7 @@ unittest
 
 /++
     Strips the indent from a character range (most likely from
-    $(REF_ALTTEXT Entity.text, EntityRange.Entity.text, dxml, parser, stax)).
+    $(REF_ALTTEXT Entity.text, EntityRange.Entity.text, dxml, parser)).
     The idea is that if the XML is formatted to be human-readable, and it's
     multiple lines long, the lines are likely to be indented, but the
     application probably doesn't want that extra whitespace. So, stripIndent
@@ -818,7 +818,7 @@ unittest
              and not just $(K_DCHAR); which it is depends on the code units of
              the range being passed in).
 
-    See_Also: $(REF EntityRange.Entity.text, dxml, parser, stax)
+    See_Also: $(REF EntityRange.Entity.text, dxml, parser)
   +/
 string stripIndent(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1040,7 +1040,7 @@ unittest
     // is stripped from the beginning or end of the range are geared towards
     // the text coming from a well-formatted Entity.text section.
     {
-        import dxml.parser.stax;
+        import dxml.parser;
         auto xml = "<root>\n" ~
                    "    <code>\n" ~
                    "    bool isASCII(string str)\n" ~
