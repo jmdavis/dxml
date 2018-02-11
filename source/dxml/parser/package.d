@@ -544,6 +544,9 @@ public:
     /// The Config used for when parsing the XML.
     alias config = cfg;
 
+    /// The type of the range that EntityRange is parsing.
+    alias Input = R;
+
     /++
         The type used when any slice of the original input is used. If $(D R)
         is a string or supports slicing, then SliceOfR is the same as $(D R);
@@ -775,10 +778,10 @@ public:
           +/
         @property SliceOfR name()
         {
-            import dxml.internal : stripBCU;
+            import dxml.internal : checkedSave, stripBCU;
             with(EntityType)
                 assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
-            return stripBCU!R(_name.save);
+            return stripBCU!R(checkedSave(_name));
         }
 
         ///
@@ -867,9 +870,10 @@ public:
 
                 @property auto save()
                 {
+                    import dxml.internal : checkedSave;
                     auto retval = this;
-                    retval._front = Attribute(_front[0].save, _front[1].save, _front[2]);
-                    retval._text.input = retval._text.input.save;
+                    retval._front = Attribute(_front[0].save, checkedSave(_front[1]), _front[2]);
+                    retval._text.input = checkedSave(retval._text.input);
                     return retval;
                 }
 
@@ -1119,10 +1123,10 @@ public:
           +/
         @property SliceOfR text()
         {
-            import dxml.internal : stripBCU;
+            import dxml.internal : checkedSave, stripBCU;
             with(EntityType)
                 assert(only(cdata, comment, pi, text).canFind(_type));
-            return stripBCU!R(_savedText.input.save);
+            return stripBCU!R(checkedSave(_savedText.input));
         }
 
         ///
@@ -1435,10 +1439,15 @@ public:
       +/
     @property auto save()
     {
+        // The init check nonsense is because of ranges whose init values blow
+        // up when save is called (e.g. a range that's a class).
         auto retval = this;
-        retval._name = _name.save;
-        retval._text.input = _text.input.save;
-        retval._savedText.input = _savedText.input.save;
+        if(retval._name !is typeof(retval._name).init)
+            retval._name = _name.save;
+        if(retval._text.input !is typeof(retval._text.input).init)
+            retval._text.input = _text.input.save;
+        if(retval._savedText.input !is typeof(retval._savedText.input).init)
+            retval._savedText.input = _savedText.input.save;
         return retval;
     }
 

@@ -108,6 +108,17 @@ unittest
 }
 
 
+/+
+    The purpose of this function is to work aroundo problems related to ranges
+    that either classes or contain classes, since their init values tend to blow
+    up when anything is done with them.
+ +/
+pragma(inline, true) auto checkedSave(R)(ref R range)
+{
+    return range is R.init ? R.init : range.save;
+}
+
+
 //------------------------------------------------------------------------------
 // Unit test helpers
 //------------------------------------------------------------------------------
