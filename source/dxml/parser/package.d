@@ -910,19 +910,23 @@ public:
                 auto xml = "<root a='42' q='29' w='hello'/>";
                 auto range = parseXML(xml);
                 assert(range.front.type == EntityType.elementEmpty);
+
                 auto attrs = range.front.attributes;
                 assert(attrs.front.name == "a");
                 assert(attrs.front.value == "42");
                 assert(attrs.front.pos == TextPos(1, 7));
                 attrs.popFront();
+
                 assert(attrs.front.name == "q");
                 assert(attrs.front.value == "29");
                 assert(attrs.front.pos == TextPos(1, 14));
                 attrs.popFront();
+
                 assert(attrs.front.name == "w");
                 assert(attrs.front.value == "hello");
                 assert(attrs.front.pos == TextPos(1, 21));
                 attrs.popFront();
+
                 assert(attrs.empty);
             }
             // Because the type of name and value is SliceOfR, == with a string
@@ -931,19 +935,23 @@ public:
                 auto xml = filter!(a => true)("<root a='42' q='29' w='hello'/>");
                 auto range = parseXML(xml);
                 assert(range.front.type == EntityType.elementEmpty);
+
                 auto attrs = range.front.attributes;
                 assert(equal(attrs.front.name, "a"));
                 assert(equal(attrs.front.value, "42"));
                 assert(attrs.front.pos == TextPos(1, 7));
                 attrs.popFront();
+
                 assert(equal(attrs.front.name, "q"));
                 assert(equal(attrs.front.value, "29"));
                 assert(attrs.front.pos == TextPos(1, 14));
                 attrs.popFront();
+
                 assert(equal(attrs.front.name, "w"));
                 assert(equal(attrs.front.value, "hello"));
                 assert(attrs.front.pos == TextPos(1, 21));
                 attrs.popFront();
+
                 assert(attrs.empty);
             }
         }
@@ -1174,9 +1182,11 @@ public:
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
             assert(range.front.name == "p");
+
             range.popFront();
             assert(range.front.type == EntityType.text);
             assert(range.front.text == "something here");
+
             range.popFront();
             assert(range.front.type == EntityType.elementEnd);
             assert(range.front.name == "p");
@@ -1186,15 +1196,18 @@ public:
             // "       here</p>\n" ~
             range.popFront();
             assert(range.front.type == EntityType.elementStart);
+
             range.popFront();
             assert(range.front.type == EntityType.text);
             assert(range.front.text == "\n       something else\n       here");
+
             range.popFront();
             assert(range.front.type == EntityType.elementEnd);
 
             // "</root>"
             range.popFront();
             assert(range.front.type == EntityType.elementEnd);
+
             range.popFront();
             assert(range.empty);
         }
