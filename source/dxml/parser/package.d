@@ -115,6 +115,117 @@
   +/
 module dxml.parser;
 
+///
+unittest
+{
+    auto xml = "<!-- comment -->\n" ~
+               "<root>\n" ~
+               "    <foo>some text<whatever/></foo>\n" ~
+               "    <bar/>\n" ~
+               "    <baz></baz>\n" ~
+               "</root>";
+    {
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.comment);
+        assert(range.front.text == " comment ");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
+        range.popFront();
+
+        assert(range.front.type == EntityType.text);
+        assert(range.front.text == "some text");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "whatever");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "foo");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEmpty);
+        assert(range.front.name == "bar");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "baz");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "baz");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "root");
+        range.popFront();
+
+        assert(range.empty);
+    }
+    {
+        auto range = parseXML!simpleXML(xml);
+
+        // simpleXML skips comments
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "root");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "foo");
+        range.popFront();
+
+        assert(range.front.type == EntityType.text);
+        assert(range.front.text == "some text");
+        range.popFront();
+
+        // simpleXML splits empty element tags into a start tag and end tag
+        // so that the code doesn't have to care whether a start tag with no
+        // content is an empty tag or a start tag and end tag with nothing but
+        // whitespace in between.
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "whatever");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "whatever");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "foo");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "bar");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "bar");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementStart);
+        assert(range.front.name == "baz");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "baz");
+        range.popFront();
+
+        assert(range.front.type == EntityType.elementEnd);
+        assert(range.front.name == "root");
+        range.popFront();
+
+        assert(range.empty);
+    }
+}
+
+
 import std.range.primitives;
 import std.traits;
 import std.typecons : Flag;

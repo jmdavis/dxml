@@ -4,6 +4,27 @@
     This module contains helper functions which aren't specific to the parser,
     the DOM, or the writer.
 
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF normalize))
+             $(TD Takes a range of characters, strips carriage returns from it,
+                  and converts both character references and the predefined
+                  entity references in the range into the characters that they
+                  refer to.))
+        $(TR $(TD $(LREF asNormalized))
+             $(TD The version of normalize that returns a lazy range.))
+        $(TR $(TD $(LREF parseCharRef))
+             $(TD Parses a character reference from the front of a range of
+                  characters.))
+        $(TR $(TD $(LREF parseStdEntityRef))
+             $(TD Parses one of the predefined entity references from the start
+                  of a range of characters.))
+        $(TR $(TD $(LREF stripIndent))
+             $(TD description))
+        $(TR $(TD $(LREF withoutIndent))
+             $(TD The version of stripIndent that returns a lazy range.))
+    )
+
     Copyright: Copyright 2018
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
