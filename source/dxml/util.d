@@ -38,7 +38,6 @@ import std.range.primitives;
 import std.traits;
 import std.typecons : Nullable;;
 
-
 /++
     "Normalizes" the given text and transforms character references into the
     characters that they represent. normalize combines $(LREF parseStdEntityRef)
@@ -302,7 +301,7 @@ auto asNormalized(R)(R range)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     assert(normalize("hello world &amp;&gt;&lt;&apos;&quot; \r\r\r\r\r foo") ==
            `hello world &><'"  foo`);
@@ -394,7 +393,7 @@ unittest
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -434,7 +433,7 @@ unittest
     }}
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -521,7 +520,7 @@ Nullable!dchar parseStdEntityRef(R)(ref R range)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     {
         auto range = "&amp;foo";
@@ -570,7 +569,7 @@ unittest
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -608,7 +607,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -693,7 +692,7 @@ Nullable!dchar parseCharRef(R)(ref R range)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     {
         auto range = "&#48; hello world";
@@ -733,7 +732,7 @@ unittest
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -778,7 +777,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -1053,7 +1052,7 @@ auto withoutIndent(R)(R range)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1181,7 +1180,7 @@ unittest
                  "  baz"));
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -1225,7 +1224,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;

@@ -26,7 +26,7 @@
 module dxml.dom;
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<!-- comment -->\n" ~
                "<root>\n" ~
@@ -812,11 +812,11 @@ private struct DOMCompileTests
     @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
 }
 
-version(unittest)
+version(dxmlTests)
     DOMEntity!DOMCompileTests _domTests;
 
 /// parseDOM with the dault Config and a range of characters
-@safe unittest
+version(dxmlTests) @safe unittest
 {
     import std.range.primitives;
 
@@ -864,7 +864,7 @@ version(unittest)
 }
 
 /// parseDOM with simpleXML and a range of characters
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<root>\n" ~
                "    <!-- no comment -->\n" ~
@@ -908,7 +908,7 @@ unittest
 }
 
 /// parseDOM with simpleXML and an EntityRange
-unittest
+version(dxmlTests) unittest
 {
     import dxml.parser : parseXML;
 
@@ -957,7 +957,7 @@ unittest
 }
 
 /// parseDOM with an EntityRange which is not at the start of the document.
-unittest
+version(dxmlTests) unittest
 {
     import dxml.parser : parseXML, skipToPath;
 
@@ -1061,7 +1061,7 @@ void _parseDOM(ER, DE)(ref ER range, ref DE parent, ER.SliceOfR[] path = null)
     parent._children = children.data;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;

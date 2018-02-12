@@ -116,7 +116,7 @@
 module dxml.parser;
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<!-- comment -->\n" ~
                "<root>\n" ~
@@ -342,7 +342,7 @@ struct Config
     auto splitEmpty = SplitEmpty.no;
 
     ///
-    unittest
+    version(dxmlTests) unittest
     {
         enum configSplitYes = makeConfig(SplitEmpty.yes);
 
@@ -452,7 +452,7 @@ Config makeConfig(Args...)(Args args)
 }
 
 ///
-@safe pure nothrow @nogc unittest
+version(dxmlTests) @safe pure nothrow @nogc unittest
 {
     {
         auto config = makeConfig(SkipComments.yes);
@@ -474,7 +474,7 @@ Config makeConfig(Args...)(Args args)
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.typecons : Flag;
     static assert(!__traits(compiles, makeConfig(42)));
@@ -493,7 +493,7 @@ unittest
 enum simpleXML = makeConfig(SkipComments.yes, SkipPI.yes, SplitEmpty.yes);
 
 ///
-@safe pure nothrow @nogc unittest
+version(dxmlTests) @safe pure nothrow @nogc unittest
 {
     static assert(simpleXML.skipComments == SkipComments.yes);
     static assert(simpleXML.skipPI == SkipPI.yes);
@@ -3048,7 +3048,7 @@ EntityRange!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<?xml version='1.0'?>\n" ~
                "<?instruction start?>\n" ~
@@ -3169,7 +3169,7 @@ unittest
 }
 
 // Test the state of the range immediately after parseXML returns.
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -3226,7 +3226,7 @@ unittest
 }
 
 // Test various invalid states that didn't seem to fit well into tests elsewhere.
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.exception : collectException, enforce;
@@ -3290,7 +3290,7 @@ unittest
 // pure would be nice too, but at minimum, the use of format for exception
 // messages, and the use of assumeSafeAppend prevent it. It may or may not be
 // worth trying to fix that.
-@safe unittest
+version(dxmlTests) @safe unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -3336,7 +3336,7 @@ private struct EntityRangeCompileTests
     @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
 }
 
-version(unittest)
+version(dxmlTests)
     EntityRange!(Config.init, EntityRangeCompileTests) _entityRangeTests;
 
 
@@ -3378,7 +3378,7 @@ R skipContents(R)(R entityRange)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<root>\n" ~
                "    <foo>\n" ~
@@ -3458,7 +3458,7 @@ R skipToEntityType(R)(R entityRange, EntityType[] entityTypes...)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<root>\n" ~
                "    <!-- blah blah blah -->\n" ~
@@ -3530,7 +3530,7 @@ R skipToParentEndTag(R)(R entityRange)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     auto xml = "<root>\n" ~
                "    <foo>\n" ~
@@ -3610,7 +3610,7 @@ unittest
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -4068,7 +4068,7 @@ R skipToPath(R)(R entityRange, string path)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     {
         auto xml = "<carrot>\n" ~
@@ -4215,7 +4215,8 @@ unittest
         assert(range.front.name == "root");
     }
 }
-unittest
+
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -4386,7 +4387,7 @@ unittest
 private:
 
 
-version(unittest) auto testParser(Config config = Config.init, R)(R xmlText) @trusted pure nothrow @nogc
+version(dxmlTests) auto testParser(Config config = Config.init, R)(R xmlText) @trusted pure nothrow @nogc
 {
     import std.utf : byCodeUnit;
     typeof(EntityRange!(config, R)._text) text;
@@ -4510,7 +4511,7 @@ bool stripStartsWith(Text)(ref Text text, string needle)
     return true;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.exception : enforce;
@@ -4547,7 +4548,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -4604,7 +4605,7 @@ bool stripWS(Text)(ref Text text)
     return strippedSpace;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.exception : enforce;
@@ -4641,7 +4642,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -4663,7 +4664,7 @@ auto takeUntilAndDrop(string needle, bool skipQuotedText = false, Text)(ref Text
     return _takeUntil!(true, needle, skipQuotedText, Text)(text);
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -4768,7 +4769,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -4788,7 +4789,7 @@ void skipUntilAndDrop(string needle, bool skipQuotedText = false, Text)(ref Text
     _takeUntil!(false, needle, skipQuotedText, Text)(text);
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -4891,7 +4892,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -5074,7 +5075,7 @@ template skipToOneOf(delims...)
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -5137,7 +5138,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -5173,7 +5174,7 @@ auto takeEnquotedText(Text)(ref Text text)
     throw new XMLParsingException("Expected quoted text", text.pos);
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -5296,7 +5297,7 @@ template takeName(delims...)
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -5385,7 +5386,7 @@ unittest
     }
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -5568,7 +5569,7 @@ auto takeAttValue(Text)(ref Text text)
     throw new XMLParsingException("Expected quoted text", text.pos);
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -5763,7 +5764,7 @@ unittest
     }}
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -5891,7 +5892,7 @@ void checkText(bool allowRestrictedChars, Text)(ref Text orig)
     }
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import core.exception : AssertError;
     import std.exception : assertNotThrown, collectException, enforce;
@@ -6053,7 +6054,7 @@ unittest
     }
 }
 
-@safe unittest
+version(dxmlTests) @safe unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -6083,7 +6084,7 @@ bool isSpace(C)(C c) @safe pure nothrow @nogc
     }
 }
 
-pure nothrow @safe @nogc unittest
+version(dxmlTests) pure nothrow @safe @nogc unittest
 {
     foreach(char c; char.min .. char.max)
     {
@@ -6128,7 +6129,5 @@ pragma(inline, true) void checkNotEmpty(Text)(ref Text text, size_t line = __LIN
 }
 
 
-version(unittest)
-{
+version(dxmlTests)
     enum someTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
-}

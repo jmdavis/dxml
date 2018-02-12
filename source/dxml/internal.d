@@ -36,7 +36,7 @@ bool equalCU(R)(R range, string text)
     return range.empty;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
@@ -87,7 +87,7 @@ pragma(inline, true) auto stripBCU(Orig, R)(R range)
         return range;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm : equal, filter;
     import std.range : takeExactly;
@@ -132,7 +132,7 @@ bool isXMLChar(dchar c) pure nothrow @safe @nogc
                       : c > 127 && (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF));
 }
 
-pure nothrow @safe @nogc unittest
+version(dxmlTests) pure nothrow @safe @nogc unittest
 {
     import std.range : only;
     import std.typecons : tuple;
@@ -205,7 +205,7 @@ bool isNameStartChar(dchar c) @safe pure nothrow @nogc
     return false;
 }
 
-pure nothrow @safe @nogc unittest
+version(dxmlTests) pure nothrow @safe @nogc unittest
 {
     import std.range : only;
     import std.typecons : tuple;
@@ -253,7 +253,7 @@ bool isNameChar(dchar c) @safe pure nothrow @nogc
            c >= 0x0300 && c <= 0x036F || c >= 0x203F && c <= 0x2040;
 }
 
-pure nothrow @safe @nogc unittest
+version(dxmlTests) pure nothrow @safe @nogc unittest
 {
     import std.ascii : isAlphaNum;
     import std.range : only;
@@ -299,7 +299,7 @@ pure nothrow @safe @nogc unittest
 // Unit test helpers
 //------------------------------------------------------------------------------
 
-version(unittest):
+version(dxmlTests):
 
 struct FwdCharRange(C)
 {
@@ -558,7 +558,7 @@ private:
     C[] _str;
 }
 
-version(unittest) auto rasCharRange(R)(R range)
+auto rasCharRange(R)(R range)
     if(isSomeString!R && !is(R == enum))
 {
     return RASCharRange!(ElementEncodingType!R)(range);
@@ -643,7 +643,7 @@ private:
     C[] _str;
 }
 
-version(unittest) auto rasRefCharRange(R)(R range)
+auto rasRefCharRange(R)(R range)
     if(isSomeString!R && !is(R == enum))
 {
     return new RASRefCharRange!(ElementEncodingType!R)(range);
