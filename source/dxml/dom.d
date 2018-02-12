@@ -23,7 +23,7 @@
 
     See_Also: $(LINK2 http://www.w3.org/TR/REC-xml/, Official Specification for XML 1.0)
   +/
-module dxml.parser.dom;
+module dxml.dom;
 
 ///
 unittest
