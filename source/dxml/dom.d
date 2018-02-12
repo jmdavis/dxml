@@ -354,7 +354,11 @@ public:
     {
         import dxml.internal : checkedSave;
         with(EntityType)
-            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
+        {
+            import std.format : format;
+            assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type),
+                   format("name cannot be called with %s", _type));
+        }
         return checkedSave(_name);
     }
 
@@ -483,7 +487,11 @@ public:
     @property auto attributes()
     {
         with(EntityType)
-            assert(_type == elementStart || _type == elementEmpty);
+        {
+            import std.format : format;
+            assert(_type == elementStart || _type == elementEmpty,
+                   format("attributes cannot be called with %s", _type));
+        }
         return _attributes;
     }
 
@@ -572,7 +580,11 @@ public:
     {
         import dxml.internal : checkedSave;
         with(EntityType)
-            assert(only(cdata, comment, pi, text).canFind(_type));
+        {
+            import std.format : format;
+            assert(only(cdata, comment, pi, text).canFind(_type),
+                   format("text cannot be called with %s", _type));
+        }
         return checkedSave(_text);
     }
 

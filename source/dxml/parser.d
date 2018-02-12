@@ -891,7 +891,11 @@ public:
         {
             import dxml.internal : checkedSave, stripBCU;
             with(EntityType)
-                assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type));
+            {
+                import std.format : format;
+                assert(only(elementStart, elementEnd, elementEmpty, pi).canFind(_type),
+                       format("name cannot be called with %s", _type));
+            }
             return stripBCU!R(checkedSave(_name));
         }
 
@@ -944,7 +948,11 @@ public:
         @property auto attributes()
         {
             with(EntityType)
-                assert(_type == elementStart || _type == elementEmpty);
+            {
+                import std.format : format;
+                assert(_type == elementStart || _type == elementEmpty,
+                       format("attributes cannot be called with %s", _type));
+            }
 
             // STag         ::= '<' Name (S Attribute)* S? '>'
             // Attribute    ::= Name Eq AttValue
@@ -1244,7 +1252,11 @@ public:
         {
             import dxml.internal : checkedSave, stripBCU;
             with(EntityType)
-                assert(only(cdata, comment, pi, text).canFind(_type));
+            {
+                import std.format : format;
+                assert(only(cdata, comment, pi, text).canFind(_type),
+                       format("text cannot be called with %s", _type));
+            }
             return stripBCU!R(checkedSave(_savedText.input));
         }
 
