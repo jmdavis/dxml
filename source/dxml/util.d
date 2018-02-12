@@ -647,6 +647,7 @@ Nullable!dchar parseCharRef(R)(ref R range)
     import std.range : popFrontN;
     import std.typecons : nullable;
     import std.utf : byCodeUnit;
+    import dxml.internal : isXMLChar;
 
     auto orig = range.save;
 
@@ -1234,55 +1235,4 @@ unittest
         assert(stripIndent(func("foo")) == "foo");
         assert(equal(withoutIndent(func("foo")), "foo"));
     }}
-}
-
-
-
-package(dxml):
-
-// Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
-bool isXMLChar(dchar c) pure nothrow @safe @nogc
-{
-    // The rule says '\n' and not '\r', but we're not going to pass '\n' to
-    // this function, because it has to be handled separately for keeping track
-    // of TextPos. Look at the documentation for EntityRange for the
-    // explanation of how we're treating '\r' and why.
-    import std.ascii : isASCII;
-    assert(c != '\n');
-    return isASCII(c) ? c >= ' ' || c == '\t' || c == '\r'
-                      : c > 127 && (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF));
-}
-
-pure nothrow @safe @nogc unittest
-{
-    import std.range : only;
-    import std.typecons : tuple;
-
-    foreach(c; char.min .. ' ')
-    {
-        if(c == '\n')
-            continue;
-        if(c == ' ' || c == '\t' || c == '\r')
-            assert(isXMLChar(c));
-        else
-            assert(!isXMLChar(c));
-    }
-    foreach(dchar c; ' ' .. 256)
-        assert(isXMLChar(c));
-
-    assert(isXMLChar(0xD7FF - 1));
-    assert(isXMLChar(0xD7FF));
-    assert(!isXMLChar(0xD7FF + 1));
-
-    foreach(t; only(tuple(0xE000, 0xFFFD),
-                    tuple(0x10000, 0x10FFFF)))
-    {
-        assert(!isXMLChar(t[0] - 1));
-        assert(isXMLChar(t[0]));
-        assert(isXMLChar(t[0] + 1));
-        assert(isXMLChar(t[0] + (t[1] - t[0])));
-        assert(isXMLChar(t[1] - 1));
-        assert(isXMLChar(t[1]));
-        assert(!isXMLChar(t[1] + 1));
-    }
 }

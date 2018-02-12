@@ -5519,7 +5519,7 @@ auto takeAttValue(Text)(ref Text text)
                     {
                         import std.ascii : isASCII;
                         import std.format : format;
-                        import dxml.util : isXMLChar;
+                        import dxml.internal : isXMLChar;
 
                         immutable c = text.input.front;
                         if(isASCII(c))
@@ -5851,7 +5851,7 @@ void checkText(bool allowRestrictedChars, Text)(ref Text orig)
             default:
             {
                 import std.ascii : isASCII;
-                import dxml.util : isXMLChar;
+                import dxml.internal : isXMLChar;
                 immutable c = text.input.front;
                 if(isASCII(c))
                 {
