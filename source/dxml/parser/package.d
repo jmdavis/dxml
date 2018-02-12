@@ -3952,7 +3952,7 @@ unittest
     as the current entity. If the current entity is a start tag with the name
     $(D_CODE_STRING "foo"), it will not be considered a match.
 
-    $(D range._skiptoPath($(D_STRING "./"))) is a no-op. However,
+    $(D range._skipToPath($(D_STRING "./"))) is a no-op. However,
     $(D range._skipToPath($(D_STRING "../"))) will result in the empty range
     (since it doesn't target a specific start tag).
 
