@@ -119,6 +119,134 @@ pragma(inline, true) auto checkedSave(R)(ref R range)
 }
 
 
+// NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] |
+//                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
+//                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
+bool isNameStartChar(dchar c) @safe pure nothrow @nogc
+{
+    import std.ascii : isAlpha;
+
+    if(isAlpha(c))
+        return true;
+    if(c == ':' || c == '_')
+        return true;
+    if(c >= 0xC0 && c <= 0xD6)
+        return true;
+    if(c >= 0xD8 && c <= 0xF6)
+        return true;
+    if(c >= 0xF8 && c <= 0x2FF)
+        return true;
+    if(c >= 0x370 && c <= 0x37D)
+        return true;
+    if(c >= 0x37F && c <= 0x1FFF)
+        return true;
+    if(c >= 0x200C && c <= 0x200D)
+        return true;
+    if(c >= 0x2070 && c <= 0x218F)
+        return true;
+    if(c >= 0x2C00 && c <= 0x2FEF)
+        return true;
+    if(c >= 0x3001 && c <= 0xD7FF)
+        return true;
+    if(c >= 0xF900 && c <= 0xFDCF)
+        return true;
+    if(c >= 0xFDF0 && c <= 0xFFFD)
+        return true;
+    if(c >= 0x10000 && c <= 0xEFFFF)
+        return true;
+    return false;
+}
+
+pure nothrow @safe @nogc unittest
+{
+    import std.range : only;
+    import std.typecons : tuple;
+
+    foreach(c; char.min .. cast(char)128)
+    {
+        if(c == ':' || c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')
+            assert(isNameStartChar(c));
+        else
+            assert(!isNameStartChar(c));
+    }
+
+    foreach(t; only(tuple(0xC0, 0xD6),
+                    tuple(0xD8, 0xF6),
+                    tuple(0xF8, 0x2FF),
+                    tuple(0x370, 0x37D),
+                    tuple(0x37F, 0x1FFF),
+                    tuple(0x200C, 0x200D),
+                    tuple(0x2070, 0x218F),
+                    tuple(0x2C00, 0x2FEF),
+                    tuple(0x3001, 0xD7FF),
+                    tuple(0xF900, 0xFDCF),
+                    tuple(0xFDF0, 0xFFFD),
+                    tuple(0x10000, 0xEFFFF)))
+    {
+        assert(!isNameStartChar(t[0] - 1));
+        assert(isNameStartChar(t[0]));
+        assert(isNameStartChar(t[0] + 1));
+        assert(isNameStartChar(t[0] + (t[1] - t[0])));
+        assert(isNameStartChar(t[1] - 1));
+        assert(isNameStartChar(t[1]));
+        assert(!isNameStartChar(t[1] + 1));
+    }
+}
+
+
+// NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] |
+//                   [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] |
+//                   [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
+// NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
+bool isNameChar(dchar c) @safe pure nothrow @nogc
+{
+    import std.ascii : isDigit;
+    return isNameStartChar(c) || isDigit(c) || c == '-' || c == '.' || c == 0xB7 ||
+           c >= 0x0300 && c <= 0x036F || c >= 0x203F && c <= 0x2040;
+}
+
+pure nothrow @safe @nogc unittest
+{
+    import std.ascii : isAlphaNum;
+    import std.range : only;
+    import std.typecons : tuple;
+
+    foreach(c; char.min .. cast(char)129)
+    {
+        if(isAlphaNum(c) || c == ':' || c == '_' || c == '-' || c == '.')
+            assert(isNameChar(c));
+        else
+            assert(!isNameChar(c));
+    }
+
+    assert(!isNameChar(0xB7 - 1));
+    assert(isNameChar(0xB7));
+    assert(!isNameChar(0xB7 + 1));
+
+    foreach(t; only(tuple(0xC0, 0xD6),
+                    tuple(0xD8, 0xF6),
+                    tuple(0xF8, 0x037D), // 0xF8 - 0x2FF, 0x0300 - 0x036F, 0x37 - 0x37D
+                    tuple(0x37F, 0x1FFF),
+                    tuple(0x200C, 0x200D),
+                    tuple(0x2070, 0x218F),
+                    tuple(0x2C00, 0x2FEF),
+                    tuple(0x3001, 0xD7FF),
+                    tuple(0xF900, 0xFDCF),
+                    tuple(0xFDF0, 0xFFFD),
+                    tuple(0x10000, 0xEFFFF),
+                    tuple(0x203F, 0x2040)))
+    {
+        assert(!isNameChar(t[0] - 1));
+        assert(isNameChar(t[0]));
+        assert(isNameChar(t[0] + 1));
+        assert(isNameChar(t[0] + (t[1] - t[0])));
+        assert(isNameChar(t[1] - 1));
+        assert(isNameChar(t[1]));
+        assert(!isNameChar(t[1] + 1));
+    }
+}
+
+
 //------------------------------------------------------------------------------
 // Unit test helpers
 //------------------------------------------------------------------------------
