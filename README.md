@@ -2,16 +2,15 @@
 
 dxml is a library written in the D programming language for parsing XML 1.0.
 
-Currently, it contains only a range-based
-[StAX parser](https://en.wikipedia.org/wiki/StAX) and related helper functions,
-but the plan is to add a DOM parser as well as two XML writers - one which is
-essentially the writer version of a StAX parser, and one which is DOM-based.
+dxml's parser is a range-based [StAX parser](https://en.wikipedia.org/wiki/StAX),
+but dxml also has support for generating a DOM using the parser.
 
-However, the StAX parser should be complete as-is. More helper functions
-probably should and will be added in order to make common idioms using the StAX
-parser less verbose, but unless a significant problem is found with the current
-API, it is expected that the API of the parser itself will remain essentially
-unchanged.
+dxml does not currently have any XML writers, but writer support is planned.
+
+The parser should be complete as-is, but more helper functions probably should
+and will be added in order to make common idioms using the parser less verbose.
+However, unless a significant problem is found with the current API, it is
+expected that the API of the parser itself will remain essentially unchanged.
 
 For the sake of simplicitly, sanity, and efficiency, dxml does not support the
 DTD section of XML beyond what is required to correctly parse past it. Both the
