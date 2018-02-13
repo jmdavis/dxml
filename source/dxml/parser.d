@@ -643,14 +643,14 @@ enum EntityType
 struct EntityRange(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
-public:
-
     import std.algorithm : canFind;
     import std.range : only, takeExactly;
     import std.typecons : Nullable;
     import std.utf : byCodeUnit;
 
-    private enum compileInTests = is(R == EntityRangeCompileTests);
+    enum compileInTests = is(R == EntityRangeCompileTests);
+
+public:
 
     /// The Config used for when parsing the XML.
     alias config = cfg;
