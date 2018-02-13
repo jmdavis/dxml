@@ -1668,8 +1668,11 @@ private:
     void _parseDocumentStart()
     {
         auto orig = _text.save;
+        immutable wasWS = _text.stripWS();
         if(_text.stripStartsWith("<?xml"))
         {
+            if(wasSpace)
+                throw new XMLParsingException("Cannot have whitespace before the <?xml...?> declaration", TextPos.init);
             checkNotEmpty(_text);
             if(_text.input.front == '?' || isSpace(_text.input.front))
                 _text.skipUntilAndDrop!"?>"();
@@ -3283,6 +3286,9 @@ version(dxmlTests) unittest
         testFail!func("</Poirot>", 1, 2);
 
         testFail!func("<doc>]]></doc>", 1, 6);
+
+        testFail!func(" <?xml?><root/>", 1, 1);
+        testFail!func("\n<?xml?><root/>", 1, 1);
     }}
 }
 
