@@ -36,7 +36,7 @@ bool equalCU(R)(R range, string text)
     return range.empty;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
@@ -87,7 +87,7 @@ pragma(inline, true) auto stripBCU(Orig, R)(R range)
         return range;
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm : equal, filter;
     import std.range : takeExactly;
@@ -123,7 +123,7 @@ pragma(inline, true) auto checkedSave(R)(ref R range)
 // Unit test helpers
 //------------------------------------------------------------------------------
 
-version(unittest):
+version(dxmlTests):
 
 struct FwdCharRange(C)
 {
