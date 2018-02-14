@@ -1671,7 +1671,7 @@ private:
         immutable wasWS = _text.stripWS();
         if(_text.stripStartsWith("<?xml"))
         {
-            if(wasSpace)
+            if(wasWS)
                 throw new XMLParsingException("Cannot have whitespace before the <?xml...?> declaration", TextPos.init);
             checkNotEmpty(_text);
             if(_text.input.front == '?' || isSpace(_text.input.front))
