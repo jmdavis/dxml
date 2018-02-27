@@ -116,12 +116,12 @@ import dxml.parser : Config, EntityRange;
     When parseDOM processes the XML, it returns a DOMEntity representing the
     entire document. Even though the XML document itself isn't technically an
     entity in the XML document, it's simplest to treat it as if it were an
-    $(REF_ALTTEXT EntityType.elementStart, EntityType.elmentStart, dxml, parser)
+    $(REF_ALTTEXT EntityType.elementStart, EntityType.elementStart, dxml, parser)
     with an empty $(LREF2 name, _DOMEntity.name). That DOMEntity then contains
     child entities that recursively define the DOM tree through their children.
 
     For DOMEntities of type
-    $(REF_ALTTEXT EntityType.elementStart, EntityType.elmentStart, dxml, parser),
+    $(REF_ALTTEXT EntityType.elementStart, EntityType.elementStart, dxml, parser),
     $(LREF _DOMEntity.children) gives access to all of the child entities of
     that start tag. Other DOMEntities have no children.
 
