@@ -42,7 +42,7 @@ import std.typecons : Nullable;;
 /++
     "Normalizes" the given text and transforms character references into the
     characters that they represent. normalize combines $(LREF parseStdEntityRef)
-    and $(LREF parseCharRef) along with processing for $(DCODE_STRING '\r') to
+    and $(LREF parseCharRef) along with processing for $(D_CODE_STRING '\r') to
     normalize an entire character range. It's intended to be used on on the text
     fields of entities and on the values of start tag attributes.
 
