@@ -11,6 +11,7 @@ $(T html,
         $(SCRIPTLOAD js/listanchors.js)
         $(T title, $(TITLE))
         $(EXTRA_HEADERS)
+        $(EXTRA_HEADERS2)
     )
     $(T body,
         $(LAYOUT_PREFIX)
@@ -32,6 +33,15 @@ $(T html,
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
      )
 )
+_=
+
+EXTRA_HEADERS=
+EXTRA_HEADERS2=
+LAYOUT_PREFIX=
+BODY_PREFIX=
+BODY_POSTFIX=
+EXTRA_FOOTERS=
+LAYOUT_SUFFIX=
 _=
 
 SIDEBAR=
