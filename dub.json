@@ -11,6 +11,11 @@
         {
             "buildOptions": ["unittests", "debugMode", "debugInfo"],
             "versions": ["dxmlTests"]
+        },
+        "doCov":
+        {
+            "buildOptions": ["unittests", "debugMode", "debugInfo", "coverage"],
+            "versions": ["dxmlTests"]
         }
     }
 }
