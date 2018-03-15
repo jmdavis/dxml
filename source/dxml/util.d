@@ -23,6 +23,17 @@
              $(TD description))
         $(TR $(TD $(LREF withoutIndent))
              $(TD The version of stripIndent that returns a lazy range.))
+        $(TR $(TD $(LREF StdEntityRef))
+             $(TD Enum containing the string representations of the five,
+                  predefined entity references.))
+        $(TR $(TD $(LREF encodeText))
+             $(TD Encodes characters which cannot appear in
+                  $(LREF2 EntityType.text) in their literal form.))
+        $(TR $(TD $(LREF encodeAttr))
+             $(TD Encodes characters which cannot appear in the attribute value
+                  of an element start tag in their literal form.))
+        $(TR $(TD $(LREF toCharRef))
+             $(TD Encodes a character as a character reference.))
     )
 
     Copyright: Copyright 2018
@@ -36,7 +47,7 @@ module dxml.util;
 
 import std.range.primitives;
 import std.traits;
-import std.typecons : Nullable;;
+import std.typecons : Nullable;
 
 /++
     "Normalizes" the given text and transforms character references into the
@@ -636,7 +647,8 @@ version(dxmlTests) @safe pure unittest
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-CharRef)$(BR)
               $(LREF parseStdEntityRef)$(BR)
               $(LREF normalize)$(BR)
-              $(LREF asNormalized)
+              $(LREF asNormalized)$(BR)
+              $(LREF toCharRef)
   +/
 Nullable!dchar parseCharRef(R)(ref R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1234,4 +1246,371 @@ version(dxmlTests) @safe pure unittest
         assert(stripIndent(func("foo")) == "foo");
         assert(equal(withoutIndent(func("foo")), "foo"));
     }}
+}
+
+
+/++
+    The string representations of the five, entity references predefined by the
+    XML spec.
+
+    See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
+              $(LREF parseStdEntityRef)
+  +/
+enum StdEntityRef
+{
+    /// Entity reference for $(D_CODE_STRING '\'')
+    amp = "&amp;",
+
+    /// Entity reference for $(D_CODE_STRING '>')
+    gt = "&gt;",
+
+    /// Entity reference for $(D_CODE_STRING '<')
+    lt = "&lt;",
+
+    /// Entity reference for $(D_CODE_STRING '\'')
+    apos = "&apos;",
+
+    /// Entity reference for $(D_CODE_STRING '"')
+    quot = "&quot;",
+}
+
+
+/++
+    Returns a lazy range of code units which encodes any characters which cannot
+    be put in an $(REF EntityType.text, dxml, parser) in their literal form.
+
+    encodeText is intended primarily to be used with
+    $(REF XMLWriter.writeText, dxml, writer) to ensure that characters which
+    cannot appear in their literal form do not appear in their literal form.
+
+    Specifically, what encodeText does is
+
+    $(TABLE
+        $(TR $(TD convert $(D_CODE_STRING &) $(D_CODE_STRING $(AMP)amp;) ))
+        $(TR $(TD convert $(D_CODE_STRING <) $(D_CODE_STRING $(AMP)lt;) ))
+        $(TR $(TD convert $(D_CODE_STRING >) $(D_CODE_STRING $(AMP)gt;) ))
+    )
+
+    See_Also: $(XMLWriter.writeText, dxml, writer)$(BR)
+              $(LREF encodeAttr)
+  +/
+auto encodeText(R)(R text)
+    if(isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    import std.utf : byCodeUnit;
+
+    static struct EncodeText
+    {
+    public:
+
+        @property front() { return _len == 0 ? _text.front : cast(ElementEncodingType!R)_buffer[_len - 1]; }
+
+        @property empty() { return _text.empty; }
+
+        void popFront()
+        {
+            if(_len != 0)
+            {
+                if(--_len != 0)
+                    return;
+            }
+            _text.popFront();
+            _handleEntity();
+        }
+
+        @property save()
+        {
+            auto retval = this;
+            retval._text = _text.save;
+            return retval;
+        }
+
+    private:
+
+        void _handleEntity()
+        {
+            if(_text.empty)
+                return;
+            switch(_text.front)
+            {
+                case '&':
+                {
+                    enum entity = ";pma&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                case '<':
+                {
+                    enum entity = ";tl&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                case '>':
+                {
+                    enum entity = ";tg&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                default: return;
+            }
+        }
+
+        this(R text)
+        {
+            _text = byCodeUnit(text);
+            _handleEntity();
+        }
+
+        char["&amp;".length] _buffer;
+        size_t _len;
+        typeof(byCodeUnit(R.init)) _text;
+    }
+
+    return EncodeText(text);
+}
+
+///
+@safe pure nothrow @nogc unittest
+{
+    import std.algorithm.comparison : equal;
+
+    assert(equal(encodeText(`foo & bar`), `foo &amp; bar`));
+    assert(equal(encodeText(`foo < bar`), `foo &lt; bar`));
+    assert(equal(encodeText(`foo > bar`), `foo &gt; bar`));
+    assert(equal(encodeText(`foo ' bar`), `foo ' bar`));
+    assert(equal(encodeText(`foo " bar`), `foo " bar`));
+
+    assert(equal(encodeText("hello world"), "hello world"));
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        assert(encodeText(func("")).empty);
+        assert(equal(encodeText(func(`& < > ' "`)), `&amp; &lt; &gt; ' "`));
+        assert(equal(encodeText(func("&&&")), "&amp;&amp;&amp;"));
+
+        auto range = encodeText(func(`&&<<>>''""hello world"">><<&&`));
+        assert(equal(range.save, range.save));
+        assert(equal(range.save, `&amp;&amp;&lt;&lt;&gt;&gt;''""hello world""&gt;&gt;&lt;&lt;&amp;&amp;`));
+    }}
+}
+
+
+/++
+    Returns a lazy range of code units which encodes any characters which cannot
+    be put in an attribute value in an element tag in their literal form.
+
+    encodeAttr is intended primarily to be used with
+    $(REF XMLWriter.writeAttr, dxml, writer) to ensure that characters
+    which cannot appear in their literal form do not appear in their literal
+    form.
+
+    Specifically, what encodeAttr does is
+
+    $(TABLE
+        $(TR $(TD convert $(D_CODE_STRING &) $(D_CODE_STRING $(AMP)amp;) ))
+        $(TR $(TD convert $(D_CODE_STRING <) $(D_CODE_STRING $(AMP)lt;) ))
+        $(TR $(TD convert $(D_CODE_STRING ') $(D_CODE_STRING $(AMP)pos;) if
+              $(D quote == $(D_STRING '\''))))
+        $(TR $(TD convert $(D_CODE_STRING ") $(D_CODE_STRING $(AMP)quot;) if
+              $(D quote == $(D_STRING '"'))))
+    )
+
+    See_Also: $(XMLWriter.writeAttr, dxml, writer)$(BR)
+              $(LREF encodeText)
+  +/
+auto encodeAttr(char quote = '"', R)(R text)
+    if((quote == '"' || quote == '\'') && isForwardRange!R && isSomeChar!(ElementType!R))
+{
+    import std.utf : byCodeUnit;
+
+    static struct EncodeAttr
+    {
+    public:
+
+        @property front() { return _len == 0 ? _text.front : cast(ElementEncodingType!R)_buffer[_len - 1]; }
+
+        @property empty() { return _text.empty; }
+
+        void popFront()
+        {
+            if(_len != 0)
+            {
+                if(--_len != 0)
+                    return;
+            }
+            _text.popFront();
+            _handleEntity();
+        }
+
+        @property save()
+        {
+            auto retval = this;
+            retval._text = _text.save;
+            return retval;
+        }
+
+    private:
+
+        void _handleEntity()
+        {
+            if(_text.empty)
+                return;
+            switch(_text.front)
+            {
+                case '&':
+                {
+                    enum entity = ";pma&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                case '<':
+                {
+                    enum entity = ";tl&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                case quote:
+                {
+                    static if(quote == '"')
+                        enum entity = ";touq&";
+                    else
+                        enum entity = ";sopa&";
+                    _buffer = entity;
+                    _len = entity.length;
+                    return;
+                }
+                default: return;
+            }
+        }
+
+        this(R text)
+        {
+            _text = byCodeUnit(text);
+            _handleEntity();
+        }
+
+        char["&quot;".length] _buffer;
+        size_t _len;
+        typeof(byCodeUnit(R.init)) _text;
+    }
+
+    return EncodeAttr(text);
+}
+
+///
+@safe pure nothrow @nogc unittest
+{
+    import std.algorithm.comparison : equal;
+
+    assert(equal(encodeAttr(`foo & bar`), `foo &amp; bar`));
+    assert(equal(encodeAttr(`foo < bar`), `foo &lt; bar`));
+    assert(equal(encodeAttr(`foo > bar`), `foo > bar`));
+    assert(equal(encodeAttr(`foo ' bar`), `foo ' bar`));
+    assert(equal(encodeAttr(`foo " bar`), `foo &quot; bar`));
+
+    assert(equal(encodeAttr!'\''(`foo ' bar`), `foo &apos; bar`));
+    assert(equal(encodeAttr!'\''(`foo " bar`), `foo " bar`));
+
+    assert(equal(encodeAttr("hello world"), "hello world"));
+}
+
+@safe pure unittest
+{
+    import std.algorithm.comparison : equal;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {{
+        assert(encodeAttr(func("")).empty);
+        assert(encodeAttr!'\''(func("")).empty);
+        assert(equal(encodeAttr(func(`& < > ' "`)), `&amp; &lt; > ' &quot;`));
+        assert(equal(encodeAttr!'\''(func(`& < > ' "`)), `&amp; &lt; > &apos; "`));
+        assert(equal(encodeAttr(func("&&&")), "&amp;&amp;&amp;"));
+
+        {
+            auto range = encodeAttr(func(`&&<<>>''""hello world"">><<&&`));
+            assert(equal(range.save, range.save));
+            assert(equal(range.save, `&amp;&amp;&lt;&lt;>>''&quot;&quot;hello world&quot;&quot;>>&lt;&lt;&amp;&amp;`));
+        }
+
+        {
+            auto range = encodeAttr!'\''(func(`&&<<>>''""hello world"">><<&&`));
+            assert(equal(range.save, range.save));
+            assert(equal(range.save, `&amp;&amp;&lt;&lt;>>&apos;&apos;""hello world"">>&lt;&lt;&amp;&amp;`));
+        }
+    }}
+}
+
+
+/++
+    Returns a range of $(D char) containing the character reference
+    corresponding to the given character.
+
+    Params:
+        c = The character encode.
+
+    See_Also: $(LREF parseCharRef)
+  +/
+auto toCharRef(dchar c)
+{
+    static struct ToCharRef
+    {
+    public:
+
+        @property front() { return _buffer[_index]; }
+
+        @property empty() { return _buffer[_index] == '$'; }
+
+        void popFront() { ++_index; }
+
+        @property save() { return this; }
+
+    private:
+
+        import std.conv : to;
+
+        char[to!string(cast(uint)dchar.max).length + 5] _buffer;
+        size_t _index;
+    }
+
+    import std.format : formattedWrite;
+    import std.string : representation;
+
+    ToCharRef retval;
+    formattedWrite!"&#x%x;$"(retval._buffer[].representation, c);
+    return retval;
+}
+
+///
+unittest
+{
+    import std.algorithm.comparison : equal;
+
+    assert(equal(toCharRef(' '), "&#x20;"));
+    assert(equal(toCharRef('A'), "&#x41;"));
+    assert(equal(toCharRef('\u2424'), "&#x2424;"));
+
+    auto range = toCharRef('*');
+    assert(parseCharRef(range) == '*');
+}
+
+unittest
+{
+    import std.algorithm.comparison : equal;
+
+    enum pound = "&#x23;";
+    auto range = toCharRef('#');
+    assert(equal(range.save, range.save));
+    assert(equal(range.save, pound));
 }
