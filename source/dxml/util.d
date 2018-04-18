@@ -1294,7 +1294,6 @@ enum StdEntityRef
     $(TABLE
         $(TR $(TD convert $(D_CODE_STRING &) to $(D_CODE_STRING $(AMP)amp;) ))
         $(TR $(TD convert $(D_CODE_STRING <) to $(D_CODE_STRING $(AMP)lt;) ))
-        $(TR $(TD convert $(D_CODE_STRING >) to $(D_CODE_STRING $(AMP)gt;) ))
     )
 
     See_Also: $(REF XMLWriter.writeText, dxml, writer)$(BR)
@@ -1354,13 +1353,6 @@ auto encodeText(R)(R text)
                     _len = entity.length;
                     return;
                 }
-                case '>':
-                {
-                    enum entity = ";tg&";
-                    _buffer = entity;
-                    _len = entity.length;
-                    return;
-                }
                 default: return;
             }
         }
@@ -1386,7 +1378,7 @@ auto encodeText(R)(R text)
 
     assert(equal(encodeText(`foo & bar`), `foo &amp; bar`));
     assert(equal(encodeText(`foo < bar`), `foo &lt; bar`));
-    assert(equal(encodeText(`foo > bar`), `foo &gt; bar`));
+    assert(equal(encodeText(`foo > bar`), `foo > bar`));
     assert(equal(encodeText(`foo ' bar`), `foo ' bar`));
     assert(equal(encodeText(`foo " bar`), `foo " bar`));
 
@@ -1401,12 +1393,12 @@ auto encodeText(R)(R text)
     static foreach(func; testRangeFuncs)
     {{
         assert(encodeText(func("")).empty);
-        assert(equal(encodeText(func(`& < > ' "`)), `&amp; &lt; &gt; ' "`));
+        assert(equal(encodeText(func(`& < > ' "`)), `&amp; &lt; > ' "`));
         assert(equal(encodeText(func("&&&")), "&amp;&amp;&amp;"));
 
         auto range = encodeText(func(`&&<<>>''""hello world"">><<&&`));
         assert(equal(range.save, range.save));
-        assert(equal(range.save, `&amp;&amp;&lt;&lt;&gt;&gt;''""hello world""&gt;&gt;&lt;&lt;&amp;&amp;`));
+        assert(equal(range.save, `&amp;&amp;&lt;&lt;>>''""hello world"">>&lt;&lt;&amp;&amp;`));
     }}
 }
 

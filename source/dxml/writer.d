@@ -183,13 +183,14 @@ public:
         See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
                   $(LREF2 writeAttr, XMLWriter)$(BR)
                   $(LREF2 closeStartTag, XMLWriter)$(BR)
-                  $(LREF2 writeEndTag, XMLWriter)
+                  $(LREF2 writeEndTag, XMLWriter)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-STag)
       +/
     void openStartTag(string name, Newline newline = Newline.yes)
     {
         assert(!_startTagOpen, "openStartTag cannot be called when a start tag is already open");
         assert(!_writtenRootEnd, "openStartTag cannot be called after the root element's end tag has been written.");
-        checkName(name);
+        checkName(name.save);
         if(newline == Newline.yes && !_baseIndent.empty)
             put(_output, _getIndent(tagDepth));
         _startTagOpen = true;
@@ -271,7 +272,8 @@ public:
 
         See_Also: $(REF encodeAttr, dxml, util)$(BR)
                   $(REF StdEntityRef, dxml, util)$(BR)
-                  $(REF toCharRef, dxml, util)
+                  $(REF toCharRef, dxml, util)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-Attribute)
       +/
     void writeAttr(char quote = '"', R)(string name, R value, Newline newline = Newline.no)
         if((quote == '"' || quote == '\'') &&
@@ -425,7 +427,8 @@ public:
         See_Also: $(LREF2 openStartTag, XMLWriter)$(BR)
                   $(LREF2 writeAttr, XMLWriter)$(BR)
                   $(LREF2 writeStartTag, XMLWriter)$(BR)
-                  $(LREF2 writeEndTag, XMLWriter)
+                  $(LREF2 writeEndTag, XMLWriter)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-STag)
       +/
     void closeStartTag(EmptyTag emptyTag = EmptyTag.no)
     {
@@ -505,13 +508,15 @@ public:
                   $(LREF2 writeAttr, XMLWriter)$(BR)
                   $(LREF2 closeStartTag, XMLWriter)$(BR)
                   $(LREF2 writeEndTag, XMLWriter)$(BR)
-                  $(LREF writeTaggedText)
+                  $(LREF writeTaggedText)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-STag)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-ETag)
       +/
     void writeStartTag(string name, EmptyTag emptyTag = EmptyTag.no, Newline newline = Newline.yes)
     {
         assert(!_startTagOpen, "writeStartTag cannot be called when a start tag is open");
         assert(!_writtenRootEnd, "writeStartTag cannot be called after the root element's end tag has been written.");
-        checkName(name);
+        checkName(name.save);
         if(newline == Newline.yes && !_baseIndent.empty)
             put(_output, _getIndent(tagDepth));
         put(_output, '<');
@@ -609,6 +614,14 @@ public:
         Throws: $(LREF XMLWritingException) if no start tag is waiting for a
                 matching end tag or if the given name does not match the name
                 of the start tag that needs to be matched next.
+
+
+        See_Also: $(LREF2 openStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeAttr, XMLWriter)$(BR)
+                  $(LREF2 closeStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeEndTag, XMLWriter)$(BR)
+                  $(LREF writeTaggedText)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#NT-ETag)
       +/
     void writeEndTag(string name, Newline newline = Newline.yes)
     {
@@ -729,6 +742,7 @@ public:
                   $(REF encodeText, dxml, util)$(BR)
                   $(REF StdEntityRef, dxml, util)$(BR)
                   $(REF toCharRef, dxml, util)$(BR)
+                  $(LINK http://www.w3.org/TR/REC-xml/#syntax)
       +/
     void writeText(R)(R text, Newline newline = Newline.yes, InsertIndent insertIndent = InsertIndent.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -868,7 +882,7 @@ public:
             auto text = "if(--foo > bar && bar < baz)\n" ~
                         "    doSomething();";
 
-            // &, <, and > are not legal in XML text.
+            // & and < are not legal in XML text.
             assertThrown!XMLWritingException(writer.writeText(text));
 
             // Unchanged after an XMLWritingException is thrown.
@@ -883,7 +897,7 @@ public:
             assert(writer.output.data ==
                    "<root>\n" ~
                    "    <code>\n" ~
-                   "        if(--foo &gt; bar &amp;&amp; bar &lt; baz)\n" ~
+                   "        if(--foo > bar &amp;&amp; bar &lt; baz)\n" ~
                    "            doSomething();\n" ~
                    "    </code>");
         }
@@ -910,6 +924,8 @@ public:
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in an
                 XML comment.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-Comment)
       +/
     void writeComment(R)(R text, Newline newline = Newline.yes, InsertIndent insertIndent = InsertIndent.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1006,14 +1022,16 @@ public:
         brackets.
 
         Params:
-            text = The text of the CDATA declaration.
+            text = The text of the CDATA section.
             newline = Whether a newline followed by an indent will be written to
-                      the output range before the cdata declaration.
+                      the output range before the cdata section.
             insertIndent = Whether an indent will be inserted after each newline
                            within the text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in
                 a CDATA section.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-CDSect)
       +/
     void writeCDATA(R)(R text, Newline newline = Newline.yes, InsertIndent insertIndent = InsertIndent.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1041,6 +1059,7 @@ public:
     static if(compileInTests) unittest
     {
         import std.array : appender;
+        import std.exception : assertThrown;
 
         auto writer = xmlWriter(appender!string());
 
@@ -1055,6 +1074,23 @@ public:
         writer.writeEndTag("tag");
         writer.writeEndTag("root");
 
+        assert(writer.output.data ==
+               "<root>\n" ~
+               "    <![CDATA[see data run]]>\n" ~
+               "    <![CDATA[More data]]><![CDATA[No preceding newline]]>\n" ~
+               "    <![CDATA[some data\n" ~
+               "        with a newline]]>\n" ~
+               "    <![CDATA[Another newline\n" ~
+               "but no indent]]>\n" ~
+               "    <tag>\n" ~
+               "        <![CDATA[ Deeper data <><> ]]>\n" ~
+               "    </tag>\n" ~
+               "</root>");
+
+        // ]]> is not legal in a CDATA section.
+        assertThrown!XMLWritingException(writer.writeCDATA("]]>"));
+
+        // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data ==
                "<root>\n" ~
                "    <![CDATA[see data run]]>\n" ~
@@ -1091,12 +1127,14 @@ public:
 
         Throws: $(LREF XMLWritingException) if the given name or text is not
                 legal in a processing instruction.
+
+        See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-PI)
       +/
     void writePI(R)(R name, Newline newline = Newline.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
-        checkName(name);
+        checkPIName(name);
         if(newline == Newline.yes && !_baseIndent.empty)
             put(_output, _getIndent(tagDepth));
         put(_output, "<?");
@@ -1110,7 +1148,7 @@ public:
            isForwardRange!R2 && isSomeChar!(ElementType!R2))
     {
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
-        checkName(name);
+        checkPIName(name);
         checkText!(CheckText.pi)(text);
         if(newline == Newline.yes && !_baseIndent.empty)
             put(_output, _getIndent(tagDepth));
@@ -1136,6 +1174,7 @@ public:
     static if(compileInTests) unittest
     {
         import std.array : appender;
+        import std.exception : assertThrown;
 
         auto writer = xmlWriter(appender!string());
 
@@ -1153,6 +1192,32 @@ public:
         writer.writeEndTag("tag");
         writer.writeEndTag("root");
 
+        assert(writer.output.data ==
+               "<?pi?>\n" ~
+               "<root>\n" ~
+               "    <?Poirot has a cane?>\n" ~
+               "    <?Sherlock?><?No preceding newline?><?Ditto?>\n" ~
+               "    <?target some data\n" ~
+               "        with a newline?>\n" ~
+               "    <?name Another newline\n" ~
+               "but no indent?>\n" ~
+               "    <tag>\n" ~
+               "        <?Deep Thought?>\n" ~
+               "    </tag>\n" ~
+               "</root>");
+
+        // The name xml (no matter the casing) is illegal as a name for
+        // processing instructions (so that it can't be confused for the
+        // optional <?xml ...> declaration at the top of an XML document).
+        assertThrown!XMLWritingException(writer.writePI("xml", "bar"));
+
+        // ! is not legal in a processing instruction's name.
+        assertThrown!XMLWritingException(writer.writePI("!", "bar"));
+
+        // ?> is not legal in a processing instruction's text.
+        assertThrown!XMLWritingException(writer.writePI("foo", "?>"));
+
+        // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data ==
                "<?pi?>\n" ~
                "<root>\n" ~
@@ -1827,6 +1892,33 @@ version(dxmlTests) @safe pure unittest
     }
 }
 
+void checkPIName(R)(R range)
+{
+    import std.range : walkLength;
+    import std.uni : icmp;
+    import std.utf : byCodeUnit;
+
+    if(icmp(range.save.byCodeUnit(), "xml") == 0)
+        throw new XMLWritingException("Processing instructions cannot be named xml");
+    checkName(range);
+}
+
+version(dxmlTests) @safe pure unittest
+{
+    import std.exception : assertNotThrown, assertThrown;
+    import std.range : only;
+    import dxml.internal : testRangeFuncs;
+
+    static foreach(func; testRangeFuncs)
+    {
+        foreach(str; only("hello", "プログラミング", "h_:llo-.42", "_.", "_-", "_42", "プログラミング", "xmlx"))
+            assertNotThrown!XMLWritingException(checkPIName(func(str)));
+
+        foreach(str; only(".", ".foo", "-foo", "&foo;", "foo\vbar", "xml", "XML", "xMl"))
+            assertThrown!XMLWritingException(checkPIName(func(str)));
+    }
+}
+
 
 enum CheckText
 {
@@ -1901,6 +1993,16 @@ void checkText(CheckText ct, R)(R range)
                         throw new XMLWritingException("- is not legal at the end of an EntityType.comment");
                     if(text.front == '-')
                         throw new XMLWritingException("-- is not legal in EntityType.comment");
+                    break;
+                }
+            }
+            else static if(ct == CheckText.pi)
+            {
+                case '?':
+                {
+                    text.popFront();
+                    if(!text.empty && text.front == '>')
+                        throw new XMLWritingException("A EntityType.pi cannot contain ?>");
                     break;
                 }
             }
@@ -2019,6 +2121,7 @@ version(dxmlTests) unittest
             test!(func, ct)("foo]]bar");
             test!(func, ct)("foo]>bar");
             test!(func, ct)("]] >");
+            test!(func, ct)("? >");
 
             testFail!(func, ct)("\v");
             testFail!(func, ct)("\uFFFE");
@@ -2093,6 +2196,11 @@ version(dxmlTests) unittest
                 test!(func, ct)("--");
                 test!(func, ct)("--*");
             }
+
+            static if(ct == CheckText.pi)
+                testFail!(func, ct)("?>");
+            else
+                test!(func, ct)("?>");
         }
 
         static foreach(ct; [CheckText.attValueApos, CheckText.attValueQuot, CheckText.pi])

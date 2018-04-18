@@ -69,7 +69,7 @@
                   to tell the parser to skip comments.))
         $(TR $(TD $(LREF SkipPI))
              $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
-                  to tell the parser to skip parsing instructions.))
+                  to tell the parser to skip processing instructions.))
         $(TR $(TD $(LREF SplitEmpty))
              $(TD A $(PHOBOS_REF Flag, std, typecons) used with $(LREF Config)
                   to configure how the parser deals with empty element tags.))
