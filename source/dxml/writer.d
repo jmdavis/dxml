@@ -124,7 +124,7 @@ alias InsertIndent = Flag!"InsertIndent";
     it).
 
     Params:
-        output = The output range that the XML will be written to.
+        output = The _output range that the XML will be written to.
         baseIndent = Optional argument indicating the base indent to be used
                      when an indent is inserted after a newline in the XML (with
                      the actual indent being the base indent inserted once for
@@ -171,8 +171,8 @@ public:
 
         Params:
             name = The name of the start tag.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the start tag.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the start tag.
 
         Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
 
@@ -256,8 +256,8 @@ public:
                     delimiter.
             name = The name of the attribute.
             value = The value of the attribute.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the attribute. Note that unlike
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the attribute. Note that unlike
                       most write functions, the default is $(D Newline.no)
                       (since it's more common to not want newlines between
                       attributes).
@@ -495,8 +495,8 @@ public:
             emptyTag = Whether the start tag will be empty (i.e. terminated with
                        $(D_CODE_STRING "/>") so that there is no corresponding
                        end tag).
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the start tag.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the start tag.
 
         Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
 
@@ -604,8 +604,8 @@ public:
 
         Params:
             name = Name to check against the matching start tag.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the end tag.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the end tag.
 
         Throws: $(LREF XMLWritingException) if no start tag is waiting for a
                 matching end tag or if the given name does not match the name
@@ -725,11 +725,11 @@ public:
 
         Params:
             text = The text to write.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the text. It will not include an
-                      indent if $(D insertIndent == InsertIndent.no).
-            insertIndent = Whether an indent will be inserted after each newline
-                           within the text.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the text. It will not include
+                      an indent if $(D insertIndent == InsertIndent.no).
+            insertIndent = Whether an indent will be inserted after each
+                           _newline within the _text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in
                 the text portion of an XML document.
@@ -913,10 +913,10 @@ public:
 
         Params:
             text = The text of the comment.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the comment tag.
-            insertIndent = Whether an indent will be inserted after each newline
-                           within the text.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the comment tag.
+            insertIndent = Whether an indent will be inserted after each
+                           _newline within the _text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in an
                 XML comment.
@@ -1019,10 +1019,10 @@ public:
 
         Params:
             text = The text of the CDATA section.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the cdata section.
-            insertIndent = Whether an indent will be inserted after each newline
-                           within the text.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the cdata section.
+            insertIndent = Whether an indent will be inserted after each
+                           _newline within the _text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in
                 a CDATA section.
@@ -1116,10 +1116,10 @@ public:
         Params:
             name = The name of the parsing instruction.
             text = The text of the parsing instruction.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the processing instruction.
-            insertIndent = Whether an indent will be inserted after each newline
-                           within the text.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the processing instruction.
+            insertIndent = Whether an indent will be inserted after each
+                           _newline within the _text.
 
         Throws: $(LREF XMLWritingException) if the given name or text is not
                 legal in a processing instruction.
@@ -1204,7 +1204,7 @@ public:
 
         // The name xml (no matter the casing) is illegal as a name for
         // processing instructions (so that it can't be confused for the
-        // optional <?xml ...> declaration at the top of an XML document).
+        // optional <?xml...> declaration at the top of an XML document).
         assertThrown!XMLWritingException(writer.writePI("xml", "bar"));
 
         // ! is not legal in a processing instruction's name.
@@ -1357,6 +1357,10 @@ public:
         functionality via their $(LREF Newline) parameter, but there may be
         cases where it is desirable to insert a newline independently of calling
         a write function.
+
+        If arbitrary whitespace needs to be inserted, then
+        $(LREF2 output, XMLWriter) can be used to get at the output range so
+        that it can be written to directly.
       +/
     void writeIndent()
     {
@@ -1461,18 +1465,24 @@ public:
 
 
     /++
-        Returns the output range that's used by XMLWriter.
+        Returns the _output range that's used by XMLWriter.
 
-        Note that if any data written to the output range without using
+        Note that if any is data written to the _output range without using
         XMLWriter could result in invalid XML.
 
         This property is here primarily to provide easy access to the output
         range when XMLWriter is done writing (e.g. to get at its $(D data)
-        member if it's an $(PHOBOS_REF Appender, std, array)), but programs can
+        member if it's a $(PHOBOS_REF Appender, std, array)), but programs can
         use it to write other data to the output range while XMLWriter is still
         writing so long as it's understood that unlike when the XMLWriter's
         write functions are called, calling $(D put) on the output range
         directly is unchecked and therefore does risk making the XML invalid.
+
+        Also, depending on the type of the _output range, copying it will cause
+        problems (e.g. if it's not a reference type, writing to a copy may not
+        write to the _output range inside of XMLWriter), So in general, if the
+        _output range is going to be written to, it should be written to by
+        using output directly rather than assigning it to a variable.
       +/
     @property ref output() @safe pure nothrow @nogc
     {
@@ -1486,13 +1496,18 @@ public:
 
 
     /++
+        In general, it's more user-friendly to use $(LREF xmlWriter) rather than
+        calling the constructor directly, because then the type of the output
+        range can be inferred. However, in the case where a pointer is desirable,
+        then the constructor needs to be called instead of $(LREF xmlWriter).
+
         Params:
-            output = The output range that the XML will be written to.
+            output = The _output range that the XML will be written to.
             baseIndent = Optional argument indicating the base indent to be
                          used when an indent is inserted after a newline in the
                          XML (with the actual indent being the base indent
                          inserted once for each level of the
-                         $(LREF2 tagDepth, XMLWriter). The default is four
+                         $(LREF2 tagDepth, XMLWriter)). The default is four
                          spaces.
 
         See_Also: $(LREF xmlWriter)
@@ -1526,6 +1541,16 @@ public:
 
         _baseIndent = baseIndent;
         _totalIndent = makeIndent(_baseIndent);
+    }
+
+    ///
+    static if(compileInTests) unittest
+    {
+        import std.array : Appender, appender;
+
+        auto writer = new XMLWriter!(Appender!string)(appender!string());
+        writer.writeStartTag("root", Newline.no, EmptyTag.yes);
+        assert(writer.output.data == "<root/>");
     }
 
 
@@ -1698,18 +1723,20 @@ version(dxmlTests)
     Writes the $(D <?xml...?>) declaration to the given output range. If it's
     going to be used in conjunction with $(LREF XMLWriter), then either
     writeXMLDecl will need to be called before constructing the
-    $(LREF XMLWriter), or $(LREF XMLWriter.output) will need to be used to write
-    to the output range before writing anything else using the
+    $(LREF XMLWriter), or $(LREF XMLWriter._output) will need to be used to
+    write to the output range before writing anything else using the
     $(LREF XMLWriter). $(LREF XMLWriter) expects to be writing XML after the
     $(D <?xml...?>) and $(D <!DOCTYPE...>) declarations (assuming they're
-    present at all).
+    present at all), and it is invalid to put a $(D <?xml...?>) declaration
+    anywhere but at the very beginning of an XML document.
 
     Params:
         S = The string type used to infer the encoding type. Ideally, it would
-            be inferred from the type of the output range, but unfortunately,
-            that's not possible. However, if S does not match the encoding of
-            the output range, then the result will be invalid XML.
-        output = The output range to write to.
+            be inferred from the type of the _output range, but unfortunately,
+            the _output range API does not provide that functionality. If S
+            does not match the encoding of the _output range, then the result
+            will be invalid XML.
+        output = The _output range to write to.
   +/
 void writeXMLDecl(S, OR)(ref OR output)
     if(isOutputRange!(OR, char) && isSomeString!S)
@@ -1755,7 +1782,7 @@ version(dxmlTests) unittest
 
 
 /++
-    Helper function for writing text which has a start tag and end tag on each
+    Helper function for writing _text which has a start tag and end tag on each
     side and no attributes so that it can be done with one function call instead
     of three.
 
@@ -1773,11 +1800,11 @@ version(dxmlTests) unittest
 
     Params:
             writer = The $(LREF XMLWriter) to write to.
-            name = The name of the start tag.
-            newline = Whether a newline followed by an indent will be written to
-                      the output range before the start tag.
-            insertIndent = Whether an indent will be inserted after each newline
-                           within the text.
+            name = The _name of the start tag.
+            newline = Whether a _newline followed by an indent will be written
+                      to the output range before the start tag.
+            insertIndent = Whether an indent will be inserted after each
+                           _newline within the text.
 
     See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
               $(LREF2 writeText, XMLWriter)$(BR)
