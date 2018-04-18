@@ -228,14 +228,13 @@ auto asDecodedXML(R)(R range)
     {
     public:
 
-        @property empty() { return _range.empty && _front.empty; }
+        @property empty() { return _range.empty && _begin == _end; }
 
         void popFront()
         {
-            if(!_front.empty)
+            if(_begin != _end)
             {
-                _front = _front[1 .. $];
-                if(!_front.empty)
+                if(++_begin != _end)
                     return;
             }
             else
@@ -248,11 +247,6 @@ auto asDecodedXML(R)(R range)
             auto retval = this;
             retval._range = _range.save;
             return retval;
-        }
-
-        this(this)
-        {
-            () @trusted { _front = _buffer[0 .. _front.length]; }();
         }
 
     private:
@@ -270,7 +264,8 @@ auto asDecodedXML(R)(R range)
                             immutable c = func(_range);
                             if(!c.isNull)
                             {
-                                () @trusted { _front = _buffer[0 .. _buffer.encode!(UseReplacementDchar.yes)(c)]; }();
+                                _begin = 0;
+                                _end = _buffer.encode!(UseReplacementDchar.yes)(c);
                                 return;
                             }
                         }}
@@ -278,13 +273,13 @@ auto asDecodedXML(R)(R range)
                     }
                     case '\r':
                     {
-                        _front = null;
+                        assert(_begin == _end);
                         _range.popFront();
                         continue;
                     }
                     default:
                     {
-                        _front = null;
+                        assert(_begin == _end);
                         return;
                     }
                 }
@@ -304,14 +299,15 @@ auto asDecodedXML(R)(R range)
             wchar[2] _buffer;
         else
             dchar[1] _buffer;
-        typeof(_buffer[0])[] _front;
+        size_t _begin;
+        size_t _end;
 
     public:
 
         // FIXME A compiler bug prevents this from going with the public declarations
         // above. If it's there, the compiler thinks that _buffer isn't defined when
-        // it tries to compile _front. It needs to be reduced and reported.
-        @property typeof(_front[0]) front() { return _front.empty ? _range.front : _front[0]; }
+        // it tries to compile front. It needs to be reduced and reported.
+        @property typeof(_buffer[0]) front() { return _begin == _end ? _range.front : _buffer[_begin]; }
     }
 
     return DecodedXML(range);
