@@ -130,11 +130,7 @@ alias InsertIndent = Flag!"InsertIndent";
                      the actual indent being the base indent inserted once for
                      each level of the $(LREF2 tagDepth, _XMLWriter)).
                      The default is four spaces. The indent may only contain
-                     spaces and/or tabs. If the indent is empty, then the
-                     XMLWriter will never insert newlines or indents such that
-                     $(D Newline.yes) will be the same as $(D Newline.no), and
-                     $(D InsertIndent.yes) will be the same as
-                     $(D InsertIndent.no).
+                     spaces and/or tabs.
 
     See_Also: $(LREF writeXMLDecl)$(BR)
               $(REF encodeAttr, dxml, util)$(BR)
@@ -191,7 +187,7 @@ public:
         assert(!_startTagOpen, "openStartTag cannot be called when a start tag is already open");
         assert(!_writtenRootEnd, "openStartTag cannot be called after the root element's end tag has been written.");
         checkName(name.save);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         _startTagOpen = true;
         _incLevel(name);
@@ -292,7 +288,7 @@ public:
             throw new XMLWritingException("Duplicate attribute name: " ~ name);
         _attributes ~= name;
 
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         else
             put(_output, ' ');
@@ -517,7 +513,7 @@ public:
         assert(!_startTagOpen, "writeStartTag cannot be called when a start tag is open");
         assert(!_writtenRootEnd, "writeStartTag cannot be called after the root element's end tag has been written.");
         checkName(name.save);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, '<');
         put(_output, name);
@@ -644,7 +640,7 @@ public:
 
         immutable name = _tagStack.back;
         _decLevel();
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "</");
         put(_output, name);
@@ -751,7 +747,7 @@ public:
         assert(!_writtenRootEnd, "writeText cannot be called after the root end tag has been written");
         assert(tagDepth != 0, "writeText cannot be called before the root start tag has been written");
         checkText!(CheckText.text)(text);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, insertIndent == InsertIndent.yes ? _getIndent(tagDepth) : "\n");
         if(insertIndent == InsertIndent.yes)
             _insertIndent(text, tagDepth);
@@ -932,7 +928,7 @@ public:
     {
         assert(!_startTagOpen, "writeComment cannot be called when a start tag is open");
         checkText!(CheckText.comment)(text);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<!--");
         if(insertIndent == InsertIndent.yes)
@@ -1038,7 +1034,7 @@ public:
     {
         assert(!_startTagOpen, "writeCDATA cannot be called when a start tag is open");
         checkText!(CheckText.cdata)(text);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<![CDATA[");
         if(insertIndent == InsertIndent.yes)
@@ -1135,7 +1131,7 @@ public:
     {
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
         checkPIName(name);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<?");
         put(_output, name);
@@ -1150,7 +1146,7 @@ public:
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
         checkPIName(name);
         checkText!(CheckText.pi)(text);
-        if(newline == Newline.yes && !_baseIndent.empty)
+        if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<?");
         put(_output, name);
@@ -1214,7 +1210,7 @@ public:
         // ! is not legal in a processing instruction's name.
         assertThrown!XMLWritingException(writer.writePI("!", "bar"));
 
-        // ?> is not legal in a processing instruction's text.
+        // ?> is not legal in a processing instruction.
         assertThrown!XMLWritingException(writer.writePI("foo", "?>"));
 
         // Unchanged after an XMLWritingException is thrown.
@@ -1268,7 +1264,17 @@ public:
                "<root>\n" ~
                "    <a>");
 
-        writer.writeStartTag("b");
+        // The tag depth is increased as soon as a start tag is opened, so
+        // any calls to writeIndent or writeAttr while a start tag is open
+        // will use the same tag depth as the children of the start tag.
+        writer.openStartTag("b");
+        assert(writer.tagDepth == 3);
+        assert(writer.output.data ==
+               "<root>\n" ~
+               "    <a>\n" ~
+               "        <b");
+
+        writer.closeStartTag();
         assert(writer.tagDepth == 3);
         assert(writer.output.data ==
                "<root>\n" ~
@@ -1283,6 +1289,16 @@ public:
                "        <b>\n" ~
                "        </b>");
 
+        // Only start tags and end tags affect the tag depth.
+        writer.writeComment("comment");
+        assert(writer.tagDepth == 2);
+        assert(writer.output.data ==
+               "<root>\n" ~
+               "    <a>\n" ~
+               "        <b>\n" ~
+               "        </b>\n" ~
+               "        <!--comment-->");
+
         writer.writeEndTag("a");
         assert(writer.tagDepth == 1);
         assert(writer.output.data ==
@@ -1290,6 +1306,7 @@ public:
                "    <a>\n" ~
                "        <b>\n" ~
                "        </b>\n" ~
+               "        <!--comment-->\n" ~
                "    </a>");
 
         writer.writeEndTag("root");
@@ -1299,6 +1316,7 @@ public:
                "    <a>\n" ~
                "        <b>\n" ~
                "        </b>\n" ~
+               "        <!--comment-->\n" ~
                "    </a>\n" ~
                "</root>");
     }
@@ -1339,13 +1357,10 @@ public:
         functionality via their $(LREF Newline) parameter, but there may be
         cases where it is desirable to insert a newline independently of calling
         a write function.
-
-        If the base indent is empty, then this function does nothing.
       +/
     void writeIndent()
     {
-        if(!_baseIndent.empty)
-            put(_output, _getIndent(tagDepth));
+        put(_output, _getIndent(tagDepth));
     }
 
     ///
@@ -1405,6 +1420,38 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+
+        {
+            auto writer = xmlWriter(appender!string(), "\t");
+            writer.writeIndent();
+            assert(writer.output.data == "\n");
+            writer.writeStartTag("root", Newline.no);
+            assert(writer.output.data == "\n<root>");
+            writer.writeIndent();
+            assert(writer.output.data == "\n<root>\n\t");
+            writer.writeEndTag(Newline.no);
+            assert(writer.output.data == "\n<root>\n\t</root>");
+            writer.writeIndent();
+            assert(writer.output.data == "\n<root>\n\t</root>\n");
+        }
+        {
+            auto writer = xmlWriter(appender!string(), "");
+            writer.writeIndent();
+            assert(writer.output.data == "\n");
+            writer.writeStartTag("root", Newline.no);
+            assert(writer.output.data == "\n<root>");
+            writer.writeIndent();
+            assert(writer.output.data == "\n<root>\n");
+            writer.writeEndTag(Newline.no);
+            assert(writer.output.data == "\n<root>\n</root>");
+            writer.writeIndent();
+            assert(writer.output.data == "\n<root>\n</root>\n");
+        }
+    }
+
     static if(compileInTests) @safe pure nothrow unittest
     {
         import dxml.internal : TestAttrOR;
@@ -1446,11 +1493,7 @@ public:
                          XML (with the actual indent being the base indent
                          inserted once for each level of the
                          $(LREF2 tagDepth, XMLWriter). The default is four
-                         spaces. If the indent is empty, then the XMLWriter will
-                         never insert newlines or indents such that
-                         $(D Newline.yes) will be the same as $(D Newline.no),
-                         and $(D InsertIndent.yes) will be the same as
-                         $(D InsertIndent.no).
+                         spaces.
 
         See_Also: $(LREF xmlWriter)
       +/
@@ -1466,26 +1509,23 @@ public:
         _tagStack.reserve(10);
         _attributes.reserve(10);
 
-        if(!baseIndent.empty)
+        static makeIndent(string baseIndent) pure @safe nothrow
         {
-            static makeIndent(string baseIndent) pure @safe nothrow
+            import std.array : uninitializedArray;
+
+            immutable indentLen = baseIndent.length;
+            auto retval = uninitializedArray!(char[])(indentLen * 10 + 1);
+            retval[0] = '\n';
+            foreach(i; 0 .. 10)
             {
-                import std.array : uninitializedArray;
-
-                immutable indentLen = baseIndent.length;
-                auto retval = uninitializedArray!(char[])(indentLen * 10 + 1);
-                retval[0] = '\n';
-                foreach(i; 0 .. 10)
-                {
-                    immutable start = i * indentLen + 1;
-                    retval[start .. start + indentLen] = baseIndent;
-                }
-                return retval;
+                immutable start = i * indentLen + 1;
+                retval[start .. start + indentLen] = baseIndent;
             }
-
-            _baseIndent = baseIndent;
-            _totalIndent = makeIndent(_baseIndent);
+            return retval;
         }
+
+        _baseIndent = baseIndent;
+        _totalIndent = makeIndent(_baseIndent);
     }
 
 
@@ -1612,7 +1652,7 @@ version(dxmlTests) unittest
                "</root>");
     }
 
-    // Newline.no can be used to selectively avoid inserting newlines.
+    // Newline.no can be used to avoid inserting newlines.
     {
         auto writer = xmlWriter(appender!string());
 
@@ -1634,24 +1674,6 @@ version(dxmlTests) unittest
                "<root>\n" ~
                `    <foo a="42">bar</foo>` ~ "\n" ~
                "</root>");
-    }
-
-    // An empty base indent means that no newlines or indents are inserted.
-    {
-        auto writer = xmlWriter(appender!string(), "");
-        writer.writeStartTag("root");
-
-        writer.openStartTag("foo");
-        writer.writeAttr("a", "42");
-        writer.closeStartTag();
-
-        writer.writeText("bar");
-
-        writer.writeEndTag("foo");
-
-        writer.writeEndTag("root");
-
-        assert(writer.output.data == `<root><foo a="42">bar</foo></root>`);
     }
 }
 
