@@ -266,8 +266,8 @@ package:
 
     The primary use case for TextPos is $(LREF XMLParsingException), but an
     application may have other uses for it. The TextPos for an
-    $(LREF2 Entity, EntityRange.Entity) can be obtained from
-    $(LREF2 Entity.pos, EntityRange.Entity.pos).
+    $(LREF2 Entity, EntityRange) can be obtained from
+    $(LREF2 Entity.pos, EntityRange).
 
     See_Also: $(LREF XMLParsingException.pos)$(BR)
               $(LREF EntityRange.Entity.pos)
@@ -700,7 +700,7 @@ public:
     /++
         Represents an entity in the XML document.
 
-        Note that the $(LREF2 type, EntityRange._Entity.type) determines which
+        Note that the $(LREF2 type, EntityRange._Entity) determines which
         properties can be used, and it can determine whether functions which
         an Entity or $(LREF EntityRange) is passed to are allowed to be called.
         Each function lists which $(LREF EntityType)s are allowed, and it is an
@@ -1551,17 +1551,16 @@ public:
 
         Note that because an $(LREF XMLParsingException) will be thrown an
         invalid XML, it's actually possible to call
-        $(LREF2 front, EntityRange.front) and
-        $(LREF2 popFront, EntityRange.popFront) without checking empty if the
-        only way that empty would be true is if the XML were invalid (e.g. if at
-        a start tag, it's a given that there's at least one end tag left in the
-        document unless it's invalid XML).
+        $(LREF2 front, EntityRange) and $(LREF2 popFront, EntityRange) without
+        checking empty if the only way that empty would be true is if the XML
+        were invalid (e.g. if at a start tag, it's a given that there's at
+        least one end tag left in the document unless it's invalid XML).
 
         However, of course, caution should be used to ensure that incorrect
         assumptions are not made that allow the document to reach its end
         earlier than predicted without throwing an $(LREF XMLParsingException),
-        since it's still an error to call $(LREF2 front, EntityRange.front) or
-        $(LREF2 popFront, EntityRange.popFront) if empty would return false.
+        since it's still an error to call $(LREF2 front, EntityRange) or
+        $(LREF2 popFront, EntityRange) if empty would return false.
       +/
     @property bool empty() @safe const pure nothrow @nogc
     {
