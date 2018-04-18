@@ -1,7 +1,34 @@
 // Written in the D programming language
 
 /++
-    This module provides functionality for creating XML documents.
+    This module provides functionality for creating XML 1.0 documents.
+
+    $(H3 Primary Symbols)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF XMLWriter))
+             $(TD Type used for writing XML documents.))
+        $(TR $(TD $(LREF xmlWriter))
+             $(TD Function used to create an $(LREF XMLWriter).))
+    )
+
+    $(H3 Helper Types)
+    $(TABLE
+        $(TR $(TD $(LREF XMLWritingException))
+             $(TD Thrown by $(LREF XMLWriter) when it's given data that would
+                  result in invalid XML.))
+    )
+
+    $(H3 Helper Functions)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF writeTaggedText))
+             $(TD Shortcut for writing text enclosed by tags. e.g.
+                  $(D_CODE_STRING $(LT)tag>text$(LT)/tag>).))
+        $(TR $(TD $(LREF writeXMLDecl))
+             $(TD Writes the optional XML declaration that goes at the top of
+                  an XML document to an ouput range.))
+    )
 
     Copyright: Copyright 2018
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
@@ -34,8 +61,7 @@ private:
 
 /++
     $(PHOBOS_REF Flag, std, typecons) indicating whether
-    $(LREF2 closeStartTag, XMLWriter.closeStartTag) or
-    $(LREF2 writeStartTag, XMLWriter.writeStartTag) or
+    $(LREF2 closeStartTag, XMLWriter) or $(LREF2 writeStartTag, XMLWriter) or
     will write an empty element tag (which then does not require a corresponding
     end tag).
   +/
@@ -65,23 +91,22 @@ alias InsertIndent = Flag!"InsertIndent";
     This is because XMLWriter is essentially a reference type, but in many
     cases, it doesn't need to be passed around and thus can simply be
     constructed on the stack. So, it's a struct with default initialization and
-    copying disabled so that its will be treated like a reference type, and code
-    that needs to pass it around can pass it by ref or allocate it on the heap
-    and pass a pointer to it around.
+    copying disabled so that like a reference type, it will not be copied, and
+    code that needs to pass it around can pass it by $(K_REF) or allocate it on
+    the heap and pass a pointer to it around.
 
     The optional $(LREF Newline) and $(LREF InsertIndent) parameters to the
     various write functions are used to control the formatting of the XML, and
-    $(LREF2 writeIndent, XMLWriter.writeIndent) and
-    $(LREF2 output, XMLWriter.output) can be used for additional control over
-    the formatting.
+    $(LREF2 writeIndent, _XMLWriter) and $(LREF2 _output, _XMLWriter) can be
+    used for additional control over the formatting.
 
     The indent provided to the XMLWriter is the base indent that will be used
-    whenever $(LREF2 writeIndent, XMLWriter.writeIndent) and any write
-    functions using $(D Newline.yes) or $(D InsertIndent.yes) are called - e.g.
-    if the base indent is 4 spaces,
-    $(D $(LREF2 tagDepth, XMLWriter.tagDepth) == 3), and
-    $(D Newline.yes) is passed to a writeComment, then a newline followed by
-    12 spaces will be written to the output range after the comment.
+    whenever $(LREF2 writeIndent, _XMLWriter) and any write functions using
+    $(D Newline.yes) or $(D InsertIndent.yes) are called - e.g.
+    if the base indent is 4 spaces, $(D $(LREF2 tagDepth, _XMLWriter) == 3), and
+    $(D Newline.yes) is passed to $(LREF2 writeComment, _XMLWriter), then a
+    newline followed by 12 spaces will be written to the output range after the
+    comment.
 
     $(LREF writeXMLDecl) can be used to write the $(D <?xml...?>) declaration
     to the output range before constructing an XML writer, but if an application
@@ -92,16 +117,18 @@ alias InsertIndent = Flag!"InsertIndent";
 
     The write functions check the arguments prior to writing anything to the
     output range, so the XMLWriter is not in an invalid state after an
-    $(LREF XMLWritingException is thrown), but is $(I is) in an invalid state
+    $(LREF XMLWritingException) is thrown, but it is $(I is) in an invalid state
     if any other exception is thrown (which will only occur if an input range
-    that is passed to a write function throws or if the ouput range throws).
+    that is passed to a write function throws or if the ouput range throws when
+    XMLWriter calls $(PHOBOS_REF_ALTTEXT put, put, std, range, primitives) on
+    it).
 
     Params:
         output = The output range that the XML will be written to.
         baseIndent = Optional argument indicating the base indent to be used
                      when an indent is inserted after a newline in the XML (with
                      the actual indent being the base indent inserted once for
-                     each level of the $(LREF2 tagDepth, XMLWriter.tagDepth).
+                     each level of the $(LREF2 tagDepth, _XMLWriter)).
                      The default is four spaces. The indent may only contain
                      spaces and/or tabs. If the indent is empty, then the
                      XMLWriter will never insert newlines or indents such that
@@ -130,19 +157,18 @@ public:
         Writes the first portion of a start tag to the given output range.
 
         Once openStartTag has been called,
-        $(LREF2 writeAttr, XMLWriter.writeAttr) can be called to add attributes
-        to the start tag.: $(LREF2 closeStartTag, XMLWriter.closeStartTag)
-        writes the closing portion of the start tag.
+        $(LREF2 writeAttr, XMLWriter) can be called to add attributes
+        to the start tag. $(LREF2 closeStartTag, XMLWriter) writes the closing
+        portion of the start tag.
 
         Once openStartTag has been called, it is an error to call any
-        function on XMLWriter other than
-        $(LREF2 closeStartTag, XMLWriter.closeStartTag),
-        $(LREF2 writeAttr, XMLWriter.writeAttr),
-        $(LREF2 writeIndent, XMLWriter.writeIndent),
-        $(LREF2 tagDepth, XMLWriter.tagDepth), or
-        $(LREF2 baseIndent, XMLWriter.baseIndent), or
-        $(LREF2 output, XMLWriter.output) until
-        $(LREF2 closeStartTag, XMLWriter.closeStartTag) has been called.
+        function on XMLWriter other than $(LREF2 closeStartTag, XMLWriter),
+        $(LREF2 writeAttr, XMLWriter), $(LREF2 writeIndent, XMLWriter),
+        $(LREF2 tagDepth, XMLWriter), $(LREF2 baseIndent, XMLWriter), or
+        $(LREF2 output, XMLWriter) until $(LREF2 closeStartTag, XMLWriter) has
+        been called (basically, any function that involves writing XML that is
+        not legal in a start tag can't be called until the start tag has been
+        properly closed).
 
         It is also an error to call openStartTag after the end tag for the root
         element has been written.
@@ -150,14 +176,14 @@ public:
         Params:
             name = The name of the start tag.
             newline = Whether a newline followed by an indent will be written to
-                      the output range before the start tag's name.
+                      the output range before the start tag.
 
         Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
 
-        See_Also: $(LREF2 writeStartTag, XMLWriter.writeStartTag)$(BR)
-                  $(LREF2 writeAttr, XMLWriter.writeAttr)$(BR)
-                  $(LREF2 closeStratTag, XMLWriter.closeStartTag)$(BR)
-                  $(LREF2 writeEndTag, XMLWriter.writeEndTag)
+        See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeAttr, XMLWriter)$(BR)
+                  $(LREF2 closeStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeEndTag, XMLWriter)
       +/
     void openStartTag(string name, Newline newline = Newline.yes)
     {
@@ -186,7 +212,10 @@ public:
         writer.closeStartTag();
         assert(writer.output.data == "<root>");
 
+        // Neither < nor > is allowed in a tag name.
         assertThrown!XMLWritingException(writer.openStartTag("<tag>"));
+
+        // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data == "<root>");
 
         writer.openStartTag("foo");
@@ -223,8 +252,7 @@ public:
         Writes an attribute for a start tag to the output range.
 
         It is an error to call writeAttr except between calls to
-        $(LREF2 openStartTag, XMLWriter.openStartTag) and
-        $(LREF2 closeStartTag, XMLWriter.closeStartTag).
+        $(LREF2 openStartTag, XMLWriter) and $(LREF2 closeStartTag, XMLWriter).
 
         Params:
             quote = The quote character to use for the attribute value's
@@ -232,7 +260,10 @@ public:
             name = The name of the attribute.
             value = The value of the attribute.
             newline = Whether a newline followed by an indent will be written to
-                      the output range before the attribute.
+                      the output range before the attribute. Note that unlike
+                      most write functions, the default is $(D Newline.no)
+                      (since it's more common to not want newlines between
+                      attributes).
 
         Throws: $(LREF XMLWritingException) if the name is not a valid XML name,
                 if the value is not a valid XML value, or if the given name has
@@ -291,11 +322,12 @@ public:
         // to have the same name.
         assertThrown!XMLWritingException(writer.writeAttr("a", "three"));
 
-        // Invalid name
+        // Invalid name.
         assertThrown!XMLWritingException(writer.writeAttr("=", "value"));
 
         // Can't have a quote that matches the enclosing quote.
         assertThrown!XMLWritingException(writer.writeAttr("c", `foo"bar`));
+        assertThrown!XMLWritingException(writer.writeAttr!'\''("c", "foo'bar"));
 
         // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data == `<root a="one" b="two"`);
@@ -387,13 +419,13 @@ public:
 
         Params:
             emptyTag = Whether the start tag will be empty (i.e. terminated with
-                       $(D_CODE_STRING '/>') so that there is no corresponding
+                       $(D_CODE_STRING "/>") so that there is no corresponding
                        end tag).
 
-        See_Also: $(LREF2 openStartTag, XMLWriter.openStartTag)$(BR)
-                  $(LREF2 writeAttr, XMLWriter.writeAttr)$(BR)
-                  $(LREF2 writeStartTag, XMLWriter.writeStartTag)$(BR)
-                  $(LREF2 writeEndTag, XMLWriter.writeEndTag)
+        See_Also: $(LREF2 openStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeAttr, XMLWriter)$(BR)
+                  $(LREF2 writeStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeEndTag, XMLWriter)
       +/
     void closeStartTag(EmptyTag emptyTag = EmptyTag.no)
     {
@@ -453,26 +485,27 @@ public:
     /++
         Writes a start tag with no attributes.
 
-        This is equivalent to call $(LREF2 openStartTag, XMLWriter.openStartTag)
-        immediately followed by $(LREF2 closeStartTag, XMLWriter.closeStartTag).
+        This is equivalent to calling $(LREF2 openStartTag, XMLWriter)
+        immediately followed by $(LREF2 closeStartTag, XMLWriter).
 
-        It is also an error to call writeStartTag after the end tag for the root
+        It is an error to call writeStartTag after the end tag for the root
         element has been written.
 
         Params:
             name = The name of the start tag.
             emptyTag = Whether the start tag will be empty (i.e. terminated with
-                       $(D_CODE_STRING '/>') so that there is no corresponding
+                       $(D_CODE_STRING "/>") so that there is no corresponding
                        end tag).
             newline = Whether a newline followed by an indent will be written to
                       the output range before the start tag.
 
         Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
 
-        See_Also: $(LREF2 openStartTag, XMLWriter.openStartTag)$(BR)
-                  $(LREF2 writeAttr, XMLWriter.writeAttr)$(BR)
-                  $(LREF2 closeStartTag, XMLWriter.closeStartTag)$(BR)
-                  $(LREF2 writeEndTag, XMLWriter.writeEndTag)
+        See_Also: $(LREF2 openStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeAttr, XMLWriter)$(BR)
+                  $(LREF2 closeStartTag, XMLWriter)$(BR)
+                  $(LREF2 writeEndTag, XMLWriter)$(BR)
+                  $(LREF writeTaggedText)
       +/
     void writeStartTag(string name, EmptyTag emptyTag = EmptyTag.no, Newline newline = Newline.yes)
     {
@@ -513,7 +546,10 @@ public:
                "<root>\n" ~
                "    <foo>");
 
+        // = is not legal in a tag name.
         assertThrown!XMLWritingException(writer.writeStartTag("="));
+
+        // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data ==
                "<root>\n" ~
                "    <foo>");
@@ -559,20 +595,20 @@ public:
 
 
     /++
-        Writes an end tag to the output range with the name of whichever start
-        tag is waiting for a matching end tag.
+        Writes an end tag to the output range with the name of the start tag
+        that was most recently written and does not yet have a matching end tag.
 
         If a name is provided, then it will be validated against the matching
         start tag.
 
-        Param
+        Params:
             name = Name to check against the matching start tag.
             newline = Whether a newline followed by an indent will be written to
                       the output range before the end tag.
 
         Throws: $(LREF XMLWritingException) if no start tag is waiting for a
                 matching end tag or if the given name does not match the name
-                of the start tag waiting for an end tag.
+                of the start tag that needs to be matched next.
       +/
     void writeEndTag(string name, Newline newline = Newline.yes)
     {
@@ -620,8 +656,10 @@ public:
                "<root>\n" ~
                "    <foo>");
 
-        // Name doesn't match start tag, which is <foo>
+        // Name doesn't match start tag, which is <foo>.
         assertThrown!XMLWritingException(writer.writeEndTag("bar"));
+
+        // Unchanged after an XMLWritingException is thrown.
         assert(writer.output.data ==
                "<root>\n" ~
                "    <foo>");
@@ -644,6 +682,8 @@ public:
                "    <bar>\n" ~
                "    </bar>");
 
+        // No name is required, but if it is not provided, then the code cannot
+        // validate that it's writing the end tag that it thinks it's writing.
         writer.writeEndTag();
         assert(writer.output.data ==
                "<root>\n" ~
@@ -671,10 +711,10 @@ public:
         It can be called multiple times in a row, and the given text will just
         end up being appended to the current text field.
 
-        It is also an error to call writeText after the end tag for the root
-        element has been written.
+        It is an error to call writeText after the end tag for the root element
+        has been written.
 
-        Param:
+        Params:
             text = The text to write.
             newline = Whether a newline followed by an indent will be written to
                       the output range before the text. It will not include an
@@ -683,7 +723,7 @@ public:
                            within the text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in
-                an XML document.
+                the text portion of an XML document.
 
         See_Also: $(LREF writeTaggedText)$(BR)
                   $(REF encodeText, dxml, util)$(BR)
@@ -861,15 +901,15 @@ public:
     /++
         Writes a comment to the output range.
 
-        Param:
+        Params:
             text = The text of the comment.
             newline = Whether a newline followed by an indent will be written to
-                      the output range before the end tag.
+                      the output range before the comment tag.
             insertIndent = Whether an indent will be inserted after each newline
                            within the text.
 
-        Throws: $(LREF XMLWritingException) if the given text is not legal in
-                an XML document.
+        Throws: $(LREF XMLWritingException) if the given text is not legal in an
+                XML comment.
       +/
     void writeComment(R)(R text, Newline newline = Newline.yes, InsertIndent insertIndent = InsertIndent.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -965,15 +1005,12 @@ public:
         Writes a $(D <![CDATA[...]]>) section with the given text between the
         brackets.
 
-        Param:
+        Params:
             text = The text of the CDATA declaration.
             newline = Whether a newline followed by an indent will be written to
-                      the output range before the end tag.
+                      the output range before the cdata declaration.
             insertIndent = Whether an indent will be inserted after each newline
-                           within the text. If
-                           $(D insertIndent == InsertIndent.yes), then the text
-                           will be indented so that subsequent lines line up
-                           with the first line.
+                           within the text.
 
         Throws: $(LREF XMLWritingException) if the given text is not legal in
                 a CDATA section.
@@ -1044,7 +1081,7 @@ public:
     /++
         Writes a parsing instruction to the output range.
 
-        Param:
+        Params:
             name = The name of the parsing instruction.
             text = The text of the parsing instruction.
             newline = Whether a newline followed by an indent will be written to
@@ -1343,9 +1380,9 @@ public:
                          used when an indent is inserted after a newline in the
                          XML (with the actual indent being the base indent
                          inserted once for each level of the
-                         $(LREF2 tagDepth, XMLWriter.tagDepth). The default is
-                         four spaces. If the indent is empty, then the XMLWriter
-                         will never insert newlines or indents such that
+                         $(LREF2 tagDepth, XMLWriter). The default is four
+                         spaces. If the indent is empty, then the XMLWriter will
+                         never insert newlines or indents such that
                          $(D Newline.yes) will be the same as $(D Newline.no),
                          and $(D InsertIndent.yes) will be the same as
                          $(D InsertIndent.no).
@@ -1509,6 +1546,7 @@ version(dxmlTests) unittest
                "    </foo>\n" ~
                "</root>");
     }
+
     // Newline.no can be used to selectively avoid inserting newlines.
     {
         auto writer = xmlWriter(appender!string());
@@ -1532,6 +1570,7 @@ version(dxmlTests) unittest
                `    <foo a="42">bar</foo>` ~ "\n" ~
                "</root>");
     }
+
     // An empty base indent means that no newlines or indents are inserted.
     {
         auto writer = xmlWriter(appender!string(), "");
@@ -1653,9 +1692,9 @@ version(dxmlTests) unittest
             insertIndent = Whether an indent will be inserted after each newline
                            within the text.
 
-    See_Also: $(LREF2 writeStartTag, XMLWriter.writeStartTag)$(BR)
-              $(LREF2 writeText, XMLWriter.writeText)$(BR)
-              $(LREF2 writeEndTag, XMLWriter.writeEndTag)
+    See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
+              $(LREF2 writeText, XMLWriter)$(BR)
+              $(LREF2 writeEndTag, XMLWriter)
   +/
 void writeTaggedText(XW, R1, R2)(ref XW writer, R1 name, R2 text, Newline newline = Newline.yes,
                                  InsertIndent insertIndent = InsertIndent.yes)
