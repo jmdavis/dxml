@@ -33,10 +33,10 @@
     to verify that they're valid, but they will not be replaced (since that
     does not work with returning slices of the original input).
 
-    However, $(REF_ALTTEXT normalize, normalize, dxml, util) or
+    However, $(REF_ALTTEXT decodeXML, decodeXML, dxml, util) or
     $(REF_ALTTEXT parseStdEntityRef, parseStdEntityRef, dxml, util) from
     $(MREF dxml, util) can be used to convert the predefined entity references
-    to what the refer to, and $(REF_ALTTEXT normalize, normalize, dxml, util) or
+    to what the refer to, and $(REF_ALTTEXT decodeXML, decodeXML, dxml, util) or
     $(REF_ALTTEXT parseCharRef, parseCharRef, dxml, util) from
     $(MREF dxml, util) can be used to convert character references to what they
     refer to.
@@ -560,14 +560,14 @@ enum EntityType
         $(D_CODE_STRING "$(AMP)#42")) and the predefined entity references (e.g.
         $(D_CODE_STRING "$(AMP)apos;")) are left unprocessed in the text. In
         order for them to be processed, the text should be passed to either
-        $(REF_ALTTEXT normalize, normalize, dxml, util) or
-        $(REF_ALTTEXT asNormalized, asNormalized, dxml, util). Entity references
+        $(REF_ALTTEXT decodeXML, decodeXML, dxml, util) or
+        $(REF_ALTTEXT asDecodedXML, asDecodedXML, dxml, util). Entity references
         which are not predefined are considered invalid XML, because the DTD
         section is skipped, and thus they cannot be processed properly.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#sec-starttags)$(BR)
-                  $(REF normalize, dxml, util)$(BR)
-                  $(REF asNormalized, dxml, util)$(BR)
+                  $(REF decodeXML, dxml, util)$(BR)
+                  $(REF asDecodedXML, dxml, util)$(BR)
                   $(REF parseStdEntityRef, dxml, util)$(BR)
                   $(REF parseCharRef, dxml, util)$(BR)
                   $(LREF EntityRange.Entity._text)
@@ -591,7 +591,7 @@ enum EntityType
     the parser provides is either a slice or
     $(PHOBOS_REF takeExactly, std, range) of the input. However, in some cases,
     for the parser to be fully compliant with the XML spec,
-    $(REF normalize, dxml, util) must be called on the text to mutate certain
+    $(REF decodeXML, dxml, util) must be called on the text to mutate certain
     constructs (e.g. removing any $(D_CODE_STRING '\r') in the text or
     converting $(D_CODE_STRING "$(AMP)lt;") to $(D_CODE_STRING '<')). But
     that's left up to the application.
@@ -636,7 +636,7 @@ enum EntityType
     $(LREF TextPos)). However, they $(I will) appear in any text fields or
     attribute values if they are in the document (since the text fields and
     attribute values are slices of the original text).
-    $(REF normalize, dxml, util) can be used to strip them along with converting
+    $(REF decodeXML, dxml, util) can be used to strip them along with converting
     any character references in the text. Alternatively, the application can
     remove them all before calling parseXML, but it's not necessary.
   +/
@@ -942,8 +942,8 @@ public:
                 $(TR $(TD $(LREF2 elementEmpty, EntityType)))
             )
 
-            See_Also: $(REF normalize, dxml, util)$(BR)
-                      $(REF asNormalized, dxml, util)
+            See_Also: $(REF decodeXML, dxml, util)$(BR)
+                      $(REF asDecodedXML, dxml, util)
           +/
         @property auto attributes()
         {
@@ -1243,8 +1243,8 @@ public:
                 $(TR $(TD $(LREF2 _text, EntityType)))
             )
 
-            See_Also: $(REF normalize, dxml, util)$(BR)
-                      $(REF asNormalized, dxml, util)$(BR)
+            See_Also: $(REF decodeXML, dxml, util)$(BR)
+                      $(REF asDecodedXML, dxml, util)$(BR)
                       $(REF stripIndent, dxml, util)$(BR)
                       $(REF withoutIndent, dxml, util)
           +/

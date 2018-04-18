@@ -203,6 +203,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* DIV: Formats the entire DDOC_DEPRECATED section*/
 .ddoc_deprecated
 {
+    color: #DD0000;
     margin: 1em 0;
 }
 

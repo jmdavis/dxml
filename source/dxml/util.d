@@ -6,13 +6,13 @@
 
     $(TABLE
         $(TR $(TH Symbol) $(TH Description))
-        $(TR $(TD $(LREF normalize))
+        $(TR $(TD $(LREF decodeXML))
              $(TD Takes a range of characters, strips carriage returns from it,
                   and converts both character references and the predefined
                   entity references in the range into the characters that they
                   refer to.))
-        $(TR $(TD $(LREF asNormalized))
-             $(TD The version of normalize that returns a lazy range.))
+        $(TR $(TD $(LREF asDecodedXML))
+             $(TD The version of $(LREF decodeXML) that returns a lazy range.))
         $(TR $(TD $(LREF parseCharRef))
              $(TD Parses a character reference from the front of a range of
                   characters.))
@@ -24,7 +24,8 @@
                   characters that was XML text which was formatted for
                   human-readability.))
         $(TR $(TD $(LREF withoutIndent))
-             $(TD The version of stripIndent that returns a lazy range.))
+             $(TD The version of $(LREF stripIndent) that returns a lazy
+                  range.))
         $(TR $(TD $(LREF StdEntityRef))
              $(TD Enum containing the string representations of the five,
                   predefined entity references.))
@@ -53,11 +54,10 @@ import std.traits;
 import std.typecons : Nullable;
 
 /++
-    "Normalizes" the given text and transforms character references into the
-    characters that they represent. normalize combines $(LREF parseStdEntityRef)
-    and $(LREF parseCharRef) along with processing for $(D_CODE_STRING '\r') to
-    normalize an entire character range. It's intended to be used on on the text
-    fields of entities and on the values of start tag attributes.
+    Decodes any XML character references and standard XML entity references in
+    the text as well as removing any carriage returns. It's intended to be used
+    on the text fields of element tags and on the values of start tag
+    attributes.
 
     There are a number of characters that either can't be directly represented
     in the text fields or attribute values in XML or which can sometimes be
@@ -65,41 +65,42 @@ import std.typecons : Nullable;
     either a single quote or a double quote, but it can't contain both at the
     same time, because one of them would match the opening quote). So, those
     characters have alternate representations in order to be allowed (e.g.
-    $(D_CODE_STRING "$(AMP)lt;") for $(D_CODE_STRING '>'), because
-    $(D_CODE_STRING '>') would normally be the end of an entity). Technically,
-    they're entity references, but the ones handled by normalize are the
-    ones explicitly defined in the XML standard and which don't require a DTD
-    section.
+    $(D_CODE_STRING "$(AMP)lt;") for $(D_CODE_STRING '<'), because
+    $(D_CODE_STRING '<') would normally be the beginning of an entity).
+    Technically, they're entity references, but the ones handled by decodeXML
+    are the ones explicitly defined in the XML standard and which don't require
+    a DTD section.
 
     Ideally, the parser would transform all such alternate representations to
     what they represent when providing the text to the application, but that
     would make it impossible to return slices of the original text from the
-    properties of a $(LREF2 Entity, EntityRange). So, instead of having those
-    properties do the transformation themselves, normalize and asNormalized do
-    that so that the application can choose to do it or not (in many cases,
-    there is nothing to normalize, making the calls unnecessary).
+    properties of an $(REF_ALTTEXT Entity, EntityRange.Entity, dxml, parser).
+    So, instead of having those properties do the transformation themselves,
+    decodeXML and asDecodedXML do that so that the application can choose to do
+    it or not (in many cases, there is nothing to decode, making the calls
+    unnecessary).
 
     Similarly, an application can choose to encode a character as a character
     reference (e.g. $(D_CODE_STRING '$(AMP)#65") or
-    $(D_CODE_STRING '$(AMP)#x40") for $(D_CODE_STRING 'A')). normalize will
+    $(D_CODE_STRING '$(AMP)#x40") for $(D_CODE_STRING 'A')). decodeXML will
     decode such character references to their corresponding characters.
 
-    However, normalize does not handle any entity references beyond the five
+    However, decodeXML does not handle any entity references beyond the five
     predefined ones listed below. All others are left unprocessed. Processing
     them properly would require handling the DTD section, which dxml does not
-    do. The parser considers any entity references other than the predefined
-    ones to be invalid XML, so unless the text being passed to normalize
-    doesn't come from dxml's parser, it can't have any entity references in it
-    other than the predefined ones. Similarly, invalid character references are
-    left unprocessed as well as any character that is not valid in an XML
-    document. normalize never throws on invalid XML.
+    support. The parser considers any entity references other than the
+    predefined ones to be invalid XML, so unless the text being passed to
+    decodeXML doesn't come from dxml's parser, it can't have any entity
+    references in it other than the predefined ones. Similarly, invalid
+    character references are left unprocessed as well as any character that is
+    not valid in an XML document. decodeXML never throws on invalid XML.
 
     Also, $(D_CODE_STRING '\r') is not supposed to appear in an XML document
     except as a character reference unless it's in a CDATA section. So, it
     really should be stripped out before being handed off to the application,
-    but again, that doesn't work with slices. So, normalize also handles that.
+    but again, that doesn't work with slices. So, decodeXML also handles that.
 
-    Specifically, what normalize and asNormalized do is
+    Specifically, what decodeXML and asDecodedXML do is
 
     $(TABLE
         $(TR $(TD convert $(D_CODE_STRING $(AMP)amp;) to $(D_CODE_STRING &)))
@@ -107,9 +108,9 @@ import std.typecons : Nullable;
         $(TR $(TD convert $(D_CODE_STRING $(AMP)lt;) to $(D_CODE_STRING <)))
         $(TR $(TD convert $(D_CODE_STRING $(AMP)apos;) to $(D_CODE_STRING ')))
         $(TR $(TD convert $(D_CODE_STRING $(AMP)quot;) to $(D_CODE_STRING ")))
-        $(TR $(TD remove all instances of $(D_CODE_STRING '\r')))
+        $(TR $(TD remove all instances of $(D_CODE_STRING \r)))
         $(TR $(TD convert all character references (e.g.
-                  $(D_CODE_STRING "$(AMP)#xA;")) to the characters that they
+                  $(D_CODE_STRING $(AMP)#xA;)) to the characters that they
                   represent))
     )
 
@@ -118,20 +119,20 @@ import std.typecons : Nullable;
     any malformed constructs (e.g. $(D_CODE_STRING "&Amp;") or
     $(D_CODE_STRING "&#xGGA2;")) are left untouched.
 
-    The difference between normalize and asNormalized is that normalize returns
-    a $(K_STRING), whereas asNormalized returns a lazy range of code
-    units. In the case where a $(K_STRING) is passed to normalize, it
-    will simply return the original string if there is no text to normalize
-    (whereas in other cases, normalize and asNormalized are forced to return
-    new ranges even if there is no un-normalized text).
+    The difference between decodeXML and asDecodedXML is that decodeXML returns
+    a $(K_STRING), whereas asDecodedXML returns a lazy _range of code
+    units. In the case where a $(K_STRING) is passed to decodeXML, it
+    will simply return the original $(K_STRING) if there is no text to decode
+    (whereas in other cases, decodeXML and asDecodedXML are forced to return
+    new ranges even if there is no text to decode).
 
     Params:
-        range = The range of characters to normalize.
+        range = The _range of characters to decodeXML.
 
-    Returns: The normalized text. normalize returns a $(K_STRING), whereas
-             asNormalized returns a lazy range of code units (so it could be a
-             range of $(K_CHAR) or $(K_WCHAR) and not just $(K_DCHAR); which it
-             is depends on the code units of the range being passed in).
+    Returns: The decoded text. decodeXML returns a $(K_STRING), whereas
+             asDecodedXML returns a lazy _range of code units (so it could be a
+             _range of $(K_CHAR) or $(K_WCHAR) and not just $(K_DCHAR); which it
+             is depends on the code units of the _range being passed in).
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseStdEntityRef)$(BR)
@@ -141,7 +142,7 @@ import std.typecons : Nullable;
               $(LREF encodeAttr)$(BR)
               $(LREF encodeText)
   +/
-string normalize(R)(R range)
+string decodeXML(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     static if(isDynamicArray!R && is(Unqual!(ElementEncodingType!R) == char))
@@ -211,19 +212,19 @@ string normalize(R)(R range)
     else
     {
         import std.conv : to;
-        return range.asNormalized().to!string();
+        return range.asDecodedXML().to!string();
     }
 }
 
 
 /// Ditto
-auto asNormalized(R)(R range)
+auto asDecodedXML(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
     import std.meta : AliasSeq;
     import std.utf : byCodeUnit, encode, UseReplacementDchar;
 
-    static struct NormalizedResult
+    static struct DecodedXML
     {
     public:
 
@@ -313,27 +314,27 @@ auto asNormalized(R)(R range)
         @property typeof(_front[0]) front() { return _front.empty ? _range.front : _front[0]; }
     }
 
-    return NormalizedResult(range);
+    return DecodedXML(range);
 }
 
 ///
 version(dxmlTests) unittest
 {
-    assert(normalize("hello world &amp;&gt;&lt;&apos;&quot; \r\r\r\r\r foo") ==
+    assert(decodeXML("hello world &amp;&gt;&lt;&apos;&quot; \r\r\r\r\r foo") ==
            `hello world &><'"  foo`);
 
-    assert(normalize("if(foo &amp;&amp; bar)\r\n" ~
+    assert(decodeXML("if(foo &amp;&amp; bar)\r\n" ~
                      "    left = right;") ==
            "if(foo && bar)\n" ~
            "    left = right;");
 
-    assert(normalize("&#12487;&#12451;&#12521;&#12531;") == "ディラン");
-    assert(normalize("foo") == "foo");
-    assert(normalize("&#   ;") == "&#   ;");
+    assert(decodeXML("&#12487;&#12451;&#12521;&#12531;") == "ディラン");
+    assert(decodeXML("foo") == "foo");
+    assert(decodeXML("&#   ;") == "&#   ;");
 
     {
         import std.algorithm.comparison : equal;
-        auto range = asNormalized("hello world &amp;&gt;&lt;&apos;&quot; " ~
+        auto range = asDecodedXML("hello world &amp;&gt;&lt;&apos;&quot; " ~
                                   "\r\r\r\r\r foo");
         assert(equal(range, `hello world &><'"  foo`));
     }
@@ -356,11 +357,11 @@ version(dxmlTests) unittest
             auto attrs = range.front.attributes;
             assert(attrs.front.name == "return");
             assert(attrs.front.value == "vector&lt;int&gt;");
-            assert(normalize(attrs.front.value) == "vector<int>");
+            assert(decodeXML(attrs.front.value) == "vector<int>");
             attrs.popFront();
             assert(attrs.front.name == "name");
             assert(attrs.front.value == "foo");
-            assert(normalize(attrs.front.value) == "foo");
+            assert(decodeXML(attrs.front.value) == "foo");
         }
         range.popFront();
 
@@ -371,7 +372,7 @@ version(dxmlTests) unittest
         assert(range.front.text ==
                "This function does something really\r\n" ~
                "                 fancy, and you will love it.");
-        assert(normalize(range.front.text) ==
+        assert(decodeXML(range.front.text) ==
                "This function does something really\n" ~
                "                 fancy, and you will love it.");
         range.popFront();
@@ -386,11 +387,11 @@ version(dxmlTests) unittest
             auto attrs = range.front.attributes;
             assert(attrs.front.name == "type");
             assert(attrs.front.value == "int");
-            assert(normalize(attrs.front.value) == "int");
+            assert(decodeXML(attrs.front.value) == "int");
             attrs.popFront();
             assert(attrs.front.name == "name");
             assert(attrs.front.value == "i");
-            assert(normalize(attrs.front.value) == "i");
+            assert(decodeXML(attrs.front.value) == "i");
         }
         range.popFront();
 
@@ -400,11 +401,11 @@ version(dxmlTests) unittest
             auto attrs = range.front.attributes;
             assert(attrs.front.name == "type");
             assert(attrs.front.value == "const std::string&amp;");
-            assert(normalize(attrs.front.value) == "const std::string&");
+            assert(decodeXML(attrs.front.value) == "const std::string&");
             attrs.popFront();
             assert(attrs.front.name == "name");
             assert(attrs.front.value == "s");
-            assert(normalize(attrs.front.value) == "s");
+            assert(decodeXML(attrs.front.value) == "s");
         }
     }
 }
@@ -420,9 +421,9 @@ version(dxmlTests) unittest
     static void test(alias func)(string text, string expected, size_t line = __LINE__)
     {
         auto range = func(text);
-        enforce!AssertError(range.save.normalize() == expected, "unittest failed 1", __FILE__, line);
-        alias C = ElementType!(typeof(range.save.asNormalized()));
-        enforce!AssertError(equal(range.save.asNormalized(), expected.byUTF!C), "unittest failed 2", __FILE__, line);
+        enforce!AssertError(range.save.decodeXML() == expected, "unittest failed 1", __FILE__, line);
+        alias C = ElementType!(typeof(range.save.asDecodedXML()));
+        enforce!AssertError(equal(range.save.asDecodedXML(), expected.byUTF!C), "unittest failed 2", __FILE__, line);
     }
 
     static foreach(func; testRangeFuncs)
@@ -456,8 +457,72 @@ version(dxmlTests) @safe pure unittest
 
     static foreach(func; testRangeFuncs)
     {{
-        assert(normalize(func("foo")) == "foo");
-        assert(equal(asNormalized(func("foo")), "foo"));
+        assert(decodeXML(func("foo")) == "foo");
+        assert(equal(asDecodedXML(func("foo")), "foo"));
+    }}
+}
+
+
+/++
+    $(H2 $(RED $(I Deprecated)))
+
+    normalize has been renamed to $(LREF decodeXML), and asNormalized has been
+    renamed to $(LREF asDecodedXML). It was pointed out that there's a fairly
+    high chance that $(PHOBOS_REF _normalize, std, uni) would be used in
+    conjunction with dxml, making conflicts annoyingly likely. Also, there was
+    no good opposite for normalize for the functions that became
+    $(LREF encodeAttr) and $(LREF encodeText). $(D denormalizeAttr) and
+    $(D denormalizeText) would arguably have been a bit ugly.
+
+    These aliases have been added to avoid code breakage when upgrading from
+    $(D dxml 0.2.*). They will be removed in $(D dxml 0.4.0).
+  +/
+deprecated("normalize has been renamed to decodeXML. This alias will be removed in dxml 0.4.0.")
+alias normalize = decodeXML;
+
+/// Ditto
+deprecated("asNormalized has been renamed to asDecodedXML. This alias will be removed in dxml 0.4.0.")
+alias asNormalized = asDecodedXML;
+
+version(dxmlTests) deprecated unittest
+{
+    import core.exception : AssertError;
+    import std.algorithm.comparison : equal;
+    import std.exception : enforce;
+    import std.utf : byUTF;
+    import dxml.internal : testRangeFuncs;
+
+    // FIXME deprecated arguably shouldn't be required here since it's used on
+    // the unittest block. The bug should be reduced and reported.
+    deprecated static void test(alias func)(string text, string expected, size_t line = __LINE__)
+    {
+        auto range = func(text);
+        enforce!AssertError(range.save.normalize() == expected, "unittest failed 1", __FILE__, line);
+        alias C = ElementType!(typeof(range.save.asNormalized()));
+        enforce!AssertError(equal(range.save.asNormalized(), expected.byUTF!C), "unittest failed 2", __FILE__, line);
+    }
+
+    static foreach(func; testRangeFuncs)
+    {{
+        test!func("hello world &amp;  &gt;  &lt;  &apos;  &quot; \r\r\r\r\r foo", `hello world &  >  <  '  "  foo`);
+        test!func("&amp", "&amp");
+        test!func("&#01234567890;", "&#01234567890;");
+        test!func("&", "&");
+        test!func("&&&&", "&&&&");
+        test!func("&&&&amp;", "&&&&");
+        test!func("&#", "&#");
+        test!func("&#;", "&#;");
+        test!func("&#0", "&#0");
+        test!func("&#0;", "&#0;");
+        test!func("&#48;", "0");
+        test!func("&#0amp;", "&#0amp;");
+        test!func("&#amp;", "&#amp;");
+        test!func("&#x", "&#x");
+        test!func("&#x;", "&#x;");
+        test!func("&#x0;", "&#x0;");
+        test!func("&#x9;", "\t");
+        test!func("&#x20;", " ");
+        test!func("&#12487;&#12451;&#12521;&#12531;", "ディラン");
     }}
 }
 
@@ -495,8 +560,8 @@ version(dxmlTests) @safe pure unittest
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#dt-chardata)$(BR)
               $(LREF parseCharRef)$(BR)
-              $(LREF normalize)$(BR)
-              $(LREF asNormalized)
+              $(LREF decodeXML)$(BR)
+              $(LREF asDecodedXML)
   +/
 Nullable!dchar parseStdEntityRef(R)(ref R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -651,8 +716,8 @@ version(dxmlTests) @safe pure unittest
 
     See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-CharRef)$(BR)
               $(LREF parseStdEntityRef)$(BR)
-              $(LREF normalize)$(BR)
-              $(LREF asNormalized)$(BR)
+              $(LREF decodeXML)$(BR)
+              $(LREF asDecodedXML)$(BR)
               $(LREF toCharRef)
   +/
 Nullable!dchar parseCharRef(R)(ref R range)
@@ -1298,7 +1363,8 @@ enum StdEntityRef
 
     See_Also: $(REF XMLWriter.writeText, dxml, writer)$(BR)
               $(LREF encodeAttr)$(BR)
-              $(LREF normalize)
+              $(LREF decodeXML)$(BR)
+              $(LREF asDecodedXML)
   +/
 auto encodeText(R)(R text)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1425,7 +1491,8 @@ auto encodeText(R)(R text)
 
     See_Also: $(REF XMLWriter.writeAttr, dxml, writer)$(BR)
               $(LREF encodeText)$(BR)
-              $(LREF normalize)
+              $(LREF decodeXML)$(BR)
+              $(LREF asDecodedXML)
   +/
 auto encodeAttr(char quote = '"', R)(R text)
     if((quote == '"' || quote == '\'') && isForwardRange!R && isSomeChar!(ElementType!R))
