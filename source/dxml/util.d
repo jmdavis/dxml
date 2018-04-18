@@ -36,7 +36,7 @@
         $(TR $(TD $(LREF encodeAttr))
              $(TD Encodes characters which cannot appear in the attribute value
                   of an element start tag in their literal form.))
-        $(TR $(TD $(LREF toCharRef))
+        $(TR $(TD $(LREF encodeCharRef))
              $(TD Encodes a character as a character reference.))
     )
 
@@ -714,7 +714,7 @@ version(dxmlTests) @safe pure unittest
               $(LREF parseStdEntityRef)$(BR)
               $(LREF decodeXML)$(BR)
               $(LREF asDecodedXML)$(BR)
-              $(LREF toCharRef)
+              $(LREF encodeCharRef)
   +/
 Nullable!dchar parseCharRef(R)(ref R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1625,9 +1625,9 @@ auto encodeAttr(char quote = '"', R)(R text)
 
     See_Also: $(LREF parseCharRef)
   +/
-auto toCharRef(dchar c)
+auto encodeCharRef(dchar c)
 {
-    static struct ToCharRef
+    static struct EncodeCharRef
     {
     public:
 
@@ -1650,7 +1650,7 @@ auto toCharRef(dchar c)
     import std.format : formattedWrite;
     import std.string : representation;
 
-    ToCharRef retval;
+    EncodeCharRef retval;
     formattedWrite!"&#x%x;$"(retval._buffer[].representation, c);
     return retval;
 }
@@ -1660,11 +1660,11 @@ unittest
 {
     import std.algorithm.comparison : equal;
 
-    assert(equal(toCharRef(' '), "&#x20;"));
-    assert(equal(toCharRef('A'), "&#x41;"));
-    assert(equal(toCharRef('\u2424'), "&#x2424;"));
+    assert(equal(encodeCharRef(' '), "&#x20;"));
+    assert(equal(encodeCharRef('A'), "&#x41;"));
+    assert(equal(encodeCharRef('\u2424'), "&#x2424;"));
 
-    auto range = toCharRef('*');
+    auto range = encodeCharRef('*');
     assert(parseCharRef(range) == '*');
 }
 
@@ -1673,7 +1673,7 @@ unittest
     import std.algorithm.comparison : equal;
 
     enum pound = "&#x23;";
-    auto range = toCharRef('#');
+    auto range = encodeCharRef('#');
     assert(equal(range.save, range.save));
     assert(equal(range.save, pound));
 }
