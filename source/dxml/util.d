@@ -20,7 +20,9 @@
              $(TD Parses one of the predefined entity references from the start
                   of a range of characters.))
         $(TR $(TD $(LREF stripIndent))
-             $(TD description))
+             $(TD Removes the indent from the front of each line of a range of
+                  characters that was XML text which was formatted for
+                  human-readability.))
         $(TR $(TD $(LREF withoutIndent))
              $(TD The version of stripIndent that returns a lazy range.))
         $(TR $(TD $(LREF StdEntityRef))
@@ -28,7 +30,8 @@
                   predefined entity references.))
         $(TR $(TD $(LREF encodeText))
              $(TD Encodes characters which cannot appear in
-                  $(LREF2 EntityType.text) in their literal form.))
+                  $(REF_ALTTEXT EntityType.text, EntityType.text, dxml, parser)
+                  in their literal form.))
         $(TR $(TD $(LREF encodeAttr))
              $(TD Encodes characters which cannot appear in the attribute value
                   of an element start tag in their literal form.))
@@ -134,7 +137,9 @@ import std.typecons : Nullable;
               $(LREF parseStdEntityRef)$(BR)
               $(LREF parseCharRef)$(BR)
               $(REF EntityRange.Entity.attributes, dxml, parser)$(BR)
-              $(REF EntityRange.Entity.text, dxml, parserx)
+              $(REF EntityRange.Entity.text, dxml, parser)$(BR)
+              $(LREF encodeAttr)$(BR)
+              $(LREF encodeText)
   +/
 string normalize(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -812,8 +817,8 @@ version(dxmlTests) @safe pure unittest
 
     For these functions, whitespace is considered to be some combination of
     $(D_CODE_STRING ' '), $(D_CODE_STRING '\t'), and $(D_CODE_STRING '\r')
-    (as $(D_CODE_STRING '\n') is used to delineate lines, so it's not
-    considered whitespace).
+    ($(D_CODE_STRING '\n') is used to delineate lines, so it's not considered
+     whitespace).
 
     Whitespace characters are stripped from the start of the first line, and
     then those same number of whitespace characters are stripped from the
@@ -838,9 +843,9 @@ version(dxmlTests) @safe pure unittest
     The difference between stripIndent and withoutIndent is that stripIndent
     returns a $(K_STRING), whereas withoutIndent returns a lazy range
     of code units. In the case where a $(K_STRING) is passed to
-    stripIndent, it will simply return the original string if the indent is
-    determined to be zero (whereas in other cases, stripIndent and
-    withoutIndent are forced to return new ranges).
+    stripIndent, it will simply return the original string if there is no
+    indent (whereas in other cases, stripIndent and withoutIndent are forced to
+    return new ranges).
 
     Params:
         range = A range of characters.
@@ -1087,6 +1092,7 @@ version(dxmlTests) unittest
         auto range = parseXML(xml);
         range.popFront();
         range.popFront();
+        assert(range.front.type == EntityType.text);
         assert(range.front.text ==
                "\n" ~
                "    bool isASCII(string str)\n" ~
@@ -1120,8 +1126,8 @@ version(dxmlTests) unittest
            "    xyzzy\n" ~
            "       ");
 
-    // If the first has no leading whitespace but the second line does, then
-    // the second line's leading whitespace is treated as the indent.
+    // If the first line has no leading whitespace but the second line does,
+    // then the second line's leading whitespace is treated as the indent.
     assert(("foo\n" ~
             "    bar\n" ~
             "        baz\n" ~
@@ -1258,26 +1264,26 @@ version(dxmlTests) @safe pure unittest
   +/
 enum StdEntityRef
 {
-    /// Entity reference for $(D_CODE_STRING '\'')
+    /// Entity reference for $(D_CODE_STRING $(AMP))
     amp = "&amp;",
 
-    /// Entity reference for $(D_CODE_STRING '>')
+    /// Entity reference for $(D_CODE_STRING >)
     gt = "&gt;",
 
-    /// Entity reference for $(D_CODE_STRING '<')
+    /// Entity reference for $(D_CODE_STRING <)
     lt = "&lt;",
 
-    /// Entity reference for $(D_CODE_STRING '\'')
+    /// Entity reference for $(D_CODE_STRING ')
     apos = "&apos;",
 
-    /// Entity reference for $(D_CODE_STRING '"')
+    /// Entity reference for $(D_CODE_STRING ")
     quot = "&quot;",
 }
 
 
 /++
     Returns a lazy range of code units which encodes any characters which cannot
-    be put in an $(REF EntityType.text, dxml, parser) in their literal form.
+    be put in an $(REF EntityType._text, dxml, parser) in their literal form.
 
     encodeText is intended primarily to be used with
     $(REF XMLWriter.writeText, dxml, writer) to ensure that characters which
@@ -1286,13 +1292,14 @@ enum StdEntityRef
     Specifically, what encodeText does is
 
     $(TABLE
-        $(TR $(TD convert $(D_CODE_STRING &) $(D_CODE_STRING $(AMP)amp;) ))
-        $(TR $(TD convert $(D_CODE_STRING <) $(D_CODE_STRING $(AMP)lt;) ))
-        $(TR $(TD convert $(D_CODE_STRING >) $(D_CODE_STRING $(AMP)gt;) ))
+        $(TR $(TD convert $(D_CODE_STRING &) to $(D_CODE_STRING $(AMP)amp;) ))
+        $(TR $(TD convert $(D_CODE_STRING <) to $(D_CODE_STRING $(AMP)lt;) ))
+        $(TR $(TD convert $(D_CODE_STRING >) to $(D_CODE_STRING $(AMP)gt;) ))
     )
 
-    See_Also: $(XMLWriter.writeText, dxml, writer)$(BR)
-              $(LREF encodeAttr)
+    See_Also: $(REF XMLWriter.writeText, dxml, writer)$(BR)
+              $(LREF encodeAttr)$(BR)
+              $(LREF normalize)
   +/
 auto encodeText(R)(R text)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1406,7 +1413,7 @@ auto encodeText(R)(R text)
 
 /++
     Returns a lazy range of code units which encodes any characters which cannot
-    be put in an attribute value in an element tag in their literal form.
+    be put in an attribute value of an element tag in their literal form.
 
     encodeAttr is intended primarily to be used with
     $(REF XMLWriter.writeAttr, dxml, writer) to ensure that characters
@@ -1416,16 +1423,17 @@ auto encodeText(R)(R text)
     Specifically, what encodeAttr does is
 
     $(TABLE
-        $(TR $(TD convert $(D_CODE_STRING &) $(D_CODE_STRING $(AMP)amp;) ))
-        $(TR $(TD convert $(D_CODE_STRING <) $(D_CODE_STRING $(AMP)lt;) ))
-        $(TR $(TD convert $(D_CODE_STRING ') $(D_CODE_STRING $(AMP)pos;) if
+        $(TR $(TD convert $(D_CODE_STRING &) to $(D_CODE_STRING $(AMP)amp;) ))
+        $(TR $(TD convert $(D_CODE_STRING <) to $(D_CODE_STRING $(AMP)lt;) ))
+        $(TR $(TD convert $(D_CODE_STRING ') to $(D_CODE_STRING $(AMP)pos;) if
               $(D quote == $(D_STRING '\''))))
-        $(TR $(TD convert $(D_CODE_STRING ") $(D_CODE_STRING $(AMP)quot;) if
+        $(TR $(TD convert $(D_CODE_STRING ") to $(D_CODE_STRING $(AMP)quot;) if
               $(D quote == $(D_STRING '"'))))
     )
 
-    See_Also: $(XMLWriter.writeAttr, dxml, writer)$(BR)
-              $(LREF encodeText)
+    See_Also: $(REF XMLWriter.writeAttr, dxml, writer)$(BR)
+              $(LREF encodeText)$(BR)
+              $(LREF normalize)
   +/
 auto encodeAttr(char quote = '"', R)(R text)
     if((quote == '"' || quote == '\'') && isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1554,11 +1562,11 @@ auto encodeAttr(char quote = '"', R)(R text)
 
 
 /++
-    Returns a range of $(D char) containing the character reference
+    Returns a range of $(K_CHAR) containing the character reference
     corresponding to the given character.
 
     Params:
-        c = The character encode.
+        c = The character to encode.
 
     See_Also: $(LREF parseCharRef)
   +/
