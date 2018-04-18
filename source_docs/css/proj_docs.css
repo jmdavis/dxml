@@ -283,6 +283,7 @@ dt.ddoc_decl:hover .ddoc_decl_anchor
 /* SPAN: Formats DDOC_PARAM */
 .ddoc_param
 {
+    color: green;
 }
 
 /* SPAN: Formats the DDOC_PARAMS section's title */
