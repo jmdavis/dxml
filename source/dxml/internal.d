@@ -691,3 +691,15 @@ template codeLen(alias func, string str)
     import std.utf : codeLength;
     enum codeLen = cast(int)codeLength!(ElementEncodingType!(typeof(func("hello"))))(str);
 }
+
+
+// This is for testing that code using an output range can be marked with @safe,
+// pure, etc. so long as the output range itself supports them. With this type,
+// we don't have to worry about what attributes something like Appender
+// currently supports.
+struct TestAttrOR
+{
+    void put(T)(T) @safe pure nothrow @nogc
+    {
+    }
+}

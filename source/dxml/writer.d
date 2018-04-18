@@ -211,6 +211,13 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.openStartTag("root");
+    }
+
 
     /++
         Writes an attribute for a start tag to the output range.
@@ -363,6 +370,14 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.openStartTag("root");
+        writer.writeAttr("attr", "42");
+    }
+
 
     /++
         Writes the end of a start tag to the ouput range.
@@ -423,6 +438,15 @@ public:
                "<root>\n" ~
                "    <foo/>\n" ~
                "</root>");
+    }
+
+    // _decLevel currently can't be pure.
+    static if(compileInTests) @safe /+pure+/ unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.openStartTag("root");
+        writer.closeStartTag();
     }
 
 
@@ -526,6 +550,13 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeStartTag("root");
+    }
+
 
     /++
         Writes an end tag to the output range with the name of whichever start
@@ -620,6 +651,17 @@ public:
                "    <bar>\n" ~
                "    </bar>\n" ~
                "</root>");
+    }
+
+    // _decLevel currently can't be pure.
+    static if(compileInTests) @safe /+pure+/ unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeStartTag("root");
+        writer.writeStartTag("tag");
+        writer.writeEndTag("tag");
+        () @safe nothrow { writer.writeEndTag(); } ();
     }
 
 
@@ -807,6 +849,14 @@ public:
         }
     }
 
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeStartTag("root");
+        writer.writeText("");
+    }
+
 
     /++
         Writes a comment to the output range.
@@ -903,6 +953,13 @@ public:
                "<!-- And so it ends... -->");
     }
 
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeComment("");
+    }
+
 
     /++
         Writes a $(D <![CDATA[...]]>) section with the given text between the
@@ -973,6 +1030,14 @@ public:
                "        <![CDATA[ Deeper data <><> ]]>\n" ~
                "    </tag>\n" ~
                "</root>");
+    }
+
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeStartTag("root");
+        writer.writeCDATA("");
     }
 
 
@@ -1064,6 +1129,14 @@ public:
                "        <?Deep Thought?>\n" ~
                "    </tag>\n" ~
                "</root>");
+    }
+
+    static if(compileInTests) @safe pure unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writePI("name");
+        writer.writePI("name", "text");
     }
 
 
@@ -1230,6 +1303,13 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) @safe pure nothrow unittest
+    {
+        import dxml.internal : TestAttrOR;
+        auto writer = xmlWriter(TestAttrOR.init);
+        writer.writeIndent();
+    }
+
 
     /++
         Returns the output range that's used by XMLWriter.
@@ -1245,7 +1325,7 @@ public:
         write functions are called, calling $(D put) on the output range
         directly is unchecked and therefore does risk making the XML invalid.
       +/
-    @property ref output()
+    @property ref output() @safe pure nothrow @nogc
     {
         return _output;
     }
@@ -1275,26 +1355,34 @@ public:
     this(OR output, string baseIndent = "    ")
     {
         import std.algorithm.searching : find;
-        assert(baseIndent.find!(a => a != ' ' && a != '\t')().empty,
+        import std.utf : byCodeUnit; // Allows this code to be nothrow
+
+        assert(baseIndent.byCodeUnit().find!(a => a != ' ' && a != '\t')().empty,
                "XMLWriter's base indent can only contain ' ' and '\t'");
+
         _output = output;
         _tagStack.reserve(10);
         _attributes.reserve(10);
+
         if(!baseIndent.empty)
         {
-            import std.array : uninitializedArray;
-            import std.exception : assumeUnique;
+            static makeIndent(string baseIndent) pure @safe nothrow
+            {
+                import std.array : uninitializedArray;
+
+                immutable indentLen = baseIndent.length;
+                auto retval = uninitializedArray!(char[])(indentLen * 10 + 1);
+                retval[0] = '\n';
+                foreach(i; 0 .. 10)
+                {
+                    immutable start = i * indentLen + 1;
+                    retval[start .. start + indentLen] = baseIndent;
+                }
+                return retval;
+            }
 
             _baseIndent = baseIndent;
-            immutable indentLen = _baseIndent.length;
-            auto temp = uninitializedArray!(char[])(indentLen * 10 + 1);
-            temp[0] = '\n';
-            foreach(i; 0 .. 10)
-            {
-                immutable start = i * indentLen + 1;
-                temp[start .. start + indentLen] = _baseIndent;
-            }
-            _totalIndent = assumeUnique(temp);
+            _totalIndent = makeIndent(_baseIndent);
         }
     }
 
@@ -1396,7 +1484,7 @@ auto xmlWriter(OR)(OR output, string baseIndent = "    ")
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     import std.array : appender;
     {
@@ -1461,6 +1549,12 @@ unittest
 
         assert(writer.output.data == `<root><foo a="42">bar</foo></root>`);
     }
+}
+
+version(dxmlTests) @safe pure nothrow unittest
+{
+    import dxml.internal : TestAttrOR;
+    auto writer = xmlWriter(TestAttrOR.init);
 }
 
 // This is purely to provide a way to trigger the unittest blocks in XMLWriter
@@ -1585,7 +1679,7 @@ void writeTaggedText(XW, R1, R2)(ref XW writer, R1 name, R2 text, InsertIndent i
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     import std.array : appender;
 
@@ -1640,6 +1734,14 @@ unittest
                "Next line</foo>\n" ~
                "</root>");
     }
+}
+
+// _decLevel cannot currently be pure.
+version(dxmlTests) @safe /+pure+/ unittest
+{
+    import dxml.internal : TestAttrOR;
+    auto writer = xmlWriter(TestAttrOR.init);
+    writer.writeTaggedText("root", "text");
 }
 
 
