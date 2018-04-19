@@ -87,13 +87,16 @@ alias InsertIndent = Flag!"InsertIndent";
 /++
     Writes XML to an output range of characters.
 
-    Note that default initialization and copying are disabled for XMLWriter.
-    This is because XMLWriter is essentially a reference type, but in many
-    cases, it doesn't need to be passed around and thus can simply be
-    constructed on the stack. So, it's a struct with default initialization and
-    copying disabled so that like a reference type, it will not be copied, and
-    code that needs to pass it around can pass it by $(K_REF) or allocate it on
-    the heap and pass a pointer to it around.
+    Note that default initialization, copying, and assignment are disabled for
+    XMLWriter. This is because XMLWriter is essentially a reference type, but
+    in many cases, it doesn't need to be passed around, and forcing it to be
+    allocated on the heap in order to be a reference type seemed like an
+    unnecessary heap allocation. So, it's a struct with default initialization,
+    copying, and assignment disabled so that like a reference type, it will not
+    be copied or overwritten. Code that needs to pass it around can pass it by
+    $(K_REF) or use the $(LREF_ALTTEXT constructor, _XMLWriter.this) to
+    explicitly allocate it on the heap and then pass around the resulting
+    pointer.
 
     The optional $(LREF Newline) and $(LREF InsertIndent) parameters to the
     various write functions are used to control the formatting of the XML, and
@@ -117,7 +120,7 @@ alias InsertIndent = Flag!"InsertIndent";
 
     The write functions check the arguments prior to writing anything to the
     output range, so the XMLWriter is not in an invalid state after an
-    $(LREF XMLWritingException) is thrown, but it is $(I is) in an invalid state
+    $(LREF XMLWritingException) is thrown, but it $(I is) in an invalid state
     if any other exception is thrown (which will only occur if an input range
     that is passed to a write function throws or if the ouput range throws when
     XMLWriter calls $(PHOBOS_REF_ALTTEXT put, put, std, range, primitives) on
@@ -129,7 +132,7 @@ alias InsertIndent = Flag!"InsertIndent";
                      when an indent is inserted after a newline in the XML (with
                      the actual indent being the base indent inserted once for
                      each level of the $(LREF2 tagDepth, _XMLWriter)).
-                     The default is four spaces. The indent may only contain
+                     The default is four spaces. baseIndent may only contain
                      spaces and/or tabs.
 
     See_Also: $(LREF writeXMLDecl)$(BR)
@@ -174,7 +177,8 @@ public:
             newline = Whether a _newline followed by an indent will be written
                       to the output range before the start tag.
 
-        Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
+        Throws: $(LREF XMLWritingException) if the given _name is not a valid
+                XML tag _name.
 
         See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
                   $(LREF2 writeAttr, XMLWriter)$(BR)
@@ -184,15 +188,22 @@ public:
       +/
     void openStartTag(string name, Newline newline = Newline.yes)
     {
-        assert(!_startTagOpen, "openStartTag cannot be called when a start tag is already open");
-        assert(!_writtenRootEnd, "openStartTag cannot be called after the root element's end tag has been written.");
-        checkName(name.save);
+        _validateStartTag!"openStartTag"(name);
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         _startTagOpen = true;
         _incLevel(name);
         put(_output, '<');
         put(_output, name);
+    }
+
+    // This is so that openStartTag, writeStartTag, and writeTaggedText can
+    // share this code.
+    private void _validateStartTag(string funcName)(string name)
+    {
+        assert(!_startTagOpen, funcName ~ " cannot be called when a start tag is already open");
+        assert(!_writtenRootEnd, funcName ~ " cannot be called after the root element's end tag has been written.");
+        checkName(name);
     }
 
     ///
@@ -262,9 +273,10 @@ public:
                       (since it's more common to not want newlines between
                       attributes).
 
-        Throws: $(LREF XMLWritingException) if the name is not a valid XML name,
-                if the value is not a valid XML value, or if the given name has
-                already been written to the current start tag.
+        Throws: $(LREF XMLWritingException) if the name is not a valid XML
+                attribute name, if the value is not a valid XML value, or if
+                the given name has already been written to the current start
+                tag.
 
         See_Also: $(REF encodeAttr, dxml, util)$(BR)
                   $(REF StdEntityRef, dxml, util)$(BR)
@@ -277,7 +289,7 @@ public:
     {
         assert(_startTagOpen, "writeAttr cannot be called except when a start tag is open");
 
-        checkName(name.save);
+        checkName(name);
         static if(quote == '"')
             checkText!(CheckText.attValueQuot)(value.save);
         else
@@ -400,6 +412,62 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func; testRangeFuncs)
+        {
+            auto writer = xmlWriter(appender!string);
+            writer.openStartTag("root", Newline.no);
+            writer.writeAttr("a", func("foo"));
+            writer.writeAttr("b", func("bar"));
+            assertThrown!XMLWritingException(writer.writeAttr("a", func("silly")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("&foo")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("\v")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("<")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("foo&bar")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("foo\vbar")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("foo<bar")));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func(`foo"bar`)));
+            assertThrown!XMLWritingException(writer.writeAttr!'\''("c", func("foo'bar")));
+            writer.writeAttr("c", func("bar"));
+            writer.writeAttr("d", func("foo&bar;baz"), Newline.yes);
+            writer.writeAttr("e", func("]]>"));
+            writer.writeAttr("f", func("'''"));
+            writer.writeAttr!'\''("g", func(`"""`));
+            assert(writer._attributes.length == 7);
+            assert(writer.output.data == `<root a="foo" b="bar" c="bar"` ~ "\n" ~
+                                         `    d="foo&bar;baz" e="]]>" f="'''" g='"""'`);
+            writer.closeStartTag();
+            assert(writer._attributes.empty);
+
+            writer.openStartTag("foo");
+            writer.writeAttr("a", func("foo"));
+            writer.writeAttr("b", func("bar"));
+            writer.writeAttr("c", func("bar"));
+            writer.closeStartTag(EmptyTag.yes);
+            assert(writer._attributes.empty);
+            assert(writer.output.data == `<root a="foo" b="bar" c="bar"` ~ "\n" ~
+                                         `    d="foo&bar;baz" e="]]>" f="'''" g='"""'>` ~ "\n" ~
+                                         `    <foo a="foo" b="bar" c="bar"/>`);
+
+            writer.openStartTag("foo");
+            writer.writeAttr("a", func("foo"));
+            writer.writeAttr("b", func("bar"));
+            writer.writeAttr("c", func("bar"));
+            assertThrown!XMLWritingException(writer.writeAttr("c", func("baz")));
+            writer.closeStartTag();
+            assert(writer._attributes.empty);
+            assert(writer.output.data == `<root a="foo" b="bar" c="bar"` ~ "\n" ~
+                                         `    d="foo&bar;baz" e="]]>" f="'''" g='"""'>` ~ "\n" ~
+                                         `    <foo a="foo" b="bar" c="bar"/>` ~ "\n" ~
+                                         `    <foo a="foo" b="bar" c="bar">`);
+        }
+    }
+
     static if(compileInTests) @safe pure unittest
     {
         import dxml.internal : TestAttrOR;
@@ -498,7 +566,8 @@ public:
             newline = Whether a _newline followed by an indent will be written
                       to the output range before the start tag.
 
-        Throws: $(LREF XMLWritingException) if the name is not a valid XML name.
+        Throws: $(LREF XMLWritingException) if the given _name is not a valid
+                XML tag _name.
 
         See_Also: $(LREF2 openStartTag, XMLWriter)$(BR)
                   $(LREF2 writeAttr, XMLWriter)$(BR)
@@ -510,9 +579,21 @@ public:
       +/
     void writeStartTag(string name, EmptyTag emptyTag = EmptyTag.no, Newline newline = Newline.yes)
     {
-        assert(!_startTagOpen, "writeStartTag cannot be called when a start tag is open");
-        assert(!_writtenRootEnd, "writeStartTag cannot be called after the root element's end tag has been written.");
-        checkName(name.save);
+        _validateStartTag!"writeStartTag"(name);
+        _writeStartTag(name, emptyTag, newline);
+    }
+
+    /// Ditto
+    void writeStartTag(string name, Newline newline, EmptyTag emptyTag = EmptyTag.no)
+    {
+        _validateStartTag!"writeStartTag"(name);
+        _writeStartTag(name, emptyTag, newline);
+    }
+
+    // This is so that writeTaggedText can check validate both the name and text
+    // before writing anything to the output range.
+    void _writeStartTag(string name, EmptyTag emptyTag, Newline newline)
+    {
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, '<');
@@ -524,12 +605,6 @@ public:
             _incLevel(name);
             put(_output, '>');
         }
-    }
-
-    /// Ditto
-    void writeStartTag(R)(R name, Newline newline, EmptyTag emptyTag = EmptyTag.no)
-    {
-        writeStartTag(name, emptyTag, newline);
     }
 
     ///
@@ -743,23 +818,42 @@ public:
     void writeText(R)(R text, Newline newline = Newline.yes, InsertIndent insertIndent = InsertIndent.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
-        assert(!_startTagOpen, "writeText cannot be called when a start tag is open");
-        assert(!_writtenRootEnd, "writeText cannot be called after the root end tag has been written");
-        assert(tagDepth != 0, "writeText cannot be called before the root start tag has been written");
-        checkText!(CheckText.text)(text);
-        if(newline == Newline.yes)
-            put(_output, insertIndent == InsertIndent.yes ? _getIndent(tagDepth) : "\n");
-        if(insertIndent == InsertIndent.yes)
-            _insertIndent(text, tagDepth);
-        else
-            put(_output, text);
+        _validateText!"writeText"(text.save);
+        _writeText(text, newline, insertIndent);
     }
 
     /// Ditto
     void writeText(R)(R text, InsertIndent insertIndent, Newline newline = Newline.yes)
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
-        writeText(text, newline, insertIndent);
+        _validateText!"writeText"(text.save);
+        _writeText(text, newline, insertIndent);
+    }
+
+    // This is so that openStartTag, writeStartTag, and writeTaggedText can
+    // share this code.
+    private void _validateText(string funcName, R)(R text)
+    {
+        assert(!_startTagOpen, funcName ~ " cannot be called when a start tag is open");
+        assert(!_writtenRootEnd, funcName ~ " cannot be called after the root end tag has been written");
+        // In the case of writeTaggedText, the check is done before the start
+        // tag has been written, and because it's writing the start tag, it can
+        // guarantee that the root tag has been written before the text.
+        static if(funcName != "writeTaggedText")
+            assert(tagDepth != 0, funcName ~ " cannot be called before the root start tag has been written");
+        checkText!(CheckText.text)(text);
+    }
+
+    // This is separated out so that writeTaggedText can call it and not check
+    // the text a second time.
+    private void _writeText(R)(R text, Newline newline, InsertIndent insertIndent)
+    {
+        if(newline == Newline.yes)
+            put(_output, insertIndent == InsertIndent.yes ? _getIndent(tagDepth) : "\n");
+        if(insertIndent == InsertIndent.yes)
+            _insertIndent(text, tagDepth);
+        else
+            put(_output, text);
     }
 
     ///
@@ -899,6 +993,40 @@ public:
         }
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func; testRangeFuncs)
+        {
+            auto writer = xmlWriter(appender!string);
+            writer.writeStartTag("root", Newline.no);
+            writer.writeText(func("hello sally"), Newline.no);
+            assertThrown!XMLWritingException(writer.writeText(func("&foo")));
+            assertThrown!XMLWritingException(writer.writeText(func("\v")));
+            assertThrown!XMLWritingException(writer.writeText(func("<")));
+            assertThrown!XMLWritingException(writer.writeText(func("]]>")));
+            assertThrown!XMLWritingException(writer.writeText(func("foo&bar")));
+            assertThrown!XMLWritingException(writer.writeText(func("foo\vbar")));
+            assertThrown!XMLWritingException(writer.writeText(func("foo<bar")));
+            assertThrown!XMLWritingException(writer.writeText(func("foo]]>bar")));
+            writer.writeText(func("&foo;"), Newline.no);
+            writer.writeText(func("] ]> > goodbye jack"));
+            writer.writeText(func("so silly\nindeed\nindeed"));
+            writer.writeText(func("foo&bar; \n   baz\nfrobozz"), InsertIndent.no);
+            assert(writer.output.data ==
+                   "<root>hello sally&foo;\n    ] ]> > goodbye jack\n" ~
+                   "    so silly\n" ~
+                   "    indeed\n" ~
+                   "    indeed\n" ~
+                   "foo&bar; \n" ~
+                   "   baz\n" ~
+                   "frobozz");
+        }
+    }
+
     static if(compileInTests) @safe pure unittest
     {
         import dxml.internal : TestAttrOR;
@@ -927,7 +1055,7 @@ public:
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
         assert(!_startTagOpen, "writeComment cannot be called when a start tag is open");
-        checkText!(CheckText.comment)(text);
+        checkText!(CheckText.comment)(text.save);
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<!--");
@@ -1005,6 +1133,38 @@ public:
                "<!-- And so it ends... -->");
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func; testRangeFuncs)
+        {
+            auto writer = xmlWriter(appender!string);
+            writer.writeComment(func("hello sally"), Newline.no);
+            assertThrown!XMLWritingException(writer.writeComment(func("-")));
+            assertThrown!XMLWritingException(writer.writeComment(func("--")));
+            assertThrown!XMLWritingException(writer.writeComment(func("--foobar")));
+            assertThrown!XMLWritingException(writer.writeComment(func("-foobar-")));
+            assertThrown!XMLWritingException(writer.writeComment(func("foobar-")));
+            writer.writeComment(func("-foobar"));
+            writer.writeComment(func("&foo &bar &baz;"));
+            writer.writeComment(func("&foo \n &bar\n&baz;"));
+            writer.writeComment(func("&foo \n &bar\n&baz;"), InsertIndent.no);
+            assert(writer.output.data ==
+                   "<!--hello sally-->\n" ~
+                   "<!---foobar-->\n" ~
+                   "<!--&foo &bar &baz;-->\n" ~
+                   "<!--&foo \n" ~
+                   "     &bar\n" ~
+                   "    &baz;-->\n" ~
+                   "<!--&foo \n" ~
+                   " &bar\n" ~
+                   "&baz;-->");
+        }
+    }
+
     static if(compileInTests) @safe pure unittest
     {
         import dxml.internal : TestAttrOR;
@@ -1033,7 +1193,7 @@ public:
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
         assert(!_startTagOpen, "writeCDATA cannot be called when a start tag is open");
-        checkText!(CheckText.cdata)(text);
+        checkText!(CheckText.cdata)(text.save);
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<![CDATA[");
@@ -1101,6 +1261,37 @@ public:
                "</root>");
     }
 
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func; testRangeFuncs)
+        {
+            auto writer = xmlWriter(appender!string);
+            writer.writeStartTag("root", Newline.no);
+            writer.writeCDATA(func("hello sally"), Newline.no);
+            assertThrown!XMLWritingException(writer.writeCDATA(func("]]>")));
+            writer.writeCDATA(func("]] ]> ] ]>"));
+            writer.writeCDATA(func("--foobar--"));
+            writer.writeCDATA(func("&foo &bar &baz;"));
+            writer.writeCDATA(func("&foo \n &bar\n&baz;"));
+            writer.writeCDATA(func("&foo \n &bar\n&baz;"), InsertIndent.no);
+            assert(writer.output.data ==
+                   "<root><![CDATA[hello sally]]>\n" ~
+                   "    <![CDATA[]] ]> ] ]>]]>\n" ~
+                   "    <![CDATA[--foobar--]]>\n" ~
+                   "    <![CDATA[&foo &bar &baz;]]>\n" ~
+                   "    <![CDATA[&foo \n" ~
+                   "         &bar\n" ~
+                   "        &baz;]]>\n" ~
+                   "    <![CDATA[&foo \n" ~
+                   " &bar\n" ~
+                   "&baz;]]>");
+        }
+    }
+
     static if(compileInTests) @safe pure unittest
     {
         import dxml.internal : TestAttrOR;
@@ -1121,8 +1312,8 @@ public:
             insertIndent = Whether an indent will be inserted after each
                            _newline within the _text.
 
-        Throws: $(LREF XMLWritingException) if the given name or text is not
-                legal in a processing instruction.
+        Throws: $(LREF XMLWritingException) if the given _name or _text is not
+                legal in an XML processing instruction.
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-PI)
       +/
@@ -1130,7 +1321,7 @@ public:
         if(isForwardRange!R && isSomeChar!(ElementType!R))
     {
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
-        checkPIName(name);
+        checkPIName(name.save);
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<?");
@@ -1144,8 +1335,8 @@ public:
            isForwardRange!R2 && isSomeChar!(ElementType!R2))
     {
         assert(!_startTagOpen, "writePI cannot be called when a start tag is open");
-        checkPIName(name);
-        checkText!(CheckText.pi)(text);
+        checkPIName(name.save);
+        checkText!(CheckText.pi)(text.save);
         if(newline == Newline.yes)
             put(_output, _getIndent(tagDepth));
         put(_output, "<?");
@@ -1227,6 +1418,48 @@ public:
                "        <?Deep Thought?>\n" ~
                "    </tag>\n" ~
                "</root>");
+    }
+
+    static if(compileInTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func1; testRangeFuncs)
+        {
+            foreach(func2; testRangeFuncs)
+            {
+                auto writer = xmlWriter(appender!string);
+                writer.writePI(func1("hello"), Newline.no);
+                writer.writePI(func1("hello"), func2("sally"));
+                assertThrown!XMLWritingException(writer.writePI(func1("hello sally")));
+                assertThrown!XMLWritingException(writer.writePI(func1("?")));
+                assertThrown!XMLWritingException(writer.writePI(func1("foo"), func2("?>")));
+                assertThrown!XMLWritingException(writer.writePI(func1("-")));
+                assertThrown!XMLWritingException(writer.writePI(func1("--")));
+                assertThrown!XMLWritingException(writer.writePI(func1(".foo")));
+                writer.writePI(func1("f."), func2(".foo"));
+                writer.writePI(func1("f."), func2("?"));
+                writer.writePI(func1("f."), func2("? >"));
+                writer.writePI(func1("a"), func2("&foo &bar &baz;"));
+                writer.writePI(func1("a"), func2("&foo \n &bar\n&baz;"));
+                writer.writePI(func1("pi"), func2("&foo \n &bar\n&baz;"), InsertIndent.no);
+                assert(writer.output.data ==
+                       "<?hello?>\n" ~
+                       "<?hello sally?>\n" ~
+                       "<?f. .foo?>\n" ~
+                       "<?f. ??>\n" ~
+                       "<?f. ? >?>\n" ~
+                       "<?a &foo &bar &baz;?>\n" ~
+                       "<?a &foo \n" ~
+                       "     &bar\n" ~
+                       "    &baz;?>\n" ~
+                       "<?pi &foo \n" ~
+                       " &bar\n" ~
+                       "&baz;?>");
+            }
+        }
     }
 
     static if(compileInTests) @safe pure unittest
@@ -1493,6 +1726,7 @@ public:
     // See main ddoc comment for XMLWriter.
     @disable this();
     @disable this(this);
+    @disable void opAssign(XMLWriter);
 
 
     /++
@@ -1604,6 +1838,7 @@ private:
     void _insertIndent(R)(R text, int depth)
     {
         import std.algorithm.searching : find;
+        import std.range : takeExactly;
         import std.utf : byCodeUnit;
 
         auto bcu = text.byCodeUnit();
@@ -1611,15 +1846,15 @@ private:
         {
             while(true)
             {
-                auto found = bcu.find('\n');
+                auto found = bcu.save.find('\n');
                 if(found.empty)
                 {
                     put(_output, bcu);
                     break;
                 }
-                put(_output, bcu[0 .. $ - found.length]);
+                put(_output, bcu[0 .. bcu.length - found.length]);
                 put(_output, _getIndent(depth));
-                bcu = found[1 .. $];
+                bcu = found[1 .. found.length];
             }
         }
         else
@@ -1786,13 +2021,19 @@ version(dxmlTests) unittest
     side and no attributes so that it can be done with one function call instead
     of three.
 
-    writeTaggedText is equivalent to calling
+    writeTaggedText is essentially equivalent to calling
 
     ---
     writer.writeStartTag(name, newline);
     writer.writeText(text, insertIndent, Newline.no);
     writer.writeEndTag(Newline.no);
     ---
+
+    with the difference being that both the name and text are validated before
+    any data is written. So, if the text is invalid XML, then nothing will have
+    been written to the output range when the exception is thrown (whereas if
+    each function were called individually, then the start tag would have been
+    written before the exception was thrown from $(LREF2 writeText, XMLWriter)).
 
     If more control is needed over the formatting, or if attributes are needed
     on the start tag, then the functions will have to be called separately
@@ -1806,27 +2047,32 @@ version(dxmlTests) unittest
             insertIndent = Whether an indent will be inserted after each
                            _newline within the text.
 
+    Throws: $(LREF XMLWritingException) if either the given _name is an invalid
+            XML tag _name or if the given _text is not legal in the _text
+            portion of an XML document.
+
     See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
               $(LREF2 writeText, XMLWriter)$(BR)
               $(LREF2 writeEndTag, XMLWriter)
   +/
-void writeTaggedText(XW, R1, R2)(ref XW writer, R1 name, R2 text, Newline newline = Newline.yes,
-                                 InsertIndent insertIndent = InsertIndent.yes)
+void writeTaggedText(XW, R)(ref XW writer, string name, R text, Newline newline = Newline.yes,
+                            InsertIndent insertIndent = InsertIndent.yes)
     if(isInstanceOf!(XMLWriter, XW) &&
-       isForwardRange!R1 && isSomeChar!(ElementType!R1) &&
-       isForwardRange!R2 && isSomeChar!(ElementType!R2))
+       isForwardRange!R && isSomeChar!(ElementType!R))
 {
-    writer.writeStartTag(name, newline);
-    writer.writeText(text, insertIndent, Newline.no);
+    writer._validateStartTag!"writeTaggedText"(name);
+    writer._validateText!"writeTaggedText"(text.save);
+
+    writer._writeStartTag(name, EmptyTag.no, newline);
+    writer._writeText(text, Newline.no, insertIndent);
     writer.writeEndTag(Newline.no);
 }
 
 /// Ditto
-void writeTaggedText(XW, R1, R2)(ref XW writer, R1 name, R2 text, InsertIndent insertIndent,
-                                 Newline newline = Newline.yes)
+void writeTaggedText(XW, R)(ref XW writer, string name, R text, InsertIndent insertIndent,
+                            Newline newline = Newline.yes)
     if(isInstanceOf!(XMLWriter, XW) &&
-       isForwardRange!R1 && isSomeChar!(ElementType!R1) &&
-       isForwardRange!R2 && isSomeChar!(ElementType!R2))
+       isForwardRange!R && isSomeChar!(ElementType!R))
 {
     writeTaggedText(writer, name, text, newline, insertIndent);
 }
@@ -1888,6 +2134,39 @@ version(dxmlTests) unittest
                "</root>");
     }
 }
+
+    version(dxmlTests) unittest
+    {
+        import std.array : appender;
+        import std.exception : assertThrown;
+        import dxml.internal : testRangeFuncs;
+
+        foreach(func; testRangeFuncs)
+        {
+            auto writer = xmlWriter(appender!string);
+            writer.writeStartTag("root", Newline.no);
+            writer.writeTaggedText("foo", func("hello sally"));
+            assertThrown!XMLWritingException(writer.writeTaggedText("foo", func("\v")));
+            assertThrown!XMLWritingException(writer.writeTaggedText("foo", func("&bar")));
+            assertThrown!XMLWritingException(writer.writeTaggedText("foo", func("--<--")));
+            assertThrown!XMLWritingException(writer.writeTaggedText("foo", func("--&--")));
+            assertThrown!XMLWritingException(writer.writeTaggedText(".f", func("bar")));
+            writer.writeTaggedText("f.", func("--"));
+            writer.writeTaggedText("a", func("&foo; &bar; &baz;"), Newline.no);
+            writer.writeTaggedText("a", func("&foo; \n &bar;\n&baz;"));
+            writer.writeTaggedText("a", func("&foo; \n &bar;\n&baz;"), InsertIndent.no);
+            assert(writer.output.data ==
+                   "<root>\n" ~
+                   "    <foo>hello sally</foo>\n" ~
+                   "    <f.>--</f.><a>&foo; &bar; &baz;</a>\n" ~
+                   "    <a>&foo; \n" ~
+                   "         &bar;\n" ~
+                   "        &baz;</a>\n" ~
+                   "    <a>&foo; \n" ~
+                   " &bar;\n" ~
+                   "&baz;</a>");
+        }
+    }
 
 // _decLevel cannot currently be pure.
 version(dxmlTests) @safe /+pure+/ unittest
@@ -1992,8 +2271,6 @@ void checkText(CheckText ct, R)(R range)
         {
             static if(ct == CheckText.attValueApos || ct == CheckText.attValueQuot || ct == CheckText.text)
             {
-                import std.algorithm.searching : startsWith;
-
                 case '&':
                 {
                     import dxml.util : parseCharRef;
@@ -2017,19 +2294,39 @@ void checkText(CheckText ct, R)(R range)
 
                     text.popFront();
 
-                    static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
+                    import dxml.internal : isNameStartChar, isNameChar;
+
+                    if(text.empty)
+                        goto failedEntityRef;
+
                     {
-                        if(text.save.startsWith(entRef))
-                        {
-                            text.popFrontN(entRef.length);
-                            continue loop;
-                        }
+                        size_t numCodeUnits;
+                        immutable decodedC = text.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                        if(!isNameStartChar(decodedC))
+                            goto failedEntityRef;
                     }
 
-                    throw new XMLWritingException("& is only legal in an EntitType.text entity as part of a " ~
-                                                  "reference, and this dxml only supports entity references if " ~
-                                                  "they're predefined by the spec. This is not a valid character " ~
-                                                  "reference or one of the predefined entity references.");
+                    while(true)
+                    {
+                        if(text.empty)
+                            goto failedEntityRef;
+                        immutable c = text.front;
+                        if(c == ';')
+                        {
+                            text.popFront();
+                            break;
+                        }
+                        size_t numCodeUnits;
+                        immutable decodedC = text.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                        if(!isNameChar(decodedC))
+                            goto failedEntityRef;
+                    }
+                    break;
+
+                    failedEntityRef:
+                    throw new XMLWritingException("& is only legal in an attribute value as part of a " ~
+                                                  "character or entity reference, and this is not a valid " ~
+                                                  "character or entity reference.");
                 }
                 case '<': throw new XMLWritingException("< is not legal in EntityType.text");
             }
@@ -2164,6 +2461,7 @@ version(dxmlTests) unittest
             test!(func, ct)(".....&apos;&quot;&amp;.....");
             test!(func, ct)("&#12487;&#12451;&#12521;&#12531;");
             test!(func, ct)("-hello&#xAF;&#42;&quot;-world");
+            test!(func, ct)("&foo;&bar;&baz;");
 
             test!(func, ct)("]]");
             test!(func, ct)("]>");
@@ -2186,18 +2484,9 @@ version(dxmlTests) unittest
             testFail!(func, ct)("&x");
             testFail!(func, ct)("&&;");
             testFail!(func, ct)("&a");
-            testFail!(func, ct)("&a;");
-            testFail!(func, ct)(`&am;`);
-            testFail!(func, ct)(`&ampe;`);
-            testFail!(func, ct)(`&l;`);
-            testFail!(func, ct)(`&lte;`);
-            testFail!(func, ct)(`&g;`);
-            testFail!(func, ct)(`&gte;`);
-            testFail!(func, ct)(`&apo;`);
-            testFail!(func, ct)(`&aposs;`);
-            testFail!(func, ct)(`&quo;`);
-            testFail!(func, ct)(`&quote;`);
             testFail!(func, ct)("hello&;");
+            testFail!(func, ct)("hello&.f;");
+            testFail!(func, ct)("hello&f?;");
             testFail!(func, ct)("hello&;world");
             testFail!(func, ct)("hello&<;world");
             testFail!(func, ct)("hello&world");
@@ -2270,17 +2559,6 @@ version(dxmlTests) unittest
             test!(func, ct)("&x");
             test!(func, ct)("&&;");
             test!(func, ct)("&a");
-            test!(func, ct)("&a;");
-            test!(func, ct)(`&am;`);
-            test!(func, ct)(`&ampe;`);
-            test!(func, ct)(`&l;`);
-            test!(func, ct)(`&lte;`);
-            test!(func, ct)(`&g;`);
-            test!(func, ct)(`&gte;`);
-            test!(func, ct)(`&apo;`);
-            test!(func, ct)(`&aposs;`);
-            test!(func, ct)(`&quo;`);
-            test!(func, ct)(`&quote;`);
             test!(func, ct)("hello&;");
             test!(func, ct)("hello&;world");
             test!(func, ct)("hello&<;world");
