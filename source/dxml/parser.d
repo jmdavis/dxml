@@ -2,7 +2,7 @@
 
 /++
     This implements a range-based
-    $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX parser) for XML 1.0 (which
+    $(LINK2 https://en.wikipedia.org/wiki/StAX, StAX _parser) for XML 1.0 (which
     will work with XML 1.1 documents assuming that they don't use any
     1.1-specific features). For the sake of simplicity, sanity, and efficiency,
     the $(LINK2 https://en.wikipedia.org/wiki/Document_type_definition, DTD)
@@ -14,8 +14,8 @@
     $(I can) result in an $(LREF XMLParsingException) if that XML isn't valid
     enough to be correctly skipped), and the
     $(LINK2 http://www.w3.org/TR/REC-xml/#NT-XMLDecl, XML declaration) at the
-    top is skipped if present (XML 1.1 requires that it be there, XML 1.0 does
-    not).
+    top is skipped if present (XML 1.1 requires that it be there, but XML 1.0
+    does not).
 
     Regardless of what the XML declaration says (if present), any range of
     $(K_CHAR) will be treated as being encoded in UTF-8, any range of $(K_WCHAR)
@@ -23,15 +23,16 @@
     be treated as having been encoded in UTF-32. Strings will be treated as
     ranges of their code units, not code points.
 
-    Since the DTD section is skipped, entity references other than the five
-    which are predefined by the XML spec cannot be properly processed (since
-    wherever they were used in the document would be replaced by what they
-    referred to, and that could affect the parsing). As such, if any entity
-    references which are not predefined are encountered outside of the DTD
-    section, an $(LREF XMLParsingException) will be thrown. The predefined
-    entity references and any character references encountered will be checked
-    to verify that they're valid, but they will not be replaced (since that
-    does not work with returning slices of the original input).
+    Since the DTD is skipped, entity references other than the five which are
+    predefined by the XML spec cannot be fully processed (since wherever they
+    were used in the document would be replaced by what they referred to, which
+    could be arbitrarily complex XML). As such, by default, if any entity
+    references which are not predefined are encountered outside of the DTD, an
+    $(LREF XMLParsingException) will be thrown (see
+    $(LREF Config.throwOnEntityRef) for how that can be configured). The
+    predefined entity references and any character references encountered will
+    be checked to verify that they're valid, but they will not be replaced
+    (since that does not work with returning slices of the original input).
 
     However, $(REF_ALTTEXT decodeXML, decodeXML, dxml, util) or
     $(REF_ALTTEXT parseStdEntityRef, parseStdEntityRef, dxml, util) from
@@ -387,6 +388,148 @@ struct Config
             assert(range.empty);
         }
     }
+
+    /++
+        Whether the parser should throw when it encounters any entity references
+        other than the five entity references defined in the XML standard.
+
+        Any other entity references would have to be defined in the DTD in
+        order to be valid. And in order to know what XML they represent (which
+        could be arbitrarily complex, even effectively inserting entire XML
+        documents into the middle of the XML), the DTD would have to be parsed.
+        However, dxml does not support parsing the DTD beyond what is required
+        to correctly parse past it, and replacing entity references with what
+        they represent would not work with the slicing semantics that
+        $(LREF EntityRange) provides. As such, it is not possible for dxml to
+        correctly handle any entity references other than the five which are
+        defined in the XML standard, and even those are only parsed by using
+        $(REF decodeXML, dxml, util) or $(REF parseStdEntityRef, dxml, util).
+        $(LREF EntityRange) always validates that entity references are one
+        of the five, predefined entity references, but otherwise, it lets them
+        pass through as normal text. It does not replace them with what they
+        represent.
+
+        As such, the default behavior of $(LREF EntityRange) is to throw an
+        $(LREF XMLParsingException) when it encounters an entity reference
+        which is not one of the five defined by the XML standard. With that
+        behavior, there is no risk of processing an XML document as if it had
+        no entity references and ending up with what the program using the
+        parser would probably consider incorrect results. However, there are
+        cases where a program may find it acceptable to treat entity references
+        as normal text and ignore them. As such, if a program wishes to take
+        that approach, it can set throwOnEntityRef to $(D ThrowOnEntityRef.no).
+
+        If $(D throwOnEntityRef == ThrowOnEntityRef.no), then any entity
+        reference that it encounters will be validated to ensure that it is
+        syntactically valid (i.e. that the characters it contains form what
+        could be a valid entity reference assuming that the DTD declared it
+        properly), but otherwise, $(LREF EntityRange) will treat it as normal
+        text, just like it treats the five, predefined entity references as
+        normal text.
+
+        Note that any valid XML entity reference which contains start or end
+        tags must contain matching start or end tags, and entity references
+        cannot contain incomplete fragments of XML (e.g. the start or end of a
+        comment). So, missing entity references should only affect the data in
+        the XML document and not its overall structure (if that were not _true,
+        attempting to ignore entity references such as $(D ThrowOnEntityRef.no)
+        does would be a disaster in the making). However, how reasonable it is
+        to miss that data depends entirely on the application and what the XML
+        documents it's parsing contain - hence, the behavior is configurable.
+
+        See_Also: $(REF StdEntityRef, dxml, util)$(BR)
+                  $(REF parseStdEntityRef, dxml, util)$(BR)
+                  $(REF parseCharRef, dxml, util)$(BR)
+                  $(REF encodeCharRef, dxml, util)$(BR)
+                  $(REF decodeXML, dxml, util)$(BR)
+                  $(REF asDecodedXML, dxml, util)
+      +/
+    auto throwOnEntityRef = ThrowOnEntityRef.yes;
+
+    ///
+    unittest
+    {
+        import std.exception : assertThrown;
+        import dxml.util : decodeXML;
+
+        auto xml = "<root>\n" ~
+                   "    <std>&amp;&apos;&gt;&lt;&quot;</std>\n" ~
+                   "    <other>&foobar;</other>\n" ~
+                   "    <invalid>&--;</invalid>\n" ~
+                   "</root>";
+
+        // ThrowOnEntityRef.yes
+        {
+            auto range = parseXML(xml);
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "std");
+
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "&amp;&apos;&gt;&lt;&quot;");
+            assert(range.front.text.decodeXML() == `&'><"`);
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "std");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "other");
+
+            // Attempted to parse past "&foobar;", which is syntactically
+            // valid, but it's not one of the five predefined entity references.
+            assertThrown!XMLParsingException(range.popFront());
+        }
+
+        // ThrowOnEntityRef.no
+        {
+            auto range = parseXML!(makeConfig(ThrowOnEntityRef.no))(xml);
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "root");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "std");
+
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "&amp;&apos;&gt;&lt;&quot;");
+            assert(range.front.text.decodeXML() == `&'><"`);
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "std");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "other");
+
+            // Doesn't throw, because "&foobar;" is syntactically valid.
+            range.popFront();
+            assert(range.front.type == EntityType.text);
+            assert(range.front.text == "&foobar;");
+
+            // decodeXML has no effect on non-standard entity references.
+            assert(range.front.text.decodeXML() == "&foobar;");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementEnd);
+            assert(range.front.name == "other");
+
+            range.popFront();
+            assert(range.front.type == EntityType.elementStart);
+            assert(range.front.name == "invalid");
+
+            // Attempted to parse past "&--;", which is not syntactically valid,
+            // because -- is not a valid name for an entity reference.
+            assertThrown!XMLParsingException(range.popFront());
+        }
+    }
 }
 
 
@@ -398,6 +541,9 @@ alias SkipPI = Flag!"SkipPI";
 
 /// See_Also: $(LREF2 splitEmpty, Config)
 alias SplitEmpty = Flag!"SplitEmpty";
+
+/// See_Also: $(LREF2 throwOnEntityRef, Config)
+alias ThrowOnEntityRef = Flag!"ThrowOnEntityRef";
 
 
 /++
@@ -459,18 +605,21 @@ version(dxmlTests) @safe pure nothrow @nogc unittest
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipPI == Config.init.skipPI);
         assert(config.splitEmpty == Config.init.splitEmpty);
+        assert(config.throwOnEntityRef == Config.init.throwOnEntityRef);
     }
     {
         auto config = makeConfig(SkipComments.yes, SkipPI.yes);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipPI == SkipPI.yes);
         assert(config.splitEmpty == Config.init.splitEmpty);
+        assert(config.throwOnEntityRef == Config.init.throwOnEntityRef);
     }
     {
-        auto config = makeConfig(SplitEmpty.yes, SkipComments.yes);
+        auto config = makeConfig(SplitEmpty.yes, SkipComments.yes, ThrowOnEntityRef.no);
         assert(config.skipComments == SkipComments.yes);
         assert(config.skipPI == Config.init.skipPI);
         assert(config.splitEmpty == SplitEmpty.yes);
+        assert(config.throwOnEntityRef == ThrowOnEntityRef.no);
     }
 }
 
@@ -498,6 +647,7 @@ version(dxmlTests) @safe pure nothrow @nogc unittest
     static assert(simpleXML.skipComments == SkipComments.yes);
     static assert(simpleXML.skipPI == SkipPI.yes);
     static assert(simpleXML.splitEmpty == SplitEmpty.yes);
+    static assert(simpleXML.throwOnEntityRef == ThrowOnEntityRef.yes);
 }
 
 
@@ -603,12 +753,12 @@ enum EntityType
     validates attributes or end tags), so $(LREF2 save, _EntityRange) does not
     allocate memory unless $(D save) on the underlying range allocates memory.
     The shared state currently uses a couple of dynamic arrays to validate the
-    tags and attributes, and if the document has a particularly deep tag-depth
-    or has a lot of attributes on on a start tag, then some reallocations may
+    tags and attributes, and if the document has a particularly deep tag depth
+    or has a lot of attributes on a start tag, then some reallocations may
     occur until the maximum is reached, but enough is reserved that for most
     documents, no reallocations will occur. The only other times that the
     parser would allocate would be if an exception were thrown or if the range
-    that is passed to parseXML allocates for any reason when calling any of the
+    that was passed to parseXML allocates for any reason when calling any of the
     range primitives.
 
     If invalid XML is encountered at any point during the parsing process, an
@@ -617,28 +767,29 @@ enum EntityType
     functions on it.
 
     However, note that XML validation is reduced for any entities that are
-    skipped (e.g. for anything in the DTD section, validation is reduced to what
-    is required to correctly parse past it, and when
+    skipped (e.g. for anything in the DTD, validation is reduced to what is
+    required to correctly parse past it, and when
     $(D Config.skipPI == SkipPI.yes), processing instructions are only validated
     enough to correctly skip past them).
 
     As the module documentation says, this parser does not provide any DTD
-    support. It's not possible to properly support the DTD section while
-    returning slices of the original input, and the DTD portion of the spec
-    makes parsing XML far, far more complicated.
+    support. It is not possible to properly support the DTD while returning
+    slices of the original input, and the DTD portion of the spec makes parsing
+    XML far, far more complicated.
 
-    A quick note about carriage returns$(COLON) per the XML spec, they're all
-    supposed to either be stripped out or replaced with newlines before the XML
-    parser even processes the text. That doesn't work when the parser is slicing
-    the original text and not mutating it at all. So, for the purposes of
-    parsing, this parser treats all carriage returns as if they were newlines or
-    spaces (though they won't count as newlines when counting the lines for
-    $(LREF TextPos)). However, they $(I will) appear in any text fields or
-    attribute values if they are in the document (since the text fields and
-    attribute values are slices of the original text).
-    $(REF decodeXML, dxml, util) can be used to strip them along with converting
-    any character references in the text. Alternatively, the application can
-    remove them all before calling parseXML, but it's not necessary.
+    A quick note about carriage returns$(COLON) per the XML spec, they are all
+    supposed to either be stripped out or replaced with newlines or spaces
+    before the XML parser even processes the text. That doesn't work when the
+    parser is slicing the original text and not mutating it at all. So, for the
+    purposes of parsing, this parser treats all carriage returns as if they
+    were newlines or spaces (though they won't count as newlines when counting
+    the lines for $(LREF TextPos)). However, they $(I will) appear in any text
+    fields or attribute values if they are in the document (since the text
+    fields and attribute values are slices of the original text).
+    $(REF decodeXML, dxml, util) can be used to strip them along with
+    converting any character references in the text. Alternatively, the
+    application can remove them all before calling parseXML, but it's not
+    necessary.
   +/
 struct EntityRange(Config cfg, R)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
@@ -1089,10 +1240,11 @@ public:
                        equal(lhs[1].save, rhs[1].save);
             }
 
-            static void test(alias func)(string text, EntityType type, Tuple!(string, string)[] expected,
-                                         int row, int col, size_t line = __LINE__)
+            static void test(alias func, ThrowOnEntityRef toer)(string text, EntityType type,
+                                                                Tuple!(string, string)[] expected,
+                                                                int row, int col, size_t line = __LINE__)
             {
-                auto range = assertNotThrown!XMLParsingException(parseXML(func(text)),
+                auto range = assertNotThrown!XMLParsingException(parseXML!(makeConfig(toer))(func(text)),
                                                                  "unittest 1", __FILE__, line);
                 enforce!AssertError(range.front.type == type, "unittest failure 2", __FILE__, line);
                 enforce!AssertError(equal!cmpAttr(range.front.attributes, expected),
@@ -1100,129 +1252,163 @@ public:
                 enforce!AssertError(range._text.pos == TextPos(row, col), "unittest failure 4", __FILE__, line);
             }
 
-            static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
+            static void testFail(alias func, ThrowOnEntityRef toer)(string text,
+                                                                    int row, int col, size_t line = __LINE__)
             {
-                auto e = collectException!XMLParsingException(parseXML(func(text)));
+                auto e = collectException!XMLParsingException(parseXML!(makeConfig(toer))(func(text)));
                 enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
                 enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
             }
 
             static foreach(func; testRangeFuncs)
             {
-                test!func("<root a='b'/>", EntityType.elementEmpty, [tuple("a", "b")], 1, 14);
-                test!func("<root a = 'b' />", EntityType.elementEmpty, [tuple("a", "b")], 1, 17);
-                test!func("<root \n\n a \n\n = \n\n 'b' \n\n />", EntityType.elementEmpty, [tuple("a", "b")], 9, 4);
-                test!func("<root a='b'></root>", EntityType.elementStart, [tuple("a", "b")], 1, 13);
-                test!func("<root a = 'b' ></root>", EntityType.elementStart, [tuple("a", "b")], 1, 16);
-                test!func("<root \n a \n = \n 'b' \n ></root>", EntityType.elementStart, [tuple("a", "b")], 5, 3);
+                static foreach(toer; [ThrowOnEntityRef.yes, ThrowOnEntityRef.no])
+                {
+                    test!(func, toer)("<root a='b'/>", EntityType.elementEmpty, [tuple("a", "b")], 1, 14);
+                    test!(func, toer)("<root a = 'b' />", EntityType.elementEmpty, [tuple("a", "b")], 1, 17);
+                    test!(func, toer)("<root \n\n a \n\n = \n\n 'b' \n\n />", EntityType.elementEmpty,
+                                      [tuple("a", "b")], 9, 4);
+                    test!(func, toer)("<root a='b'></root>", EntityType.elementStart, [tuple("a", "b")], 1, 13);
+                    test!(func, toer)("<root a = 'b' ></root>", EntityType.elementStart, [tuple("a", "b")], 1, 16);
+                    test!(func, toer)("<root \n a \n = \n 'b' \n ></root>", EntityType.elementStart,
+                                      [tuple("a", "b")], 5, 3);
 
-                test!func("<root foo='\n\n\n'/>", EntityType.elementEmpty, [tuple("foo", "\n\n\n")], 4, 4);
-                test!func(`<root foo='"""'/>`, EntityType.elementEmpty, [tuple("foo", `"""`)], 1, 18);
-                test!func(`<root foo="'''"/>`, EntityType.elementEmpty, [tuple("foo", `'''`)], 1, 18);
-                test!func(`<root foo.=""/>`, EntityType.elementEmpty, [tuple("foo.", "")], 1, 16);
-                test!func(`<root foo="bar="/>`, EntityType.elementEmpty, [tuple("foo", "bar=")], 1, 19);
+                    test!(func, toer)("<root foo='\n\n\n'/>", EntityType.elementEmpty, [tuple("foo", "\n\n\n")], 4, 4);
+                    test!(func, toer)(`<root foo='"""'/>`, EntityType.elementEmpty, [tuple("foo", `"""`)], 1, 18);
+                    test!(func, toer)(`<root foo="'''"/>`, EntityType.elementEmpty, [tuple("foo", `'''`)], 1, 18);
+                    test!(func, toer)(`<root foo.=""/>`, EntityType.elementEmpty, [tuple("foo.", "")], 1, 16);
+                    test!(func, toer)(`<root foo="bar="/>`, EntityType.elementEmpty, [tuple("foo", "bar=")], 1, 19);
 
-                test!func("<root foo='bar' a='b' hello='world'/>", EntityType.elementEmpty,
-                          [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
-                test!func(`<root foo="bar" a='b' hello="world"/>`, EntityType.elementEmpty,
-                          [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
+                    test!(func, toer)("<root foo='bar' a='b' hello='world'/>", EntityType.elementEmpty,
+                              [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
+                    test!(func, toer)(`<root foo="bar" a='b' hello="world"/>`, EntityType.elementEmpty,
+                              [tuple("foo", "bar"), tuple("a", "b"), tuple("hello", "world")], 1, 38);
 
-                test!func(`<root foo="&#42;" a='&#x42;' hello="%foo"/>`, EntityType.elementEmpty,
-                          [tuple("foo", "&#42;"), tuple("a", "&#x42;"), tuple("hello", "%foo")], 1, 44);
+                    test!(func, toer)(`<root foo="&#42;" a='&#x42;' hello="%foo"/>`, EntityType.elementEmpty,
+                              [tuple("foo", "&#42;"), tuple("a", "&#x42;"), tuple("hello", "%foo")], 1, 44);
 
-                test!func(`<root foo="&amp;" a='vector&lt;int&gt;'></root>`, EntityType.elementStart,
-                          [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"),], 1, 41);
+                    test!(func, toer)(`<root foo="&amp;" a='vector&lt;int&gt;'></root>`, EntityType.elementStart,
+                              [tuple("foo", "&amp;"), tuple("a", "vector&lt;int&gt;"),], 1, 41);
 
-                test!func(`<foo 京都市="ディラン"/>`, EntityType.elementEmpty,
-                          [tuple("京都市", "ディラン")], 1, codeLen!(func, `<foo 京都市="ディラン"/>`) + 1);
+                    test!(func, toer)(`<foo 京都市="ディラン"/>`, EntityType.elementEmpty,
+                              [tuple("京都市", "ディラン")], 1, codeLen!(func, `<foo 京都市="ディラン"/>`) + 1);
 
-                test!func(`<root foo=">"/>`, EntityType.elementEmpty, [tuple("foo", ">")], 1, 16);
-                test!func(`<root foo=">>>>>>"/>`, EntityType.elementEmpty, [tuple("foo", ">>>>>>")], 1, 21);
-                test!func(`<root foo=">"></root>`, EntityType.elementStart, [tuple("foo", ">")], 1, 15);
-                test!func(`<root foo=">>>>>>"></root>`, EntityType.elementStart, [tuple("foo", ">>>>>>")], 1, 20);
+                    test!(func, toer)(`<root foo=">"/>`, EntityType.elementEmpty, [tuple("foo", ">")], 1, 16);
+                    test!(func, toer)(`<root foo=">>>>>>"/>`, EntityType.elementEmpty, [tuple("foo", ">>>>>>")], 1, 21);
+                    test!(func, toer)(`<root foo=">"></root>`, EntityType.elementStart, [tuple("foo", ">")], 1, 15);
+                    test!(func, toer)(`<root foo=">>>>>>"></root>`, EntityType.elementStart, [tuple("foo", ">>>>>>")], 1, 20);
 
-                test!func(`<root foo="bar" foos="ball"/>`, EntityType.elementEmpty,
-                          [tuple("foo", "bar"), tuple("foos", "ball")], 1, 30);
+                    test!(func, toer)(`<root foo="bar" foos="ball"/>`, EntityType.elementEmpty,
+                              [tuple("foo", "bar"), tuple("foos", "ball")], 1, 30);
 
-                testFail!func(`<root a="""/>`, 1, 11);
-                testFail!func(`<root a='''/>`, 1, 11);
-                testFail!func("<root a=/>", 1, 9);
-                testFail!func("<root a='/>", 1, 9);
-                testFail!func("<root a='/>", 1, 9);
-                testFail!func("<root =''/>", 1, 7);
-                testFail!func(`<root a ""/>`, 1, 9);
-                testFail!func(`<root a""/>`, 1, 8);
-                testFail!func(`<root a/>`, 1, 8);
-                testFail!func("<root foo='bar' a=/>", 1, 19);
-                testFail!func("<root foo='bar' a='/>", 1, 19);
-                testFail!func("<root foo='bar' a='/>", 1, 19);
-                testFail!func("<root foo='bar' =''/>", 1, 17);
-                testFail!func("<root foo='bar' a= hello='world'/>", 1, 20);
-                // It's 33 rather than 28, because it throws when processing the start tag and not when processing
-                // the attributes. So, the mismatched quotes are detected before the attributes are checked.
-                testFail!func("<root foo='bar' a=' hello='world'/>", 1, 33);
-                testFail!func("<root foo='bar' ='' hello='world'/>", 1, 17);
-                testFail!func("<root foo='bar'a='b'/>", 1, 16);
-                testFail!func(`<root .foo="bar"/>`, 1, 7);
+                    testFail!(func, toer)(`<root a="""/>`, 1, 11);
+                    testFail!(func, toer)(`<root a='''/>`, 1, 11);
+                    testFail!(func, toer)("<root a=/>", 1, 9);
+                    testFail!(func, toer)("<root a='/>", 1, 9);
+                    testFail!(func, toer)("<root a='/>", 1, 9);
+                    testFail!(func, toer)("<root =''/>", 1, 7);
+                    testFail!(func, toer)(`<root a ""/>`, 1, 9);
+                    testFail!(func, toer)(`<root a""/>`, 1, 8);
+                    testFail!(func, toer)(`<root a/>`, 1, 8);
+                    testFail!(func, toer)("<root foo='bar' a=/>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' a='/>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' a='/>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' =''/>", 1, 17);
+                    testFail!(func, toer)("<root foo='bar' a= hello='world'/>", 1, 20);
+                    // It's 33 rather than 28, because it throws when processing the start tag and not when processing
+                    // the attributes. So, the mismatched quotes are detected before the attributes are checked.
+                    testFail!(func, toer)("<root foo='bar' a=' hello='world'/>", 1, 33);
+                    testFail!(func, toer)("<root foo='bar' ='' hello='world'/>", 1, 17);
+                    testFail!(func, toer)("<root foo='bar'a='b'/>", 1, 16);
+                    testFail!(func, toer)(`<root .foo="bar"/>`, 1, 7);
 
-                testFail!func(`<root foo="<"/>`, 1, 12);
-                testFail!func(`<root foo="<world"/>`, 1, 12);
-                testFail!func(`<root foo="hello<world"/>`, 1, 17);
-                testFail!func(`<root foo="&"/>`, 1, 12);
-                testFail!func(`<root foo="hello&"/>`, 1, 17);
-                testFail!func(`<root foo="hello&world"/>`, 1, 17);
-                testFail!func(`<root foo="&;"/>`, 1, 12);
-                testFail!func(`<root foo="&foo;"/>`, 1, 12);
-                testFail!func(`<root foo="&#;"/>`, 1, 12);
-                testFail!func(`<root foo="&#x;"/>`, 1, 12);
-                testFail!func(`<root foo="&#A;"/>`, 1, 12);
-                testFail!func(`<root foo="&#xG;"/>`, 1, 12);
-                testFail!func(`<root foo="&#42"/>`, 1, 12);
-                testFail!func(`<root foo="&#x42"/>`, 1, 12);
-                testFail!func(`<root foo="&#x12;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="<"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="<world"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="hello<world"/>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="&"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="hello&"/>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="hello&world"/>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="&;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#A;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#xG;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#42"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x42"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x12;"/>`, 1, 12);
 
-                testFail!func("<root\n\nfoo='\nbar&#x42'></root>", 4, 4);
+                    testFail!(func, toer)("<root\n\nfoo='\nbar&#x42'></root>", 4, 4);
 
-                testFail!func(`<root a="""></root>`, 1, 11);
-                testFail!func(`<root a='''></root>`, 1, 11);
-                testFail!func("<root a=></root>", 1, 9);
-                testFail!func("<root a='></root>", 1, 9);
-                testFail!func("<root a='></root>", 1, 9);
-                testFail!func("<root =''></root>", 1, 7);
-                testFail!func(`<root a ""></root>`, 1, 9);
-                testFail!func(`<root a""></root>`, 1, 8);
-                testFail!func(`<root a></root>`, 1, 8);
-                testFail!func("<root foo='bar' a=></root>", 1, 19);
-                testFail!func("<root foo='bar' a='></root>", 1, 19);
-                testFail!func("<root foo='bar' a='></root>", 1, 19);
-                testFail!func("<root foo='bar' =''></root>", 1, 17);
-                testFail!func("<root foo='bar' a= hello='world'></root>", 1, 20);
-                testFail!func("<root foo='bar' a=' hello='world'></root>", 1, 33);
-                testFail!func("<root foo='bar' ='' hello='world'></root>", 1, 17);
-                testFail!func("<root foo='bar'a='b'></root>", 1, 16);
-                testFail!func(`<root .foo='bar'></root>`, 1, 7);
+                    testFail!(func, toer)(`<root a="""></root>`, 1, 11);
+                    testFail!(func, toer)(`<root a='''></root>`, 1, 11);
+                    testFail!(func, toer)("<root a=></root>", 1, 9);
+                    testFail!(func, toer)("<root a='></root>", 1, 9);
+                    testFail!(func, toer)("<root a='></root>", 1, 9);
+                    testFail!(func, toer)("<root =''></root>", 1, 7);
+                    testFail!(func, toer)(`<root a ""></root>`, 1, 9);
+                    testFail!(func, toer)(`<root a""></root>`, 1, 8);
+                    testFail!(func, toer)(`<root a></root>`, 1, 8);
+                    testFail!(func, toer)("<root foo='bar' a=></root>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' a='></root>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' a='></root>", 1, 19);
+                    testFail!(func, toer)("<root foo='bar' =''></root>", 1, 17);
+                    testFail!(func, toer)("<root foo='bar' a= hello='world'></root>", 1, 20);
+                    testFail!(func, toer)("<root foo='bar' a=' hello='world'></root>", 1, 33);
+                    testFail!(func, toer)("<root foo='bar' ='' hello='world'></root>", 1, 17);
+                    testFail!(func, toer)("<root foo='bar'a='b'></root>", 1, 16);
+                    testFail!(func, toer)(`<root .foo='bar'></root>`, 1, 7);
 
-                testFail!func(`<root foo="<"></root>`, 1, 12);
-                testFail!func(`<root foo="<world"></root>`, 1, 12);
-                testFail!func(`<root foo="hello<world"></root>`, 1, 17);
-                testFail!func(`<root foo="&"></root>`, 1, 12);
-                testFail!func(`<root foo="hello&"></root>`, 1, 17);
-                testFail!func(`<root foo="hello&world"></root>`, 1, 17);
-                testFail!func(`<root foo="&;"></root>`, 1, 12);
-                testFail!func(`<root foo="&foo;"></root>`, 1, 12);
-                testFail!func(`<root foo="&#;"></root>`, 1, 12);
-                testFail!func(`<root foo="&#x;"></root>`, 1, 12);
-                testFail!func(`<root foo="&#A;"></root>`, 1, 12);
-                testFail!func(`<root foo="&#xG;"></root>`, 1, 12);
-                testFail!func(`<root foo="&#42"></root>`, 1, 12);
-                testFail!func(`<root foo="&#x42"></root>`, 1, 12);
-                testFail!func(`<root foo="&#x12;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="<"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="<world"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="hello<world"></root>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="&"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="hello&"></root>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="hello&world"></root>`, 1, 17);
+                    testFail!(func, toer)(`<root foo="&;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#A;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#xG;"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#42"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x42"></root>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&#x12;"></root>`, 1, 12);
 
-                testFail!func(`<root a='42' a='19'/>`, 1, 14);
-                testFail!func(`<root a='42' b='hello' a='19'/>`, 1, 24);
-                testFail!func(`<root a='42' b='hello' a='19' c=''/>`, 1, 24);
-                testFail!func(`<root a='' b='' c='' d='' e='' f='' g='' e='' h=''/>`, 1, 42);
-                testFail!func(`<root foo='bar' foo='bar'/>`, 1, 17);
+                    testFail!(func, toer)(`<root a='42' a='19'/>`, 1, 14);
+                    testFail!(func, toer)(`<root a='42' b='hello' a='19'/>`, 1, 24);
+                    testFail!(func, toer)(`<root a='42' b='hello' a='19' c=''/>`, 1, 24);
+                    testFail!(func, toer)(`<root a='' b='' c='' d='' e='' f='' g='' e='' h=''/>`, 1, 42);
+                    testFail!(func, toer)(`<root foo='bar' foo='bar'/>`, 1, 17);
+
+                    test!(func, toer)(`<root foo="&amp;"></root>`, EntityType.elementStart,
+                                      [tuple("foo", "&amp;")], 1, 19);
+                    test!(func, toer)(`<root foo="foo&amp;&lt;&gt;&apos;&quot;bar"></root>`, EntityType.elementStart,
+                                      [tuple("foo", "foo&amp;&lt;&gt;&apos;&quot;bar")], 1, 45);
+                    testFail!(func, toer)("<root foo='&;'></root>", 1, 12);
+                    testFail!(func, toer)("<root foo='&.;'></root>", 1, 12);
+                    testFail!(func, toer)("<root foo='\n &amp ule'></root>", 2, 2);
+                    testFail!(func, toer)("<root foo='\n &foo bar'></root>", 2, 2);
+                }
+                {
+                    alias toer = ThrowOnEntityRef.yes;
+                    testFail!(func, toer)(`<root foo="&foo;"/>`, 1, 12);
+                    testFail!(func, toer)(`<root foo="&foo;"></root>`, 1, 12);
+                    testFail!(func, toer)("<root foo='foo&bar.;'></root>", 1, 15);
+                    testFail!(func, toer)(`<root foo="hello &a; world"></root>`, 1, 18);
+                    testFail!(func, toer)("<root foo='hello \n &a; \n world'></root>", 2, 2);
+                }
+                {
+                    alias toer = ThrowOnEntityRef.no;
+                    test!(func, toer)(`<root foo="&foo;"/>`, EntityType.elementEmpty,
+                                      [tuple("foo", "&foo;")], 1, 20);
+                    test!(func, toer)(`<root foo="&foo;"></root>`, EntityType.elementStart,
+                                      [tuple("foo", "&foo;")], 1, 19);
+                    test!(func, toer)("<root foo='foo&bar.;'></root>", EntityType.elementStart,
+                                      [tuple("foo", "foo&bar.;")], 1, 23);
+                    test!(func, toer)(`<root foo="hello &a; world"></root>`, EntityType.elementStart,
+                                        [tuple("foo", "hello &a; world")], 1, 29);
+                    test!(func, toer)("<root foo='hello \n &a; \n world'></root>", EntityType.elementStart,
+                                        [tuple("foo", "hello \n &a; \n world")], 3, 9);
+                }
             }
         }
 
@@ -1377,7 +1563,7 @@ public:
                            "</root>";
 
                 // The duplicate lines aren't typos. We want to ensure that the
-                // values are independent and nothing was consumed.
+                // values are independent and that nothing was consumed.
                 static foreach(func; testRangeFuncs)
                 {{
                      auto range = parseXML(func(xml));
@@ -2616,20 +2802,20 @@ private:
         import std.exception : assertNotThrown, collectException, enforce;
         import dxml.internal : codeLen, testRangeFuncs;
 
-        static void test(alias func)(string text, int row, int col, size_t line = __LINE__)
+        static void test(alias func, ThrowOnEntityRef toer)(string text, int row, int col, size_t line = __LINE__)
         {
             auto pos = TextPos(row, col + (cast(int)(row == 1 ? "<root></" : "</").length));
-            auto range = parseXML(func("<root>" ~ text ~ "</root>"));
+            auto range = parseXML!(makeConfig(toer))(func("<root>" ~ text ~ "</root>"));
             assertNotThrown!XMLParsingException(range.popFront());
             enforce!AssertError(range.front.type == EntityType.text, "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(range.front.text, text), "unittest failure 2", __FILE__, line);
             enforce!AssertError(range._text.pos == pos, "unittest failure 3", __FILE__, line);
         }
 
-        static void testFail(alias func)(string text, int row, int col, size_t line = __LINE__)
+        static void testFail(alias func, ThrowOnEntityRef toer)(string text, int row, int col, size_t line = __LINE__)
         {
             auto pos = TextPos(row, col + (row == 1 ? cast(int)"<root>".length : 0));
-            auto range = parseXML(func("<root>" ~ text ~ "</root>"));
+            auto range = parseXML!(makeConfig(toer))(func("<root>" ~ text ~ "</root>"));
             auto e = collectException!XMLParsingException(range.popFront());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == pos, "unittest failure 2", __FILE__, line);
@@ -2637,26 +2823,43 @@ private:
 
         static foreach(func; testRangeFuncs)
         {
-            test!func("hello world", 1, 12);
-            test!func("\nhello\n\nworld", 4, 6);
-            test!func("京都市", 1, codeLen!(func, "京都市") + 1);
-            test!func("&#x42;", 1, 7);
-            test!func("]", 1, 2);
-            test!func("]]", 1, 3);
-            test!func("]>", 1, 3);
+            static foreach(toer; [ThrowOnEntityRef.yes, ThrowOnEntityRef.no])
+            {
+                test!(func, toer)("hello world", 1, 12);
+                test!(func, toer)("\nhello\n\nworld", 4, 6);
+                test!(func, toer)("京都市", 1, codeLen!(func, "京都市") + 1);
+                test!(func, toer)("&#x42;", 1, 7);
+                test!(func, toer)("]", 1, 2);
+                test!(func, toer)("]]", 1, 3);
+                test!(func, toer)("]>", 1, 3);
+                test!(func, toer)("foo \n\n &lt; \n bar", 4, 5);
 
-            testFail!func("&", 1, 1);
-            testFail!func("\v", 1, 1);
-            testFail!func("hello&world", 1, 6);
-            testFail!func("hello\vworld", 1, 6);
-            testFail!func("hello&;world", 1, 6);
-            testFail!func("hello&#;world", 1, 6);
-            testFail!func("hello&#x;world", 1, 6);
-            testFail!func("hello&.;world", 1, 6);
-            testFail!func("\n\nfoo\nbar&.;", 4, 4);
+                testFail!(func, toer)("&", 1, 1);
+                testFail!(func, toer)("&;", 1, 1);
+                testFail!(func, toer)("&f", 1, 1);
+                testFail!(func, toer)("\v", 1, 1);
+                testFail!(func, toer)("hello&world", 1, 6);
+                testFail!(func, toer)("hello\vworld", 1, 6);
+                testFail!(func, toer)("hello&;world", 1, 6);
+                testFail!(func, toer)("hello&#;world", 1, 6);
+                testFail!(func, toer)("hello&#x;world", 1, 6);
+                testFail!(func, toer)("hello&.;world", 1, 6);
+                testFail!(func, toer)("\n\nfoo\nbar&.;", 4, 4);
 
-            testFail!func("]]>", 1, 1);
-            testFail!func("foo]]>bar", 1, 4);
+                testFail!(func, toer)("]]>", 1, 1);
+                testFail!(func, toer)("foo]]>bar", 1, 4);
+
+                static if(toer == ThrowOnEntityRef.yes)
+                {
+                    testFail!(func, toer)("&foo; &bar baz", 1, 1);
+                    testFail!(func, toer)("foo \n\n &ampe; \n bar", 3, 2);
+                }
+                else
+                {
+                    testFail!(func, toer)("&foo; &bar baz", 1, 7);
+                    test!(func, toer)("foo \n\n &ampe; \n bar", 4, 5);
+                }
+            }
         }
     }
 
@@ -5490,24 +5693,69 @@ auto takeAttValue(Text)(ref Text text)
                         ++takeLen;
                         text.input.popFront();
 
-                        import std.algorithm.searching : startsWith;
-
-                        static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
+                        // Std Entity References
+                        static if(Text.config.throwOnEntityRef == ThrowOnEntityRef.yes)
                         {
-                            if(text.input.save.startsWith(entRef))
-                            {
-                                takeLen += entRef.length;
-                                text.input.popFrontN(entRef.length);
-                                continue loop;
-                            }
-                        }
+                            import std.algorithm.searching : startsWith;
 
-                        text.pos.col += ampLen;
-                        throw new XMLParsingException("& is only legal in an attribute value as part of a reference, " ~
-                                                      "and this parser only supports entity references if they're " ~
-                                                      "predefined by the spec. This is not a valid character " ~
-                                                      "reference or one of the predefined entity references.",
-                                                      text.pos);
+                            static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
+                            {
+                                if(text.input.save.startsWith(entRef))
+                                {
+                                    takeLen += entRef.length;
+                                    text.input.popFrontN(entRef.length);
+                                    continue loop;
+                                }
+                            }
+
+                            text.pos.col += ampLen;
+                            throw new XMLParsingException("& is only legal in an attribute value as part of a " ~
+                                                          "reference, and this parser only supports entity " ~
+                                                          "references if they're predefined by the spec. This is not " ~
+                                                          "a valid character reference or one of the predefined " ~
+                                                          "entity references.", text.pos);
+                        }
+                        // All Entity References
+                        else
+                        {
+                            import std.utf : decodeFront, UseReplacementDchar;
+                            import dxml.internal : isNameStartChar, isNameChar;
+
+                            if(text.input.empty || text.input.front == quote)
+                                goto failedEntityRef;
+
+                            {
+                                size_t numCodeUnits;
+                                immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                                if(!isNameStartChar(decodedC))
+                                    goto failedEntityRef;
+                                takeLen += numCodeUnits;
+                            }
+
+                            while(true)
+                            {
+                                if(text.input.empty)
+                                    goto failedEntityRef;
+                                immutable c = text.input.front;
+                                if(c == ';')
+                                {
+                                    ++takeLen;
+                                    break;
+                                }
+                                size_t numCodeUnits;
+                                immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                                if(!isNameChar(decodedC))
+                                    goto failedEntityRef;
+                                takeLen += numCodeUnits;
+                            }
+                            break;
+
+                            failedEntityRef:
+                            text.pos.col += ampLen;
+                            throw new XMLParsingException("& is only legal in an attribute value as part of a " ~
+                                                          "character or entity reference, and this is not a valid " ~
+                                                          "character or entity reference.", text.pos);
+                        }
                     }
                     case '<':
                     {
@@ -5582,12 +5830,12 @@ version(dxmlTests) unittest
     import std.range : only;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func)(string origHaystack, string expected, string remainder,
-                                 int row, int col, size_t line = __LINE__)
+    static void test(alias func, ThrowOnEntityRef toer)(string origHaystack, string expected, string remainder,
+                                                        int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         {
-            auto text = testParser(haystack.save);
+            auto text = testParser!(makeConfig(toer))(haystack.save);
             enforce!AssertError(equal(text.takeAttValue(), expected),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
@@ -5595,7 +5843,7 @@ version(dxmlTests) unittest
         }
         {
             auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
-            auto text = testParser(haystack);
+            auto text = testParser!(makeConfig(toer))(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
             enforce!AssertError(equal(text.takeAttValue(), expected),
@@ -5605,18 +5853,19 @@ version(dxmlTests) unittest
         }
     }
 
-    static void testFail(alias func)(string origHaystack, int row, int col, size_t line = __LINE__)
+    static void testFail(alias func, ThrowOnEntityRef toer)(string origHaystack,
+                                                            int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
         {
-            auto text = testParser(haystack.save);
+            auto text = testParser!(makeConfig(toer))(haystack.save);
             auto e = collectException!XMLParsingException(text.takeAttValue());
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
             auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
-            auto text = testParser(haystack);
+            auto text = testParser!(makeConfig(toer))(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
             auto e = collectException!XMLParsingException(text.takeAttValue());
@@ -5627,131 +5876,176 @@ version(dxmlTests) unittest
 
     static foreach(i, func; testRangeFuncs)
     {
-        test!func(`""`, "", "", 1, 3);
-        test!func(`"J"`, "J", "", 1, 4);
-        test!func(`"foo"`, "foo", "", 1, 6);
-        test!func(`"プログラミング"`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
-        test!func(`"foo"bar`, "foo", "bar", 1, 6);
-        test!func(`"プログラミング" after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
+        static foreach(toer; [ThrowOnEntityRef.yes, ThrowOnEntityRef.no])
+        {
+            test!(func, toer)(`""`, "", "", 1, 3);
+            test!(func, toer)(`"J"`, "J", "", 1, 4);
+            test!(func, toer)(`"foo"`, "foo", "", 1, 6);
+            test!(func, toer)(`"プログラミング"`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
+            test!(func, toer)(`"foo"bar`, "foo", "bar", 1, 6);
+            test!(func, toer)(`"プログラミング" after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
 
-        test!func(`''`, "", "", 1, 3);
-        test!func(`'J'`, "J", "", 1, 4);
-        test!func(`'foo'`, "foo", "", 1, 6);
-        test!func(`'プログラミング'`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
-        test!func(`'foo'bar`, "foo", "bar", 1, 6);
-        test!func(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
+            test!(func, toer)(`''`, "", "", 1, 3);
+            test!(func, toer)(`'J'`, "J", "", 1, 4);
+            test!(func, toer)(`'foo'`, "foo", "", 1, 6);
+            test!(func, toer)(`'プログラミング'`, "プログラミング", "", 1, codeLen!(func, "プログラミング") + 3);
+            test!(func, toer)(`'foo'bar`, "foo", "bar", 1, 6);
+            test!(func, toer)(`'プログラミング' after`, "プログラミング", " after", 1, codeLen!(func, "プログラミング") + 3);
 
-        test!func(`"&amp;&gt;&lt;"`, "&amp;&gt;&lt;", "", 1, 16);
-        test!func(`"&apos;&quot;"`, "&apos;&quot;", "", 1, 15);
-        test!func(`"hello&amp;&gt;&lt;world"`, "hello&amp;&gt;&lt;world", "", 1, 26);
-        test!func(`".....&amp;&gt;&lt;....."`, ".....&amp;&gt;&lt;.....", "", 1, 26);
-        test!func(`"&#12487;&#12451;&#12521;&#12531;"`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
-        test!func(`"hello&#xAF;&#77;&amp;world"`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
+            test!(func, toer)(`"&amp;&gt;&lt;"`, "&amp;&gt;&lt;", "", 1, 16);
+            test!(func, toer)(`"&apos;&quot;"`, "&apos;&quot;", "", 1, 15);
+            test!(func, toer)(`"hello&amp;&gt;&lt;world"`, "hello&amp;&gt;&lt;world", "", 1, 26);
+            test!(func, toer)(`".....&amp;&gt;&lt;....."`, ".....&amp;&gt;&lt;.....", "", 1, 26);
+            test!(func, toer)(`"&#12487;&#12451;&#12521;&#12531;"`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
+            test!(func, toer)(`"hello&#xAF;&#77;&amp;world"`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
 
-        test!func(`'&amp;&gt;&lt;'`, "&amp;&gt;&lt;", "", 1, 16);
-        test!func(`'hello&amp;&gt;&lt;world'`, "hello&amp;&gt;&lt;world", "", 1, 26);
-        test!func(`'&apos;&quot;'`, "&apos;&quot;", "", 1, 15);
-        test!func(`'.....&amp;&gt;&lt;.....'`, ".....&amp;&gt;&lt;.....", "", 1, 26);
-        test!func(`'&#12487;&#12451;&#12521;&#12531;'`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
-        test!func(`'hello&#xAF;&#77;&amp;world'`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
+            test!(func, toer)(`'&amp;&gt;&lt;'`, "&amp;&gt;&lt;", "", 1, 16);
+            test!(func, toer)(`'hello&amp;&gt;&lt;world'`, "hello&amp;&gt;&lt;world", "", 1, 26);
+            test!(func, toer)(`'&apos;&quot;'`, "&apos;&quot;", "", 1, 15);
+            test!(func, toer)(`'.....&amp;&gt;&lt;.....'`, ".....&amp;&gt;&lt;.....", "", 1, 26);
+            test!(func, toer)(`'&#12487;&#12451;&#12521;&#12531;'`, "&#12487;&#12451;&#12521;&#12531;", "", 1, 35);
+            test!(func, toer)(`'hello&#xAF;&#77;&amp;world'`, "hello&#xAF;&#77;&amp;world", "", 1, 29);
 
-        test!func("'hello\nworld'", "hello\nworld", "", 2, 7);
-        test!func("'hello\nworld\n'", "hello\nworld\n", "", 3, 2);
+            test!(func, toer)("'hello\nworld'", "hello\nworld", "", 2, 7);
+            test!(func, toer)("'hello\nworld\n'", "hello\nworld\n", "", 3, 2);
 
-        test!func(`"'''"whatever`, "'''", "whatever", 1, 6);
-        test!func(`'"""'whatever`, `"""`, "whatever", 1, 6);
+            test!(func, toer)(`"'''"whatever`, "'''", "whatever", 1, 6);
+            test!(func, toer)(`'"""'whatever`, `"""`, "whatever", 1, 6);
 
-        test!func(`"&#42;"`, "&#42;", "", 1, 8);
-        test!func(`"&#x42;"`, "&#x42;", "", 1, 9);
-        test!func(`"%foo"`, "%foo", "", 1, 7);
+            test!(func, toer)(`"&#42;"`, "&#42;", "", 1, 8);
+            test!(func, toer)(`"&#x42;"`, "&#x42;", "", 1, 9);
+            test!(func, toer)(`"%foo"`, "%foo", "", 1, 7);
 
-        testFail!func(`"`, 1, 1);
-        testFail!func(`"foo`, 1, 1);
-        testFail!func(`"foo'`, 1, 1);
-        testFail!func(`"<"`, 1, 2);
-        testFail!func(`"&`, 1, 2);
-        testFail!func(`"&"`, 1, 2);
-        testFail!func(`"&x"`, 1, 2);
-        testFail!func(`"&&;"`, 1, 2);
-        testFail!func(`"&foo;"`, 1, 2);
-        testFail!func(`"hello&;"`, 1, 7);
-        testFail!func(`"hello&;world"`,1, 7);
-        testFail!func(`"hello&<;world"`,1, 7);
-        testFail!func(`"hello&world"`,1, 7);
-        testFail!func(`"hello<world"`,1, 7);
-        testFail!func(`"hello world&"`, 1, 13);
-        testFail!func(`"hello world&;"`, 1, 13);
-        testFail!func(`"hello world&foo"`, 1, 13);
-        testFail!func(`"hello world&foo;"`, 1, 13);
-        testFail!func(`"foo<"`, 1, 5);
-        testFail!func(`"&#`, 1, 2);
-        testFail!func(`"&#"`, 1, 2);
-        testFail!func(`"&#;"`, 1, 2);
-        testFail!func(`"&#x;"`, 1, 2);
-        testFail!func(`"&#AF;"`, 1, 2);
-        testFail!func(`"&#x`, 1, 2);
-        testFail!func(`"&#77`, 1, 2);
-        testFail!func(`"&#77;`, 1, 1);
-        testFail!func(`"&#x0`, 1, 2);
-        testFail!func(`"&#x0;`, 1, 2);
-        testFail!func(`"&#x0;"`, 1, 2);
-        testFail!func(`"&am;"`, 1, 2);
-        testFail!func(`"&ampe;"`, 1, 2);
-        testFail!func(`"&l;"`, 1, 2);
-        testFail!func(`"&lte;"`, 1, 2);
-        testFail!func(`"&g;"`, 1, 2);
-        testFail!func(`"&gte;"`, 1, 2);
-        testFail!func(`"&apo;"`, 1, 2);
-        testFail!func(`"&aposs;"`, 1, 2);
-        testFail!func(`"&quo;"`, 1, 2);
-        testFail!func(`"&quote;"`, 1, 2);
+            testFail!(func, toer)(`"`, 1, 1);
+            testFail!(func, toer)(`"foo`, 1, 1);
+            testFail!(func, toer)(`"foo'`, 1, 1);
+            testFail!(func, toer)(`"<"`, 1, 2);
+            testFail!(func, toer)(`"&`, 1, 2);
+            testFail!(func, toer)(`"&"`, 1, 2);
+            testFail!(func, toer)(`"&x"`, 1, 2);
+            testFail!(func, toer)(`"&.;"`, 1, 2);
+            testFail!(func, toer)(`"&&;"`, 1, 2);
+            testFail!(func, toer)(`"&a"`, 1, 2);
+            testFail!(func, toer)(`"&a`, 1, 2);
+            testFail!(func, toer)(`"hello&;"`, 1, 7);
+            testFail!(func, toer)(`"hello&;world"`,1, 7);
+            testFail!(func, toer)(`"hello&<;world"`,1, 7);
+            testFail!(func, toer)(`"hello&world"`,1, 7);
+            testFail!(func, toer)(`"hello<world"`,1, 7);
+            testFail!(func, toer)(`"hello world&"`, 1, 13);
+            testFail!(func, toer)(`"hello world&;"`, 1, 13);
+            testFail!(func, toer)(`"hello world&foo"`, 1, 13);
+            testFail!(func, toer)(`"foo<"`, 1, 5);
+            testFail!(func, toer)(`"&#`, 1, 2);
+            testFail!(func, toer)(`"&#"`, 1, 2);
+            testFail!(func, toer)(`"&#;"`, 1, 2);
+            testFail!(func, toer)(`"&#x;"`, 1, 2);
+            testFail!(func, toer)(`"&#AF;"`, 1, 2);
+            testFail!(func, toer)(`"&#x`, 1, 2);
+            testFail!(func, toer)(`"&#77`, 1, 2);
+            testFail!(func, toer)(`"&#77;`, 1, 1);
+            testFail!(func, toer)(`"&#x0`, 1, 2);
+            testFail!(func, toer)(`"&#x0;`, 1, 2);
+            testFail!(func, toer)(`"&#x0;"`, 1, 2);
 
-        testFail!func(`'`, 1, 1);
-        testFail!func(`'foo`, 1, 1);
-        testFail!func(`'foo"`, 1, 1);
-        testFail!func(`'<'`, 1, 2);
-        testFail!func("'\v'", 1, 2);
-        testFail!func("'\uFFFE'", 1, 2);
-        testFail!func(`'&`, 1, 2);
-        testFail!func(`'&'`, 1, 2);
-        testFail!func(`'&x'`, 1, 2);
-        testFail!func(`'&&;'`, 1, 2);
-        testFail!func(`'&foo;'`, 1, 2);
-        testFail!func(`'hello&;'`, 1, 7);
-        testFail!func(`'hello&;world'`, 1, 7);
-        testFail!func(`'hello&<;world'`, 1, 7);
-        testFail!func(`'hello&world'`, 1, 7);
-        testFail!func(`'hello<world'`, 1, 7);
-        testFail!func(`'hello world&'`, 1, 13);
-        testFail!func(`'hello world&;'`, 1, 13);
-        testFail!func(`'hello world&foo'`, 1, 13);
-        testFail!func(`'hello world&foo;'`, 1, 13);
-        testFail!func(`'foo<'`, 1, 5);
-        testFail!func(`'&#`, 1, 2);
-        testFail!func(`'&#'`, 1, 2);
-        testFail!func(`'&#;'`, 1, 2);
-        testFail!func(`'&#x;'`, 1, 2);
-        testFail!func(`'&#AF;'`, 1, 2);
-        testFail!func(`'&#x`, 1, 2);
-        testFail!func(`'&#77`, 1, 2);
-        testFail!func(`'&#77;`, 1, 1);
-        testFail!func(`'&#x0`, 1, 2);
-        testFail!func(`'&#x0;`, 1, 2);
-        testFail!func(`'&#x0;'`, 1, 2);
-        testFail!func(`'&am;'`, 1, 2);
-        testFail!func(`'&ampe;'`, 1, 2);
-        testFail!func(`'&l;'`, 1, 2);
-        testFail!func(`'&lte;'`, 1, 2);
-        testFail!func(`'&g;'`, 1, 2);
-        testFail!func(`'&gte;'`, 1, 2);
-        testFail!func(`'&apo;'`, 1, 2);
-        testFail!func(`'&aposs;'`, 1, 2);
-        testFail!func(`'&quo;'`, 1, 2);
-        testFail!func(`'&quote;'`, 1, 2);
-        testFail!func("'&#xA\nF;'", 1, 2);
-        testFail!func("'&amp\n;'", 1, 2);
-        testFail!func("'&\namp;'", 1, 2);
-        testFail!func("'\n&amp;&;'", 2, 6);
+            testFail!(func, toer)(`'`, 1, 1);
+            testFail!(func, toer)(`'foo`, 1, 1);
+            testFail!(func, toer)(`'foo"`, 1, 1);
+            testFail!(func, toer)(`'<'`, 1, 2);
+            testFail!(func, toer)("'\v'", 1, 2);
+            testFail!(func, toer)("'\uFFFE'", 1, 2);
+            testFail!(func, toer)(`'&`, 1, 2);
+            testFail!(func, toer)(`'&'`, 1, 2);
+            testFail!(func, toer)(`'&x'`, 1, 2);
+            testFail!(func, toer)(`'&.;'`, 1, 2);
+            testFail!(func, toer)(`'&&;'`, 1, 2);
+            testFail!(func, toer)(`'&a'`, 1, 2);
+            testFail!(func, toer)(`'&a`, 1, 2);
+            testFail!(func, toer)(`'hello&;'`, 1, 7);
+            testFail!(func, toer)(`'hello&;world'`, 1, 7);
+            testFail!(func, toer)(`'hello&<;world'`, 1, 7);
+            testFail!(func, toer)(`'hello&world'`, 1, 7);
+            testFail!(func, toer)(`'hello<world'`, 1, 7);
+            testFail!(func, toer)(`'hello world&'`, 1, 13);
+            testFail!(func, toer)(`'hello world&;'`, 1, 13);
+            testFail!(func, toer)(`'hello world&foo'`, 1, 13);
+            testFail!(func, toer)(`'foo<'`, 1, 5);
+            testFail!(func, toer)(`'&#`, 1, 2);
+            testFail!(func, toer)(`'&#'`, 1, 2);
+            testFail!(func, toer)(`'&#;'`, 1, 2);
+            testFail!(func, toer)(`'&#x;'`, 1, 2);
+            testFail!(func, toer)(`'&#AF;'`, 1, 2);
+            testFail!(func, toer)(`'&#x`, 1, 2);
+            testFail!(func, toer)(`'&#77`, 1, 2);
+            testFail!(func, toer)(`'&#77;`, 1, 1);
+            testFail!(func, toer)(`'&#x0`, 1, 2);
+            testFail!(func, toer)(`'&#x0;`, 1, 2);
+            testFail!(func, toer)(`'&#x0;'`, 1, 2);
+            testFail!(func, toer)("'&#xA\nF;'", 1, 2);
+            testFail!(func, toer)("'&amp\n;'", 1, 2);
+            testFail!(func, toer)("'&\namp;'", 1, 2);
+            testFail!(func, toer)("'\n&amp;&;'", 2, 6);
+        }
+        {
+            alias toer = ThrowOnEntityRef.yes;
+            testFail!(func, toer)(`"&foo;"`, 1, 2);
+            testFail!(func, toer)(`"hello world&foo;"`, 1, 13);
+            testFail!(func, toer)(`"hello &foo; world"`, 1, 8);
+            testFail!(func, toer)(`"&am;"`, 1, 2);
+            testFail!(func, toer)(`"&ampe;"`, 1, 2);
+            testFail!(func, toer)(`"&l;"`, 1, 2);
+            testFail!(func, toer)(`"&lte;"`, 1, 2);
+            testFail!(func, toer)(`"&g;"`, 1, 2);
+            testFail!(func, toer)(`"&gte;"`, 1, 2);
+            testFail!(func, toer)(`"&apo;"`, 1, 2);
+            testFail!(func, toer)(`"&aposs;"`, 1, 2);
+            testFail!(func, toer)(`"&quo;"`, 1, 2);
+            testFail!(func, toer)(`"&quote;"`, 1, 2);
+
+            testFail!(func, toer)(`'&foo;'`, 1, 2);
+            testFail!(func, toer)(`'hello world&foo;'`, 1, 13);
+            testFail!(func, toer)(`'hello &foo; world'`, 1, 8);
+            testFail!(func, toer)(`'&am;'`, 1, 2);
+            testFail!(func, toer)(`'&ampe;'`, 1, 2);
+            testFail!(func, toer)(`'&l;'`, 1, 2);
+            testFail!(func, toer)(`'&lte;'`, 1, 2);
+            testFail!(func, toer)(`'&g;'`, 1, 2);
+            testFail!(func, toer)(`'&gte;'`, 1, 2);
+            testFail!(func, toer)(`'&apo;'`, 1, 2);
+            testFail!(func, toer)(`'&aposs;'`, 1, 2);
+            testFail!(func, toer)(`'&quo;'`, 1, 2);
+            testFail!(func, toer)(`'&quote;'`, 1, 2);
+        }
+        {
+            alias toer = ThrowOnEntityRef.no;
+            test!(func, toer)(`"&foo;"`, "&foo;", "", 1, 8);
+            test!(func, toer)(`"hello world&foo;"`, "hello world&foo;", "", 1, 19);
+            test!(func, toer)(`"hello &foo; world"`, "hello &foo; world", "", 1, 20);
+            test!(func, toer)(`"&am;"`, "&am;", "", 1, 7);
+            test!(func, toer)(`"&ampe;"`, "&ampe;", "", 1, 9);
+            test!(func, toer)(`"&l;"`, "&l;", "", 1, 6);
+            test!(func, toer)(`"&lte;"`, "&lte;", "", 1, 8);
+            test!(func, toer)(`"&g;"`, "&g;", "", 1, 6);
+            test!(func, toer)(`"&gte;"`, "&gte;", "", 1, 8);
+            test!(func, toer)(`"&apo;"`, "&apo;", "", 1, 8);
+            test!(func, toer)(`"&aposs;"`, "&aposs;", "", 1, 10);
+            test!(func, toer)(`"&quo;"`, "&quo;", "", 1, 8);
+            test!(func, toer)(`"&quote;"`, "&quote;", "", 1, 10);
+
+            test!(func, toer)(`'&foo;'`, "&foo;", "", 1, 8);
+            test!(func, toer)(`'hello world&foo;'`, "hello world&foo;", "", 1, 19);
+            test!(func, toer)(`'hello &foo; world'`, "hello &foo; world", "", 1, 20);
+            test!(func, toer)(`'&am;'`, "&am;", "", 1, 7);
+            test!(func, toer)(`'&ampe;'`, "&ampe;", "", 1, 9);
+            test!(func, toer)(`'&l;'`, "&l;", "", 1, 6);
+            test!(func, toer)(`'&lte;'`, "&lte;", "", 1, 8);
+            test!(func, toer)(`'&g;'`, "&g;", "", 1, 6);
+            test!(func, toer)(`'&gte;'`, "&gte;", "", 1, 8);
+            test!(func, toer)(`'&apo;'`, "&apo;", "", 1, 8);
+            test!(func, toer)(`'&aposs;'`, "&aposs;", "", 1, 10);
+            test!(func, toer)(`'&quo;'`, "&quo;", "", 1, 8);
+            test!(func, toer)(`'&quote;'`, "&quote;", "", 1, 10);
+        }
     }
 
     // These can't be tested with testFail, because attempting to convert
@@ -5775,11 +6069,14 @@ version(dxmlTests) @safe pure unittest
     import dxml.internal : testRangeFuncs;
 
     static foreach(func; testRangeFuncs)
-    {{
-        auto xml = func(`'foo'`);
-        auto text = testParser!simpleXML(xml);
-        assert(equal(text.takeAttValue(), "foo"));
-    }}
+    {
+        static foreach(config; [Config.init, simpleXML, makeConfig(ThrowOnEntityRef.no)])
+        {{
+            auto xml = func(`'foo'`);
+            auto text = testParser!simpleXML(xml);
+            assert(equal(text.takeAttValue(), "foo"));
+        }}
+    }
 }
 
 
@@ -5824,17 +6121,57 @@ void checkText(bool allowRestrictedChars, Text)(ref Text orig)
                     immutable ampPos = text.pos;
                     popFrontAndIncCol(text);
 
-                    static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
+                    // Std Entity References
+                    static if(Text.config.throwOnEntityRef == ThrowOnEntityRef.yes)
                     {
-                        if(text.stripStartsWith(entRef))
-                            continue loop;
-                    }
+                        static foreach(entRef; ["amp;", "apos;", "quot;", "lt;", "gt;"])
+                        {
+                            if(text.stripStartsWith(entRef))
+                                continue loop;
+                        }
 
-                    throw new XMLParsingException("& is only legal in an EntitType.text entity as part of a " ~
-                                                  "reference, and this parser only supports entity references if " ~
-                                                  "they're predefined by the spec. This is not a valid character " ~
-                                                  "reference or one of the predefined entity references.",
-                                                  ampPos);
+                        throw new XMLParsingException("& is only legal in an EntitType.text entity as part of a " ~
+                                                      "reference, and this parser only supports entity references if " ~
+                                                      "they're predefined by the spec. This is not a valid character " ~
+                                                      "reference or one of the predefined entity references.", ampPos);
+                    }
+                    // All Entity References
+                    else
+                    {
+                        import std.utf : decodeFront, UseReplacementDchar;
+                        import dxml.internal : isNameStartChar, isNameChar;
+
+                        if(text.input.empty)
+                            goto failedEntityRef;
+                        {
+                            size_t numCodeUnits;
+                            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                            if(!isNameStartChar(decodedC))
+                                goto failedEntityRef;
+                            text.pos.col += numCodeUnits;
+                        }
+                        while(true)
+                        {
+                            if(text.input.empty)
+                                goto failedEntityRef;
+                            immutable c = text.input.front;
+                            if(c == ';')
+                                break;
+                            size_t numCodeUnits;
+                            immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
+                            if(!isNameChar(decodedC))
+                                goto failedEntityRef;
+                            text.pos.col += numCodeUnits;
+                        }
+                        assert(text.input.front == ';');
+                        popFrontAndIncCol(text);
+                        continue;
+
+                        failedEntityRef:
+                        throw new XMLParsingException("& is only legal in an attribute value as part of a " ~
+                                                      "character or entity reference, and this is not a valid " ~
+                                                      "character or entity reference.", ampPos);
+                    }
                 }
                 case '<': throw new XMLParsingException("< is not legal in EntityType.text", text.pos);
                 case ']':
@@ -5903,25 +6240,25 @@ version(dxmlTests) unittest
     import std.exception : assertNotThrown, collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func, bool arc)(string text, size_t line = __LINE__)
+    static void test(alias func, bool arc, ThrowOnEntityRef toer)(string text, size_t line = __LINE__)
     {
         auto xml = func(text);
-        auto range = testParser(xml);
+        auto range = testParser!(makeConfig(toer))(xml);
         assertNotThrown(checkText!arc(range), "unittest failure", __FILE__, line);
     }
 
-    static void testFail(alias func, bool arc)(string text, int row, int col, size_t line = __LINE__)
+    static void testFail(alias func, bool arc, ThrowOnEntityRef toer)(string text, int row, int col, size_t line = __LINE__)
     {
         auto xml = func(text);
         {
-            auto range = testParser(xml.save);
+            auto range = testParser!(makeConfig(toer))(xml.save);
             auto e = collectException!XMLParsingException(checkText!arc(range));
             enforce!AssertError(e !is null, "unittest failure 1", __FILE__, line);
             enforce!AssertError(e.pos == TextPos(row, col), "unittest failure 2", __FILE__, line);
         }
         {
             auto pos = TextPos(row + 3, row == 1 ? col + 7 : col);
-            auto range = testParser(xml);
+            auto range = testParser!(makeConfig(toer))(xml);
             range.pos.line += 3;
             range.pos.col += 7;
             auto e = collectException!XMLParsingException(checkText!arc(range));
@@ -5932,115 +6269,140 @@ version(dxmlTests) unittest
 
     static foreach(func; testRangeFuncs)
     {
-        static foreach(arc; [false, true])
+        static foreach(toer; [ThrowOnEntityRef.yes, ThrowOnEntityRef.no])
         {
-            test!(func, arc)("");
-            test!(func, arc)("J",);
-            test!(func, arc)("foo");
-            test!(func, arc)("プログラミング");
+            static foreach(arc; [false, true])
+            {
+                test!(func, arc, toer)("");
+                test!(func, arc, toer)("J",);
+                test!(func, arc, toer)("foo");
+                test!(func, arc, toer)("プログラミング");
 
-            test!(func, arc)("&amp;&gt;&lt;");
-            test!(func, arc)("hello&amp;&gt;&lt;world");
-            test!(func, arc)(".....&apos;&quot;&amp;.....");
-            test!(func, arc)("&#12487;&#12451;&#12521;&#12531;");
-            test!(func, arc)("hello&#xAF;&#42;&quot;world");
+                test!(func, arc, toer)("&amp;&gt;&lt;");
+                test!(func, arc, toer)("hello&amp;&gt;&lt;world");
+                test!(func, arc, toer)(".....&apos;&quot;&amp;.....");
+                test!(func, arc, toer)("&#12487;&#12451;&#12521;&#12531;");
+                test!(func, arc, toer)("hello&#xAF;&#42;&quot;world");
 
-            test!(func, arc)("]]");
-            test!(func, arc)("]>");
-            test!(func, arc)("foo]]bar");
-            test!(func, arc)("foo]>bar");
-            test!(func, arc)("]] >");
+                test!(func, arc, toer)("]]");
+                test!(func, arc, toer)("]>");
+                test!(func, arc, toer)("foo]]bar");
+                test!(func, arc, toer)("foo]>bar");
+                test!(func, arc, toer)("]] >");
 
-            testFail!(func, arc)("\v", 1, 1);
-            testFail!(func, arc)("\uFFFE", 1, 1);
-            testFail!(func, arc)("hello\vworld", 1, 6);
-            testFail!(func, arc)("he\nllo\vwo\nrld", 2, 4);
+                testFail!(func, arc, toer)("\v", 1, 1);
+                testFail!(func, arc, toer)("\uFFFE", 1, 1);
+                testFail!(func, arc, toer)("hello\vworld", 1, 6);
+                testFail!(func, arc, toer)("he\nllo\vwo\nrld", 2, 4);
+            }
+
+            testFail!(func, false, toer)("<", 1, 1);
+            testFail!(func, false, toer)("&", 1, 1);
+            testFail!(func, false, toer)("&", 1, 1);
+            testFail!(func, false, toer)("&x", 1, 1);
+            testFail!(func, false, toer)("&&;", 1, 1);
+            testFail!(func, false, toer)("&a", 1, 1);
+            testFail!(func, false, toer)("hello&;", 1, 6);
+            testFail!(func, false, toer)("hello&;world", 1, 6);
+            testFail!(func, false, toer)("hello&<;world", 1, 6);
+            testFail!(func, false, toer)("hello&world", 1, 6);
+            testFail!(func, false, toer)("hello world&", 1, 12);
+            testFail!(func, false, toer)("hello world&;", 1, 12);
+            testFail!(func, false, toer)("hello world&foo", 1, 12);
+            testFail!(func, false, toer)("&#;", 1, 1);
+            testFail!(func, false, toer)("&#x;", 1, 1);
+            testFail!(func, false, toer)("&#AF;", 1, 1);
+            testFail!(func, false, toer)("&#x", 1, 1);
+            testFail!(func, false, toer)("&#42", 1, 1);
+            testFail!(func, false, toer)("&#x42", 1, 1);
+            testFail!(func, false, toer)("&#12;", 1, 1);
+            testFail!(func, false, toer)("&#x12;", 1, 1);
+            testFail!(func, false, toer)("&#42;foo\nbar&#;", 2, 4);
+            testFail!(func, false, toer)("&#42;foo\nbar&#x;", 2, 4);
+            testFail!(func, false, toer)("&#42;foo\nbar&#AF;", 2, 4);
+            testFail!(func, false, toer)("&#42;foo\nbar&#x", 2, 4);
+            testFail!(func, false, toer)("&#42;foo\nbar&#42", 2, 4);
+            testFail!(func, false, toer)("&#42;foo\nbar&#x42", 2, 4);
+            testFail!(func, false, toer)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
+
+            static if(toer == ThrowOnEntityRef.yes)
+            {
+                testFail!(func, false, toer)("&a;", 1, 1);
+                testFail!(func, false, toer)(`&am;`, 1, 1);
+                testFail!(func, false, toer)(`&ampe;`, 1, 1);
+                testFail!(func, false, toer)(`&l;`, 1, 1);
+                testFail!(func, false, toer)(`&lte;`, 1, 1);
+                testFail!(func, false, toer)(`&g;`, 1, 1);
+                testFail!(func, false, toer)(`&gte;`, 1, 1);
+                testFail!(func, false, toer)(`&apo;`, 1, 1);
+                testFail!(func, false, toer)(`&aposs;`, 1, 1);
+                testFail!(func, false, toer)(`&quo;`, 1, 1);
+                testFail!(func, false, toer)(`&quote;`, 1, 1);
+                testFail!(func, false, toer)(`hello &foo; world`, 1, 7);
+                testFail!(func, false, toer)("hello\n &foo; \nworld", 2, 2);
+            }
+            else
+            {
+                test!(func, false, toer)("&a;");
+                test!(func, false, toer)(`&am;`);
+                test!(func, false, toer)(`&ampe;`);
+                test!(func, false, toer)(`&l;`);
+                test!(func, false, toer)(`&lte;`);
+                test!(func, false, toer)(`&g;`);
+                test!(func, false, toer)(`&gte;`);
+                test!(func, false, toer)(`&apo;`);
+                test!(func, false, toer)(`&aposs;`);
+                test!(func, false, toer)(`&quo;`);
+                test!(func, false, toer)(`&quote;`);
+                test!(func, false, toer)(`hello &foo; world`);
+                test!(func, false, toer)("hello\n &foo; \nworld");
+            }
+
+            testFail!(func, false, toer)("]]>", 1, 1);
+            testFail!(func, false, toer)("foo]]>bar", 1, 4);
+
+            test!(func, true, toer)("]]>");
+            test!(func, true, toer)("foo]]>bar");
+
+            test!(func, true, toer)("<");
+            test!(func, true, toer)("&");
+            test!(func, true, toer)("&x");
+            test!(func, true, toer)("&&;");
+            test!(func, true, toer)("&a");
+            test!(func, true, toer)("&a;");
+            test!(func, true, toer)(`&am;`);
+            test!(func, true, toer)(`&ampe;`);
+            test!(func, true, toer)(`&l;`);
+            test!(func, true, toer)(`&lte;`);
+            test!(func, true, toer)(`&g;`);
+            test!(func, true, toer)(`&gte;`);
+            test!(func, true, toer)(`&apo;`);
+            test!(func, true, toer)(`&aposs;`);
+            test!(func, true, toer)(`&quo;`);
+            test!(func, true, toer)(`&quote;`);
+            test!(func, true, toer)("hello&;");
+            test!(func, true, toer)("hello&;world");
+            test!(func, true, toer)("hello&<;world");
+            test!(func, true, toer)("hello&world");
+            test!(func, true, toer)("hello world&");
+            test!(func, true, toer)("hello world&;");
+            test!(func, true, toer)("hello world&foo");
+            test!(func, true, toer)("&#;");
+            test!(func, true, toer)("&#x;");
+            test!(func, true, toer)("&#AF;");
+            test!(func, true, toer)("&#x");
+            test!(func, true, toer)("&#42");
+            test!(func, true, toer)("&#x42");
+            test!(func, true, toer)("&#12;");
+            test!(func, true, toer)("&#x12;");
+            test!(func, true, toer)("&#42;foo\nbar&#;");
+            test!(func, true, toer)("&#42;foo\nbar&#x;");
+            test!(func, true, toer)("&#42;foo\nbar&#AF;");
+            test!(func, true, toer)("&#42;foo\nbar&#x");
+            test!(func, true, toer)("&#42;foo\nbar&#42");
+            test!(func, true, toer)("&#42;foo\nbar&#x42");
+            test!(func, true, toer)("プログラミング&");
         }
-
-        testFail!(func, false)("<", 1, 1);
-        testFail!(func, false)("&", 1, 1);
-        testFail!(func, false)("&", 1, 1);
-        testFail!(func, false)("&x", 1, 1);
-        testFail!(func, false)("&&;", 1, 1);
-        testFail!(func, false)("&a", 1, 1);
-        testFail!(func, false)("&a;", 1, 1);
-        testFail!(func, false)(`&am;`, 1, 1);
-        testFail!(func, false)(`&ampe;`, 1, 1);
-        testFail!(func, false)(`&l;`, 1, 1);
-        testFail!(func, false)(`&lte;`, 1, 1);
-        testFail!(func, false)(`&g;`, 1, 1);
-        testFail!(func, false)(`&gte;`, 1, 1);
-        testFail!(func, false)(`&apo;`, 1, 1);
-        testFail!(func, false)(`&aposs;`, 1, 1);
-        testFail!(func, false)(`&quo;`, 1, 1);
-        testFail!(func, false)(`&quote;`, 1, 1);
-        testFail!(func, false)("hello&;", 1, 6);
-        testFail!(func, false)("hello&;world", 1, 6);
-        testFail!(func, false)("hello&<;world", 1, 6);
-        testFail!(func, false)("hello&world", 1, 6);
-        testFail!(func, false)("hello world&", 1, 12);
-        testFail!(func, false)("hello world&;", 1, 12);
-        testFail!(func, false)("hello world&foo", 1, 12);
-        testFail!(func, false)("&#;", 1, 1);
-        testFail!(func, false)("&#x;", 1, 1);
-        testFail!(func, false)("&#AF;", 1, 1);
-        testFail!(func, false)("&#x", 1, 1);
-        testFail!(func, false)("&#42", 1, 1);
-        testFail!(func, false)("&#x42", 1, 1);
-        testFail!(func, false)("&#12;", 1, 1);
-        testFail!(func, false)("&#x12;", 1, 1);
-        testFail!(func, false)("&#42;foo\nbar&#;", 2, 4);
-        testFail!(func, false)("&#42;foo\nbar&#x;", 2, 4);
-        testFail!(func, false)("&#42;foo\nbar&#AF;", 2, 4);
-        testFail!(func, false)("&#42;foo\nbar&#x", 2, 4);
-        testFail!(func, false)("&#42;foo\nbar&#42", 2, 4);
-        testFail!(func, false)("&#42;foo\nbar&#x42", 2, 4);
-        testFail!(func, false)("プログラミング&", 1, codeLen!(func, "プログラミング&"));
-
-        testFail!(func, false)("]]>", 1, 1);
-        testFail!(func, false)("foo]]>bar", 1, 4);
-
-        test!(func, true)("]]>");
-        test!(func, true)("foo]]>bar");
-
-        test!(func, true)("<");
-        test!(func, true)("&");
-        test!(func, true)("&x");
-        test!(func, true)("&&;");
-        test!(func, true)("&a");
-        test!(func, true)("&a;");
-        test!(func, true)(`&am;`);
-        test!(func, true)(`&ampe;`);
-        test!(func, true)(`&l;`);
-        test!(func, true)(`&lte;`);
-        test!(func, true)(`&g;`);
-        test!(func, true)(`&gte;`);
-        test!(func, true)(`&apo;`);
-        test!(func, true)(`&aposs;`);
-        test!(func, true)(`&quo;`);
-        test!(func, true)(`&quote;`);
-        test!(func, true)("hello&;");
-        test!(func, true)("hello&;world");
-        test!(func, true)("hello&<;world");
-        test!(func, true)("hello&world");
-        test!(func, true)("hello world&");
-        test!(func, true)("hello world&;");
-        test!(func, true)("hello world&foo");
-        test!(func, true)("&#;");
-        test!(func, true)("&#x;");
-        test!(func, true)("&#AF;");
-        test!(func, true)("&#x");
-        test!(func, true)("&#42");
-        test!(func, true)("&#x42");
-        test!(func, true)("&#12;");
-        test!(func, true)("&#x12;");
-        test!(func, true)("&#42;foo\nbar&#;");
-        test!(func, true)("&#42;foo\nbar&#x;");
-        test!(func, true)("&#42;foo\nbar&#AF;");
-        test!(func, true)("&#42;foo\nbar&#x");
-        test!(func, true)("&#42;foo\nbar&#42");
-        test!(func, true)("&#42;foo\nbar&#x42");
-        test!(func, true)("プログラミング&");
     }
 
     // These can't be tested with testFail, because attempting to convert
@@ -6066,11 +6428,14 @@ version(dxmlTests) @safe unittest
     static foreach(func; testRangeFuncs)
     {
         static foreach(arc; [false, true])
-        {{
-            auto xml = func("foo");
-            auto text = testParser!simpleXML(xml);
-            checkText!arc(text);
-        }}
+        {
+            static foreach(config; [Config.init, simpleXML, makeConfig(ThrowOnEntityRef.no)])
+            {{
+                auto xml = func("foo");
+                auto text = testParser!config(xml);
+                checkText!arc(text);
+            }}
+        }
     }
 }
 
