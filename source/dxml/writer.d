@@ -202,7 +202,11 @@ public:
     private void _validateStartTag(string funcName)(string name)
     {
         assert(!_startTagOpen, funcName ~ " cannot be called when a start tag is already open");
-        assert(!_writtenRootEnd, funcName ~ " cannot be called after the root element's end tag has been written.");
+        // FIXME It seems like a bug that version(assert) would be required to
+        // reference a symbol declared with version(assert) when it's being
+        // referenced inside an assertion.
+        version(assert)
+            assert(!_writtenRootEnd, funcName ~ " cannot be called after the root element's end tag has been written.");
         checkName(name);
     }
 
@@ -835,7 +839,11 @@ public:
     private void _validateText(string funcName, R)(R text)
     {
         assert(!_startTagOpen, funcName ~ " cannot be called when a start tag is open");
-        assert(!_writtenRootEnd, funcName ~ " cannot be called after the root end tag has been written");
+        // FIXME It seems like a bug that version(assert) would be required to
+        // reference a symbol declared with version(assert) when it's being
+        // referenced inside an assertion.
+        version(assert)
+            assert(!_writtenRootEnd, funcName ~ " cannot be called after the root end tag has been written");
         // In the case of writeTaggedText, the check is done before the start
         // tag has been written, and because it's writing the start tag, it can
         // guarantee that the root tag has been written before the text.
@@ -1790,13 +1798,13 @@ public:
 
 private:
 
-    pragma(inline, true) void _incLevel(string tagName) @safe pure nothrow
+    void _incLevel(string tagName) @safe pure nothrow
     {
         _tagStack ~= tagName;
     }
 
 
-    pragma(inline, true) void _decLevel() @safe /+pure+/ nothrow
+    void _decLevel() @safe /+pure+/ nothrow
     {
         --_tagStack.length;
         () @trusted { _tagStack.assumeSafeAppend(); } ();
