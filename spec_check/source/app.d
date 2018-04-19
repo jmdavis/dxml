@@ -14,7 +14,7 @@ module main;
 
 import std.range.primitives;
 import std.traits;
-import dxml.parser.stax;
+import dxml.parser;
 
 void main()
 {
