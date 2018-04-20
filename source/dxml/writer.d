@@ -277,10 +277,13 @@ public:
                       (since it's more common to not want newlines between
                       attributes).
 
-        Throws: $(LREF XMLWritingException) if the name is not a valid XML
-                attribute name, if the value is not a valid XML value, or if
-                the given name has already been written to the current start
-                tag.
+        Throws: $(LREF XMLWritingException) if the given _name is not a valid
+                XML attribute _name, if the given _value is not a valid XML
+                attribute _value, or if the given _name has already been written
+                to the current start tag. $(REF encodeAttr, dxml, util) can be
+                used to encode any characters that are not legal in their
+                literal form in an attribute _value but are legal as entity
+                references.
 
         See_Also: $(REF encodeAttr, dxml, util)$(BR)
                   $(REF StdEntityRef, dxml, util)$(BR)
@@ -687,7 +690,7 @@ public:
                       to the output range before the end tag.
 
         Throws: $(LREF XMLWritingException) if no start tag is waiting for a
-                matching end tag or if the given name does not match the name
+                matching end tag or if the given _name does not match the _name
                 of the start tag that needs to be matched next.
 
 
@@ -810,8 +813,11 @@ public:
             insertIndent = Whether an indent will be inserted after each
                            _newline within the _text.
 
-        Throws: $(LREF XMLWritingException) if the given text is not legal in
-                the text portion of an XML document.
+        Throws: $(LREF XMLWritingException) if any characters or sequence of
+                characters in the given _text are not legal in the _text portion
+                of an XML document. $(REF encodeText, dxml, util) can be used
+                to encode any characters that are not legal in their literal
+                form but are legal as entity references.
 
         See_Also: $(LREF writeTaggedText)$(BR)
                   $(REF encodeText, dxml, util)$(BR)
@@ -1054,8 +1060,8 @@ public:
             insertIndent = Whether an indent will be inserted after each
                            _newline within the _text.
 
-        Throws: $(LREF XMLWritingException) if the given text is not legal in an
-                XML comment.
+        Throws: $(LREF XMLWritingException) if the given _text contains
+                $(D_CODE_STRING "--") or ends with $(D_CODE_STRING "-").
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-Comment)
       +/
@@ -1192,8 +1198,8 @@ public:
             insertIndent = Whether an indent will be inserted after each
                            _newline within the _text.
 
-        Throws: $(LREF XMLWritingException) if the given text is not legal in
-                a CDATA section.
+        Throws: $(LREF XMLWritingException) if the given _text contains
+                $(D_CODE_STRING "]]>").
 
         See_Also: $(LINK http://www.w3.org/TR/REC-xml/#NT-CDSect)
       +/
@@ -1706,18 +1712,19 @@ public:
 
 
     /++
-        Returns the _output range that's used by XMLWriter.
+        Provides access to the _output range that's used by XMLWriter.
 
-        Note that if any is data written to the _output range without using
+        Note that any is data written to the _output range without using
         XMLWriter could result in invalid XML.
 
         This property is here primarily to provide easy access to the output
         range when XMLWriter is done writing (e.g. to get at its $(D data)
         member if it's a $(PHOBOS_REF Appender, std, array)), but programs can
-        use it to write other data to the output range while XMLWriter is still
-        writing so long as it's understood that unlike when the XMLWriter's
-        write functions are called, calling $(D put) on the output range
-        directly is unchecked and therefore does risk making the XML invalid.
+        use it to write other data (such as whitespace other than the indent)
+        to the output range while XMLWriter is still writing so long as it's
+        understood that unlike when the XMLWriter's write functions are called,
+        calling $(D put) on the output range directly is unchecked and
+        therefore does risk making the XML invalid.
 
         Also, depending on the type of the _output range, copying it will cause
         problems (e.g. if it's not a reference type, writing to a copy may not
@@ -2050,14 +2057,18 @@ version(dxmlTests) unittest
     Params:
             writer = The $(LREF XMLWriter) to write to.
             name = The _name of the start tag.
+            text = The _text to write between the start and end tags.
             newline = Whether a _newline followed by an indent will be written
                       to the output range before the start tag.
             insertIndent = Whether an indent will be inserted after each
-                           _newline within the text.
+                           _newline within the _text.
 
-    Throws: $(LREF XMLWritingException) if either the given _name is an invalid
-            XML tag _name or if the given _text is not legal in the _text
-            portion of an XML document.
+    Throws: $(LREF XMLWritingException) if the given _name is an invalid XML
+            tag _name or if the given _text contains any characters or sequence
+            of characters which are not legal in the _text portion of an XML
+            document. $(REF encodeText, dxml, util) can be used to encode any
+            characters that are not legal in their literal form in the _text but
+            are legal as entity references.
 
     See_Also: $(LREF2 writeStartTag, XMLWriter)$(BR)
               $(LREF2 writeText, XMLWriter)$(BR)
