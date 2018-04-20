@@ -1355,6 +1355,7 @@ enum StdEntityRef
     $(TABLE
         $(TR $(TD convert $(D_CODE_STRING &) to $(D_CODE_STRING $(AMP)amp;) ))
         $(TR $(TD convert $(D_CODE_STRING <) to $(D_CODE_STRING $(AMP)lt;) ))
+        $(TR $(TD convert $(D_CODE_STRING ]]>) to $(D_CODE_STRING ]]$(AMP)gt;) ))
     )
 
     See_Also: $(REF XMLWriter.writeText, dxml, writer)$(BR)
@@ -1415,6 +1416,28 @@ auto encodeText(R)(R text)
                     _len = entity.length;
                     return;
                 }
+                case ']':
+                {
+                    import std.range : dropOne;
+
+                    // FIXME This should use startsWith, but for some reason,
+                    // startsWith doesn't currently work with @nogc or nothrow
+                    // even when this code should be able to be @nogc and/or
+                    // nothrow.
+                    auto temp = _text.save.dropOne();
+                    if(!temp.empty && temp.front == ']')
+                    {
+                        temp.popFront();
+                        if(!temp.empty && temp.front == '>')
+                        {
+                            _text = temp;
+                            enum entity = ";tg&]]";
+                            _buffer = entity;
+                            _len = entity.length;
+                        }
+                    }
+                    return;
+                }
                 default: return;
             }
         }
@@ -1425,7 +1448,7 @@ auto encodeText(R)(R text)
             _handleEntity();
         }
 
-        char["&amp;".length] _buffer;
+        char["]]&gt;".length] _buffer;
         size_t _len;
         typeof(byCodeUnit(R.init)) _text;
     }
@@ -1443,6 +1466,7 @@ auto encodeText(R)(R text)
     assert(equal(encodeText(`foo > bar`), `foo > bar`));
     assert(equal(encodeText(`foo ' bar`), `foo ' bar`));
     assert(equal(encodeText(`foo " bar`), `foo " bar`));
+    assert(equal(encodeText("foo ]]> bar"), "foo ]]&gt; bar"));
 
     assert(equal(encodeText("hello world"), "hello world"));
 }
@@ -1458,9 +1482,9 @@ auto encodeText(R)(R text)
         assert(equal(encodeText(func(`& < > ' "`)), `&amp; &lt; > ' "`));
         assert(equal(encodeText(func("&&&")), "&amp;&amp;&amp;"));
 
-        auto range = encodeText(func(`&&<<>>''""hello world"">><<&&`));
+        auto range = encodeText(func(`&&<<>>''""hello ] ]> world"">><<&&`));
         assert(equal(range.save, range.save));
-        assert(equal(range.save, `&amp;&amp;&lt;&lt;>>''""hello world"">>&lt;&lt;&amp;&amp;`));
+        assert(equal(range.save, `&amp;&amp;&lt;&lt;>>''""hello ] ]> world"">>&lt;&lt;&amp;&amp;`));
     }}
 }
 
