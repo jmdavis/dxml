@@ -28,6 +28,8 @@ module dxml.dom;
 ///
 version(dxmlTests) unittest
 {
+    import std.range.primitives : empty;
+
     auto xml = "<!-- comment -->\n" ~
                "<root>\n" ~
                "    <foo>some text<whatever/></foo>\n" ~
@@ -300,7 +302,7 @@ public:
     ///
     static if(compileInTests) unittest
     {
-        import std.range.primitives;
+        import std.range.primitives : empty;
         import dxml.parser : TextPos;
         import dxml.util : stripIndent;
 
@@ -365,6 +367,8 @@ public:
     ///
     static if(compileInTests) unittest
     {
+        import std.range.primitives : empty;
+
         auto xml = "<root>\n" ~
                    "    <empty/>\n" ~
                    "    <?pi?>\n" ~
@@ -407,6 +411,8 @@ public:
     ///
     static if(compileInTests) unittest
     {
+        import std.range.primitives : empty;
+
         auto xml = "<root>\n" ~
                    "    <bar>\n" ~
                    "        <baz>\n" ~
@@ -500,7 +506,7 @@ public:
     {
         import std.algorithm.comparison : equal;
         import std.algorithm.iteration : filter;
-        import std.range.primitives;
+        import std.range.primitives : empty;
         import dxml.parser : TextPos;
 
         {
@@ -591,6 +597,8 @@ public:
     ///
     static if(compileInTests) unittest
     {
+        import std.range.primitives : empty;
+
         auto xml = "<?xml version='1.0'?>\n" ~
                    "<?instructionName?>\n" ~
                    "<?foo here is something to say?>\n" ~
@@ -866,6 +874,8 @@ version(dxmlTests) @safe unittest
 /// parseDOM with simpleXML and a range of characters
 version(dxmlTests) unittest
 {
+    import std.range.primitives : empty;
+
     auto xml = "<root>\n" ~
                "    <!-- no comment -->\n" ~
                "    <foo></foo>\n" ~
@@ -910,6 +920,7 @@ version(dxmlTests) unittest
 /// parseDOM with simpleXML and an EntityRange
 version(dxmlTests) unittest
 {
+    import std.range.primitives : empty;
     import dxml.parser : parseXML;
 
     auto xml = "<root>\n" ~
@@ -959,6 +970,7 @@ version(dxmlTests) unittest
 /// parseDOM with an EntityRange which is not at the start of the document.
 version(dxmlTests) unittest
 {
+    import std.range.primitives : empty;
     import dxml.parser : parseXML, skipToPath;
 
     auto xml = "<root>\n" ~
