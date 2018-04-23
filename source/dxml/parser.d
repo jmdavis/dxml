@@ -447,7 +447,7 @@ struct Config
     auto throwOnEntityRef = ThrowOnEntityRef.yes;
 
     ///
-    unittest
+    version(dxmlTests) unittest
     {
         import std.exception : assertThrown;
         import dxml.util : decodeXML;
@@ -1449,6 +1449,8 @@ public:
         ///
         static if(compileInTests) unittest
         {
+            import std.range.primitives : empty;
+
             auto xml = "<?xml version='1.0'?>\n" ~
                        "<?instructionName?>\n" ~
                        "<?foo here is something to say?>\n" ~
@@ -3255,6 +3257,8 @@ EntityRange!(config, R) parseXML(Config config = Config.init, R)(R xmlText)
 ///
 version(dxmlTests) unittest
 {
+    import std.range.primitives : walkLength;
+
     auto xml = "<?xml version='1.0'?>\n" ~
                "<?instruction start?>\n" ~
                "<foo attr='42'>\n" ~

@@ -772,6 +772,8 @@ Nullable!dchar parseCharRef(R)(ref R range)
 ///
 version(dxmlTests) unittest
 {
+    import std.range.primitives : empty;
+
     {
         auto range = "&#48; hello world";
         assert(parseCharRef(range) == '0');
