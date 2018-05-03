@@ -103,7 +103,7 @@
              $(TD Skips to the next entity of the given type in the range.))
         $(TR $(TD $(LREF skipToParentEndTag))
              $(TD Iterates an $(LREF EntityRange) until it reaches the end tag
-                  that matches the start tag which is the parent of of the
+                  that matches the start tag which is the parent of the
                   current entity.))
     )
 
