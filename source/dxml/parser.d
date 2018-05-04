@@ -3009,7 +3009,10 @@ private:
                 }
                 ++state.maxEntities;
                 --state.tags.length;
-                () @trusted { state.tags.assumeSafeAppend(); }();
+                if (!__ctfe)
+                {
+                    () @trusted { state.tags.assumeSafeAppend(); }();
+                }
             }
             --depth;
         }
@@ -3048,7 +3051,10 @@ private:
                 ~this()
                 {
                     state.attrs.length = 0;
-                    () @trusted { state.attrs.assumeSafeAppend(); }();
+                    if (!__ctfe)
+                    {
+                        () @trusted { state.attrs.assumeSafeAppend(); }();
+                    }
                 }
 
                 SharedState* state;
@@ -3080,8 +3086,11 @@ private:
         {
             TagStack tagStack;
             tagStack.state = new SharedState;
-            tagStack.state.tags.reserve(10);
-            tagStack.state.attrs.reserve(10);
+            if (!__ctfe)
+            {
+                tagStack.state.tags.reserve(10);
+                tagStack.state.attrs.reserve(10);
+            }
             return tagStack;
         }
 

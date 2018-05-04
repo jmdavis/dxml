@@ -1003,6 +1003,25 @@ version(dxmlTests) unittest
     assert(xyzzy.children[0].text == "It's an adventure!");
 }
 
+/// parseDOM at compile-time
+unittest
+{
+    enum xml = "<!-- comment -->\n" ~
+        "<root>\n" ~
+        "    <foo>some text<whatever/></foo>\n" ~
+        "    <bar/>\n" ~
+        "    <baz></baz>\n" ~
+        "</root>";
+
+    enum dom = parseDOM(xml);
+    static assert(dom.type == EntityType.elementStart);
+    static assert(dom.name.empty);
+    static assert(dom.children.length == 2);
+
+    static assert(dom.children[0].type == EntityType.comment);
+    static assert(dom.children[0].text == " comment ");
+}
+
 
 private:
 
