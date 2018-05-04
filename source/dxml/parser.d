@@ -3009,10 +3009,8 @@ private:
                 }
                 ++state.maxEntities;
                 --state.tags.length;
-                if (!__ctfe)
-                {
+                if(!__ctfe)
                     () @trusted { state.tags.assumeSafeAppend(); }();
-                }
             }
             --depth;
         }
@@ -3051,10 +3049,8 @@ private:
                 ~this()
                 {
                     state.attrs.length = 0;
-                    if (!__ctfe)
-                    {
+                    if(!__ctfe)
                         () @trusted { state.attrs.assumeSafeAppend(); }();
-                    }
                 }
 
                 SharedState* state;
@@ -3086,7 +3082,7 @@ private:
         {
             TagStack tagStack;
             tagStack.state = new SharedState;
-            if (!__ctfe)
+            if(!__ctfe)
             {
                 tagStack.state.tags.reserve(10);
                 tagStack.state.attrs.reserve(10);

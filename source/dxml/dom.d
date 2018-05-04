@@ -1007,11 +1007,11 @@ version(dxmlTests) unittest
 version(dxmlTests) unittest
 {
     enum xml = "<!-- comment -->\n" ~
-        "<root>\n" ~
-        "    <foo>some text<whatever/></foo>\n" ~
-        "    <bar/>\n" ~
-        "    <baz></baz>\n" ~
-        "</root>";
+               "<root>\n" ~
+               "    <foo>some text<whatever/></foo>\n" ~
+               "    <bar/>\n" ~
+               "    <baz></baz>\n" ~
+               "</root>";
 
     enum dom = parseDOM(xml);
     static assert(dom.type == EntityType.elementStart);
