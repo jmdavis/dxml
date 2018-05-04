@@ -2701,7 +2701,7 @@ private:
         immutable namePos = _text.pos;
         _name = _text.takeName!'>'();
         stripWS(_text);
-        if(_text.input.front != '>')
+        if(_text.input.empty || _text.input.front != '>')
         {
             throw new XMLParsingException("There can only be whitespace between an end tag's name and the >",
                                           _text.pos);
@@ -6510,3 +6510,58 @@ pragma(inline, true) void checkNotEmpty(Text)(ref Text text, size_t line = __LIN
 
 version(dxmlTests)
     enum someTestConfigs = [Config.init, simpleXML, makeConfig(SkipComments.yes), makeConfig(SkipPI.yes)];
+
+
+// Fuzz-testing failures
+version(dxmlTests) unittest
+{
+    static void parseEverything(string xml)
+    {
+        with(EntityType) foreach(entity; parseXML(xml))
+        {
+            final switch(entity.type)
+            {
+                case cdata: break;
+                case comment: break;
+                case elementStart: auto name = entity.name; break;
+                case elementEnd: goto case elementStart;
+                case elementEmpty: goto case elementStart;
+                case pi: goto case elementStart;
+                case text: break;
+            }
+
+            final switch(entity.type)
+            {
+                case cdata: auto text = entity.text; break;
+                case comment: goto case cdata;
+                case elementStart:
+                {
+                    foreach(attr; entity.attributes)
+                    {
+                        auto name = attr.name;
+                        auto value = attr.value;
+                    }
+                    break;
+                }
+                case elementEnd: break;
+                case elementEmpty: goto case elementStart;
+                case pi: goto case cdata;
+                case text: goto case cdata;
+            }
+        }
+    }
+
+    static void testFail(string xml, size_t line = __LINE__)
+    {
+        import std.exception : assertThrown;
+        assertThrown!XMLParsingException(parseEverything(xml));
+    }
+
+    testFail([0x3c, 0xff, 0x3e, 0x3e, 0x3a, 0x3c, 0x2f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x31, 0xff,
+              0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd8, 0xd8, 0xd8, 0xd8, 0xd8, 0xff, 0xff,
+              0xff]);
+}
