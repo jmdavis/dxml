@@ -1004,7 +1004,7 @@ version(dxmlTests) unittest
 }
 
 /// parseDOM at compile-time
-unittest
+version(dxmlTests) unittest
 {
     enum xml = "<!-- comment -->\n" ~
         "<root>\n" ~
