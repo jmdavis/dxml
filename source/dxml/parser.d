@@ -2026,6 +2026,7 @@ private:
             test!func("<!-->-->", ">", 1, 9);
             test!func("<!--->-->", "->", 1, 10);
 
+            testFail!func("<!", 1, 2);
             testFail!func("<!- comment -->", 1, 2);
             testFail!func("<!-- comment ->", 1, 5);
             testFail!func("<!-- comment --->", 1, 16);
@@ -2146,6 +2147,8 @@ private:
         else
         {
             immutable posAtName = _text.pos;
+            if(_text.input.empty)
+                throw new XMLParsingException("Unterminated processing instruction", posAtName);
             _type = EntityType.pi;
             _tagStack.sawEntity();
             _name = takeName!'?'(_text);
@@ -2228,6 +2231,7 @@ private:
             test!func("<?foo ??>", "foo", "?", 1, 10);
             test!func("<?pi some data ? > <??>", "pi", "some data ? > <?", 1, 24);
 
+            testFail!func("<?", 1, 3);
             testFail!func("<??>", 1, 3);
             testFail!func("<? ?>", 1, 3);
             testFail!func("<?xml?><?xml?>", 1, 10);
@@ -3495,6 +3499,7 @@ version(dxmlTests) unittest
         testFail!func("<?Poirot?><?Sherlock?><?Holmes?>", 1, 33);
         testFail!func("<?Poirot?></Poirot>", 1, 12);
         testFail!func("</Poirot>", 1, 2);
+        testFail!func("<", 1, 2);
 
         testFail!func("<doc>]]></doc>", 1, 6);
 
