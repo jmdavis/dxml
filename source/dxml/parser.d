@@ -2699,6 +2699,8 @@ private:
     // </ was already removed from the front of the input.
     void _parseElementEnd()
     {
+        if(_text.input.empty)
+            throw new XMLParsingException("Unterminated end tag", _text.pos);
         _entityPos = TextPos(_text.pos.line, _text.pos.col - 2);
         _type = EntityType.elementEnd;
         _tagStack.sawEntity();
@@ -2754,6 +2756,8 @@ private:
             testFail!func(`<foo></fo>`, 1, 8);
             testFail!func(`<foo></food>`, 1, 8);
             testFail!func(`<a></>`, 1, 6);
+            testFail!func(`<a></`, 1, 6);
+            testFail!func(`<a><`, 1, 5);
             testFail!func(`<a></a b='42'>`, 1, 8);
         }
     }
@@ -3500,6 +3504,10 @@ version(dxmlTests) unittest
         testFail!func("<?Poirot?></Poirot>", 1, 12);
         testFail!func("</Poirot>", 1, 2);
         testFail!func("<", 1, 2);
+        testFail!func(`</`, 1, 2);
+        testFail!func(`</a`, 1, 2);
+        testFail!func(`</a>`, 1, 2);
+
 
         testFail!func("<doc>]]></doc>", 1, 6);
 
