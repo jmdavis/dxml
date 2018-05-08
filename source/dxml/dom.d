@@ -810,20 +810,7 @@ DOMEntity!(ER.Input) parseDOM(ER)(ref ER range)
     return retval;
 }
 
-// This is purely to provide a way to trigger the unittest blocks in DOMEntity
-// without compiling them in normally.
-private struct DOMCompileTests
-{
-    @property bool empty() @safe pure nothrow @nogc { assert(0); }
-    @property char front() @safe pure nothrow @nogc { assert(0); }
-    void popFront() @safe pure nothrow @nogc { assert(0); }
-    @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
-}
-
-version(dxmlTests)
-    DOMEntity!DOMCompileTests _domTests;
-
-/// parseDOM with the dault Config and a range of characters
+/// parseDOM with the default Config and a range of characters
 version(dxmlTests) @safe unittest
 {
     import std.range.primitives;
@@ -1021,6 +1008,19 @@ version(dxmlTests) unittest
     static assert(dom.children[0].type == EntityType.comment);
     static assert(dom.children[0].text == " comment ");
 }
+
+// This is purely to provide a way to trigger the unittest blocks in DOMEntity
+// without compiling them in normally.
+private struct DOMCompileTests
+{
+    @property bool empty() @safe pure nothrow @nogc { assert(0); }
+    @property char front() @safe pure nothrow @nogc { assert(0); }
+    void popFront() @safe pure nothrow @nogc { assert(0); }
+    @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
+}
+
+version(dxmlTests)
+    DOMEntity!DOMCompileTests _domTests;
 
 
 private:
