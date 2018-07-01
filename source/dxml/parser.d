@@ -861,6 +861,17 @@ public:
     {
     public:
 
+        import std.typecons : Tuple;
+
+        /++
+            The exact instantiation of $(PHOBOS_REF Tuple, std, typecons) that
+            $(LREF2 attributes, EntityRange.EntityType) returns a range of.
+
+            See_Also: $(LREF2 attributes, EntityRange.Entity)
+          +/
+        alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value", TextPos,  "pos");
+
+
         /++
             The $(LREF EntityType) for this Entity.
           +/
@@ -1093,7 +1104,8 @@ public:
                 $(TR $(TD $(LREF2 elementEmpty, EntityType)))
             )
 
-            See_Also: $(REF decodeXML, dxml, util)$(BR)
+            See_Also: $(LREF2 Attribute, EntityRange.Entity.Attribute)$(BR)
+                      $(REF decodeXML, dxml, util)$(BR)
                       $(REF asDecodedXML, dxml, util)
           +/
         @property auto attributes()
@@ -1108,9 +1120,6 @@ public:
             // STag         ::= '<' Name (S Attribute)* S? '>'
             // Attribute    ::= Name Eq AttValue
             // EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
-
-            import std.typecons : Tuple;
-            alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value", TextPos,  "pos");
 
             static struct AttributeRange
             {
@@ -1175,6 +1184,9 @@ public:
                 auto range = parseXML(xml);
                 assert(range.front.type == EntityType.elementEmpty);
                 assert(range.front.attributes.empty);
+
+                static assert(is(ElementType!(typeof(range.front.attributes)) ==
+                                 typeof(range).Entity.Attribute));
             }
             {
                 auto xml = "<root a='42' q='29' w='hello'/>";

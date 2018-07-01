@@ -223,6 +223,15 @@ public:
 
 
     /++
+        The exact instantiation of $(PHOBOS_REF Tuple, std, typecons) that
+        $(LREF2 attributes, DOMEntity) returns a range of.
+
+        See_Also: $(LREF2 attributes, DOMEntity)
+      +/
+    alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value", TextPos,  "pos");
+
+
+    /++
         The $(REF_ALTTEXT EntityType, EntityType, dxml, parser) for this
         DOMEntity.
 
@@ -487,7 +496,8 @@ public:
             $(TR $(TD $(REF_ALTTEXT elementEmpty, EntityType.elementEmpty, dxml, parser)))
         )
 
-        See_Also: $(REF normalize, dxml, util)$(BR)
+        See_Also: $(LREF DomEntity.Attribute)$(BR)
+                  $(REF normalize, dxml, util)$(BR)
                   $(REF asNormalized, dxml, util)
       +/
     @property auto attributes()
@@ -514,6 +524,9 @@ public:
             auto root = parseDOM(xml).children[0];
             assert(root.type == EntityType.elementEmpty);
             assert(root.attributes.empty);
+
+            static assert(is(ElementType!(typeof(root.attributes)) ==
+                             typeof(root).Attribute));
         }
         {
             auto xml = "<root a='42' q='29' w='hello'/>";
@@ -763,8 +776,6 @@ public:
 
 
 private:
-
-    alias Attribute = Tuple!(SliceOfR, "name", SliceOfR, "value", TextPos,  "pos");
 
     this(EntityType type, TextPos pos)
     {
