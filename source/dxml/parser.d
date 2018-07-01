@@ -93,6 +93,9 @@
     $(H3 Helper Functions Used When Parsing)
     $(TABLE
         $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF getAttrs))
+             $(TD A function similar to $(PHOBOS_REF getopt, std, getopt) which
+                  allows for the easy processing of start tag attributes.))
         $(TR $(TD $(LREF skipContents))
              $(TD Iterates an $(LREF EntityRange) from a start tag to its
                   matching end tag.))
@@ -3680,6 +3683,193 @@ version(dxmlTests) unittest
         alias T = Tuple!(string, "name", string, "value", int,  "pos");
         static assert(!isAttrRange!(T[]));
     }
+}
+
+
+/++
+    A helper function for processing start tag attributes.
+
+    It functions similarly to $(PHOBOS_REF getopt, std, getopt). It takes a
+    range of attributes and a list of alternating strings and pointers where
+    each string represents the name of the attribute to parse and the pointer
+    immediately after it is assigned the value that corresponds to the attribute
+    name (if present). If the given pointer does not point to the same type as
+    the range of characters used in the attributes, then
+    $(PHOBOS_REF to, std, conv) is used to convert the value to the type the
+    pointer points to.
+
+    If a $(D Nullable!T*) is given rather than a $(D T*), then it will be
+    treated the same as if it had been $(D T*). So, $(D to!T) will be used to
+    convert the attribute value if the matching attribute name is present. The
+    advantage of passing $(D Nullable!T*) instead of $(D T*) is that it's
+    possible to distinguish between an attribute that wasn't present and one
+    where it was present but was equivalent to $(D T.init).
+
+    Unlike $(PHOBOS_REF getopt, std, getopt), the given range is consumed
+    rather than taking it by $(K_REF) and leaving the attributes that weren't
+    matched in the range (since that really doesn't work with an arbitrary
+    range as opposed to a dynamic array). However, if the second argument of
+    getAttrs is not a $(K_STRING) but is instead an output range that accepts
+    the element type of the range, then any attributes that aren't matched are
+    put into the output range.
+
+    Params:
+        attrRange = A range of attributes (e.g. from
+                    $(LREF EntityRange.Entity.attributes)).
+        unmatched = An output range that any unmatched attributes from range
+                    are put into (optional argument).
+        args = An alternating list of strings and pointers where the names
+               represent the attribute names to get the value of, and the
+               corresponding values get assigned to what the pointers point to.
+
+    Throws: $(LREF XMLParsingException) if $(PHOBOS_REF to, std, conv) fails to
+            convert an attribute value.
+  +/
+void getAttrs(R, Args...)(R attrRange, Args args)
+    if(isAttrRange!R && Args.length % 2 == 0)
+{
+    mixin(_genGetAttrs(false));
+}
+
+/// Ditto
+void getAttrs(R, OR, Args...)(R attrRange, ref OR unmatched, Args args)
+    if(isAttrRange!R && isOutputRange!(OR, ElementType!R) && Args.length % 2 == 0)
+{
+    mixin(_genGetAttrs(true));
+}
+
+private string _genGetAttrs(bool includeUnmatched)
+{
+    auto retval =
+`    import std.algorithm.comparison : equal;
+    import std.conv : ConvException, to;
+    import std.format : format;
+    import std.typecons : Nullable;
+    import std.utf : byChar;
+
+    alias Attr = ElementType!R;
+    alias SliceOfR = ElementType!(typeof(Attr.init.name));
+
+    outer: foreach(attr; attrRange)
+    {
+        static foreach(i, arg; args)
+        {
+            static if(i % 2 == 0)
+                static assert(is(Args[i] == string), format!"Expected string for args[%s]"(i));
+            else
+            {
+                static assert(isPointer!(Args[i]), format!"Expected pointer for args[%s]"(i));
+
+                if(equal(attr.name, args[i - 1].byChar()))
+                {
+                    alias ArgType = typeof(*arg);
+
+                    static if(isInstanceOf!(Nullable, ArgType))
+                        alias TargetType = TemplateArgsOf!ArgType;
+                    else
+                        alias TargetType = typeof(*arg);
+
+                    try
+                        *arg = to!TargetType(attr.value);
+                    catch(ConvException ce)
+                    {
+                        enum fmt = "Failed to convert %s: %s";
+                        throw new XMLParsingException(format!fmt(attr.name, ce.msg), attr.pos);
+                    }
+
+                    continue outer;
+                }
+            }
+        }`;
+
+    if(includeUnmatched)
+        retval ~= "\n        put(unmatched, attr);";
+    retval ~= "\n    }";
+
+    return retval;
+}
+
+version(dxmlTests) unittest
+{
+    import std.array : appender;
+    import std.exception : collectException;
+    import std.typecons : Nullable;
+
+    {
+        auto xml = `<root a="foo" b="19" c="true" d="rocks"/>`;
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        string a;
+        int b;
+        bool c;
+
+        getAttrs(range.front.attributes, "a", &a, "b", &b, "c", &c);
+        assert(a == "foo");
+        assert(b == 19);
+        assert(c == true);
+    }
+
+    // Nullable!T* accepts the same as T*.
+    {
+        auto xml = `<root a="foo" c="true" d="rocks"/>`;
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        Nullable!string a;
+        Nullable!int b;
+        bool c;
+
+        getAttrs(range.front.attributes, "c", &c, "b", &b, "a", &a);
+        assert(a == "foo");
+        assert(b.isNull);
+        assert(c == true);
+    }
+
+    // If an output range of attributes is provided, then the ones that
+    // weren't matched are put in it.
+    {
+        auto xml = `<root foo="42" bar="silly" d="rocks" q="t"/>`;
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        alias Attribute = typeof(range).Entity.Attribute;
+        auto unmatched = appender!(Attribute[])();
+        int i;
+        string s;
+
+        getAttrs(range.front.attributes, unmatched, "foo", &i, "bar", &s);
+        assert(i == 42);
+        assert(s == "silly");
+        assert(unmatched.data.length == 2);
+        assert(unmatched.data[0] == Attribute("d", "rocks", TextPos(1, 28)));
+        assert(unmatched.data[1] == Attribute("q", "t", TextPos(1, 38)));
+    }
+
+    // An XMLParsingException gets thrown if a conversion fails.
+    {
+        auto xml = `<root foo="bar" false="true" d="rocks"/>`;
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        int i;
+
+        auto xpe = collectException!XMLParsingException(
+            getAttrs(range.front.attributes, "d", &i));
+        assert(xpe.pos == TextPos(1, 30));
+    }
+}
+
+version(dxmlTests) unittest
+{
+    import std.typecons : Nullable;
+
+    static test(R)(R range, int* i, Nullable!int* j) @safe pure
+    {
+        getAttrs(range.front.attributes, "foo", i, "bar", j);
+    }
+
+    test(parseXML("<root/>"), null, null);
 }
 
 
