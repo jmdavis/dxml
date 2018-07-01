@@ -256,15 +256,8 @@ package:
     this(string msg, TextPos textPos, string file = __FILE__, size_t line = __LINE__) @safe pure
     {
         import std.format : format;
+        super(format!"[%s:%s]: %s"(textPos.line, textPos.col, msg), file, line);
         pos = textPos;
-        if(pos.line != -1)
-        {
-            if(pos.col != -1)
-                msg = format!"[%s:%s]: %s"(pos.line, pos.col, msg);
-            else
-                msg = format!"[Line %s]: %s"(pos.line, msg);
-        }
-        super(msg, file, line);
     }
 }
 
