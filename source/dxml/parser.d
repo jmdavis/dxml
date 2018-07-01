@@ -107,6 +107,12 @@
                   current entity.))
     )
 
+    $(H3 Helper Traits)
+    $(TABLE
+        $(TR $(TH Symbol) $(TH Description))
+        $(TR $(TD $(LREF isAttrRange))
+             $(TD Whether the given range is a range of attributes.)))
+
     Copyright: Copyright 2017 - 2018
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
@@ -3580,6 +3586,101 @@ private struct EntityRangeCompileTests
 
 version(dxmlTests)
     EntityRange!(Config.init, EntityRangeCompileTests) _entityRangeTests;
+
+
+/++
+    Whether the given type is a forward range of attributes.
+
+    Essentially, an attribute range must be a forward range where
+
+    $(UL
+        $(LI each element has the members $(D name), $(D value), $(D pos))
+        $(LI $(D name) and $(D value) are forward ranges of characters)
+        $(LI $(D name) and $(D value) have the same type)
+        $(LI $(D pos) is a $(LREF TextPos)))
+
+    Normally, an attribute range would come from
+    $(LREF EntityRange.Entity.attributes) or
+    $(REF_ALTTEXT DOMEntity.attributes, DOMEntity.attributes, dxml, dom), but
+    as long as a range has the correct API, it qualifies as an attribute range.
+
+    See_Also: $(LREF EntityRange.Entity.Attribute)$(BR)
+              $(LREF EntityRange.Entity.attributes)$(BR)
+              $(REF DOMEntity.attributes
+  +/
+template isAttrRange(R)
+{
+    static if(isForwardRange!R &&
+              is(typeof(ElementType!R.init.name)) &&
+              is(typeof(ElementType!R.init.value)) &&
+              is(typeof(ElementType!R.init.pos)))
+    {
+        alias NameType = typeof(ElementType!R.init.name);
+        alias ValueType = typeof(ElementType!R.init.value);
+
+        enum isAttrRange = is(NameType == ValueType) &&
+                           isForwardRange!NameType &&
+                           isSomeChar!(ElementType!NameType) &&
+                           is(typeof(ElementType!R.init.pos) == TextPos);
+    }
+    else
+        enum isAttrRange = false;
+}
+
+///
+version(dxmlTests) unittest
+{
+    import std.typecons : Tuple;
+    import dxml.dom : parseDOM;
+
+    alias R1 = typeof(parseXML("<root/>").front.attributes);
+    static assert(isAttrRange!R1);
+
+    alias R2 = typeof(parseDOM("<root/>").children[0].attributes);
+    static assert(isAttrRange!R2);
+
+    alias T = Tuple!(string, "name", string, "value", TextPos,  "pos");
+    static assert(isAttrRange!(T[]));
+
+    static assert(!isAttrRange!string);
+}
+
+version(dxmlTests) unittest
+{
+    import std.typecons : Tuple;
+    {
+        alias T = Tuple!(string, "nam", string, "value", TextPos,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", string, "valu", TextPos,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", string, "value", TextPos,  "po");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", wstring, "value", TextPos,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", string, "value");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(int, "name", string, "value", TextPos,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", int, "value", TextPos,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+    {
+        alias T = Tuple!(string, "name", string, "value", int,  "pos");
+        static assert(!isAttrRange!(T[]));
+    }
+}
 
 
 /++
