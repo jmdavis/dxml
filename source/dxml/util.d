@@ -1459,7 +1459,7 @@ auto encodeText(R)(R text)
 }
 
 ///
-@safe pure nothrow @nogc unittest
+version(dxmlTests) @safe pure nothrow @nogc unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1473,7 +1473,7 @@ auto encodeText(R)(R text)
     assert(equal(encodeText("hello world"), "hello world"));
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -1598,7 +1598,7 @@ auto encodeAttr(char quote = '"', R)(R text)
 }
 
 ///
-@safe pure nothrow @nogc unittest
+version(dxmlTests) @safe pure nothrow @nogc unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1614,7 +1614,7 @@ auto encodeAttr(char quote = '"', R)(R text)
     assert(equal(encodeAttr("hello world"), "hello world"));
 }
 
-@safe pure unittest
+version(dxmlTests) @safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -1682,7 +1682,7 @@ auto encodeCharRef(dchar c)
 }
 
 ///
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1694,7 +1694,7 @@ unittest
     assert(parseCharRef(range) == '*');
 }
 
-unittest
+version(dxmlTests) unittest
 {
     import std.algorithm.comparison : equal;
 
