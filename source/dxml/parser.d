@@ -3607,17 +3607,16 @@ version(dxmlTests)
 template isAttrRange(R)
 {
     static if(isForwardRange!R &&
-              is(typeof(ElementType!R.init.name)) &&
-              is(typeof(ElementType!R.init.value)) &&
-              is(typeof(ElementType!R.init.pos)))
+              is(typeof(R.init.front.name)) &&
+              is(typeof(R.init.front.value)) &&
+              is(ReturnType!((R r) => r.front.pos) == TextPos))
     {
-        alias NameType = typeof(ElementType!R.init.name);
-        alias ValueType = typeof(ElementType!R.init.value);
+        alias NameType  = ReturnType!((R r) => r.front.name);
+        alias ValueType = ReturnType!((R r) => r.front.value);
 
         enum isAttrRange = is(NameType == ValueType) &&
                            isForwardRange!NameType &&
-                           isSomeChar!(ElementType!NameType) &&
-                           is(typeof(ElementType!R.init.pos) == TextPos);
+                           isSomeChar!(ElementType!NameType);
     }
     else
         enum isAttrRange = false;
@@ -3635,7 +3634,7 @@ version(dxmlTests) unittest
     alias R2 = typeof(parseDOM("<root/>").children[0].attributes);
     static assert(isAttrRange!R2);
 
-    alias T = Tuple!(string, "name", string, "value", TextPos,  "pos");
+    alias T = Tuple!(string, "name", string, "value", TextPos, "pos");
     static assert(isAttrRange!(T[]));
 
     static assert(!isAttrRange!string);
@@ -3645,19 +3644,19 @@ version(dxmlTests) unittest
 {
     import std.typecons : Tuple;
     {
-        alias T = Tuple!(string, "nam", string, "value", TextPos,  "pos");
+        alias T = Tuple!(string, "nam", string, "value", TextPos, "pos");
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(string, "name", string, "valu", TextPos,  "pos");
+        alias T = Tuple!(string, "name", string, "valu", TextPos, "pos");
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(string, "name", string, "value", TextPos,  "po");
+        alias T = Tuple!(string, "name", string, "value", TextPos, "po");
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(string, "name", wstring, "value", TextPos,  "pos");
+        alias T = Tuple!(string, "name", wstring, "value", TextPos, "pos");
         static assert(!isAttrRange!(T[]));
     }
     {
@@ -3665,15 +3664,15 @@ version(dxmlTests) unittest
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(int, "name", string, "value", TextPos,  "pos");
+        alias T = Tuple!(int, "name", string, "value", TextPos, "pos");
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(string, "name", int, "value", TextPos,  "pos");
+        alias T = Tuple!(string, "name", int, "value", TextPos, "pos");
         static assert(!isAttrRange!(T[]));
     }
     {
-        alias T = Tuple!(string, "name", string, "value", int,  "pos");
+        alias T = Tuple!(string, "name", string, "value", int, "pos");
         static assert(!isAttrRange!(T[]));
     }
 }
