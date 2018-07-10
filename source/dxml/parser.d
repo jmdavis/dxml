@@ -4984,53 +4984,25 @@ enum GrammarPos
 }
 
 
-// Similar to startsWith except that it consumes the part of the range that
-// matches. It also deals with incrementing text.pos.col.
+// Wrapper around skipOver which takes an EntityParser.Text and handles
+// incrementing pos.
 //
 // It is assumed that there are no newlines.
 bool stripStartsWith(Text)(ref Text text, string needle)
 {
-    static if(hasLength!(Text.Input))
-    {
-        if(text.input.length < needle.length)
-            return false;
+    import std.algorithm.searching : skipOver;
+    import std.utf : byCodeUnit;
 
-        // This branch is separate so that we can take advantage of whatever
-        // speed boost comes from comparing strings directly rather than
-        // comparing individual characters.
-        static if(isDynamicArray!(Text.Input) && is(Unqual!(ElementEncodingType!(Text.Input)) == char))
-        {
-            if(text.input.source[0 .. needle.length] != needle)
-                return false;
-            text.input.popFrontN(needle.length);
-        }
-        else
-        {
-            auto orig = text.save;
-            foreach(c; needle)
-            {
-                if(text.input.front != c)
-                {
-                    text = orig;
-                    return false;
-                }
-                text.input.popFront();
-            }
-        }
-    }
-    else
-    {
-        auto orig = text.save;
-        foreach(c; needle)
-        {
-            if(text.input.empty || text.input.front != c)
-            {
-                text = orig;
-                return false;
-            }
-            text.input.popFront();
-        }
-    }
+    //TODO In the case where we're parsing an array of char, if we can cleanly
+    // strip off any byCodeUnit and takeExactly wrappers, then we should be able
+    // to have skipOver compare the string being parsed and the needle with ==.
+    // It may happen in some cases right now when text.input is a byCodeUnit
+    // result, but it won't happen in all cases where it ideally would. We may
+    // also want to look into using byUTF on the needle so that it matches the
+    // encoding of text.input or even make needle match the encoding when it's
+    // passed in instead of always being string.
+    if(!text.input.skipOver(needle.byCodeUnit()))
+        return false;
 
     text.pos.col += needle.length;
 
