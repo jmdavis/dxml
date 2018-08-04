@@ -142,8 +142,8 @@ import dxml.parser : Config, EntityRange;
     If parseDOM is given an
     $(REF_ALTTEXT EntityRange, EntityRange, dxml, parser), the range does
     not have to be at the start of the document. It can be used to create a DOM
-    for a portion of the document. As when a character range is passed to it,
-    it will return a DOMEntity with the $(LREF2 type, _DOMEntity.type)
+    for a portion of the document. When a character range is passed to it, it
+    will return a DOMEntity with the $(LREF2 type, _DOMEntity.type)
     $(REF_ALTTEXT EntityType.elementStart, EntityType.elementStart, dxml, parser)
     and an empty $(LREF2 name, _DOMEntity.name). It will iterate the range until
     it either reaches the end of the range, or it reaches the end tag which
@@ -159,8 +159,8 @@ import dxml.parser : Config, EntityRange;
         config = The $(REF Config, dxml, parser) to use with
                  $(REF parseXML, dxml, parser) if the range passed to parseDOM
                  is a range of characters.
-        range = Either a range of characters representing an entire XML document 
-                or an $(REF EntityRange, dxml, parser) which may refer to some
+        range = Either a range of characters representing an entire XML document
+                or a $(REF EntityRange, dxml, parser) which may refer to some
                 or all of an XML document.
 
     Returns: A DOMEntity representing the DOM tree from the point in the
@@ -237,8 +237,8 @@ public:
 
         The type can never be
         $(REF_ALTTEXT EntityType.elementEnd, EntityType.elementEnd, dxml, parser),
-        because $(LREF2 children, DOMEntity.children) already indicates where
-        the contents of the start tag end.
+        because the end of $(LREF2 children, DOMEntity.children) already
+        indicates where the contents of the start tag end.
 
         type determines which properties of the DOMEntity can be used, and it
         can determine whether functions which a DOMEntity is passed to are
@@ -821,7 +821,10 @@ DOMEntity!(ER.Input) parseDOM(ER)(ref ER range)
     return retval;
 }
 
-/// parseDOM with the default Config and a range of characters
+/++
+    parseDOM with the default $(REF_ALTTEXT Config, Config, dxml, parser) and a
+    range of characters.
+  +/
 version(dxmlTests) @safe unittest
 {
     import std.range.primitives;
@@ -869,7 +872,10 @@ version(dxmlTests) @safe unittest
     assert(root.children[3].name == "tag");
 }
 
-/// parseDOM with simpleXML and a range of characters
+/++
+    parseDOM with $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) and a range
+    of characters.
+  +/
 version(dxmlTests) unittest
 {
     import std.range.primitives : empty;
@@ -915,7 +921,10 @@ version(dxmlTests) unittest
     assert(root.children[2].children.length == 0);
 }
 
-/// parseDOM with simpleXML and an EntityRange
+/++
+    parseDOM with $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) and an
+    $(REF_ALTTEXT EntityRange, EntityRange, dxml, parser).
+  +/
 version(dxmlTests) unittest
 {
     import std.range.primitives : empty;
@@ -965,7 +974,10 @@ version(dxmlTests) unittest
     assert(root.children[2].children.length == 0);
 }
 
-/// parseDOM with an EntityRange which is not at the start of the document.
+/++
+    parseDOM with an $(REF_ALTTEXT EntityRange, EntityRange, dxml, parser)
+    which is not at the start of the document.
+  +/
 version(dxmlTests) unittest
 {
     import std.range.primitives : empty;

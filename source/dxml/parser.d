@@ -1106,7 +1106,7 @@ public:
                 $(TR $(TD $(LREF2 elementEmpty, EntityType)))
             )
 
-            See_Also: $(LREF2 Attribute, EntityRange.Entity.Attribute)$(BR)
+            See_Also: $(LREF2 Attribute, EntityRange.Entity)$(BR)
                       $(REF decodeXML, dxml, util)$(BR)
                       $(REF asDecodedXML, dxml, util)
           +/
@@ -3585,7 +3585,7 @@ version(dxmlTests)
     Essentially, an attribute range must be a forward range where
 
     $(UL
-        $(LI each element has the members $(D name), $(D value), $(D pos))
+        $(LI each element has the members $(D name), $(D value), and $(D pos))
         $(LI $(D name) and $(D value) are forward ranges of characters)
         $(LI $(D name) and $(D value) have the same type)
         $(LI $(D pos) is a $(LREF TextPos)))
@@ -3597,7 +3597,8 @@ version(dxmlTests)
 
     See_Also: $(LREF EntityRange.Entity.Attribute)$(BR)
               $(LREF EntityRange.Entity.attributes)$(BR)
-              $(REF DOMEntity.attributes
+              $(REF_ALTTEXT DOMEntity.Attribute, DOMEntity.Attribute, dxml, dom)$(BR)
+              $(REF_ALTTEXT DOMEntity.attributes, DOMEntity.attributes, dxml, dom)
   +/
 template isAttrRange(R)
 {
@@ -3697,20 +3698,23 @@ version(dxmlTests) unittest
     matched in the range (since that really doesn't work with an arbitrary
     range as opposed to a dynamic array). However, if the second argument of
     getAttrs is not a $(K_STRING) but is instead an output range that accepts
-    the element type of the range, then any attributes that aren't matched are
+    the element type of the range, then any attributes which aren't matched are
     put into the output range.
 
     Params:
-        attrRange = A range of attributes (e.g. from
-                    $(LREF EntityRange.Entity.attributes)).
-        unmatched = An output range that any unmatched attributes from range
-                    are put into (optional argument).
+        attrRange = A range of attributes (see $(LREF isAttrRange)).
+        unmatched = An output range that any _unmatched attributes from the
+                    range are put into (optional argument).
         args = An alternating list of strings and pointers where the names
                represent the attribute names to get the value of, and the
                corresponding values get assigned to what the pointers point to.
 
     Throws: $(LREF XMLParsingException) if $(PHOBOS_REF to, std, conv) fails to
             convert an attribute value.
+
+    See_Also: $(LREF isAttrRange)$(BR)
+              $(LREF EntityRange.Entity.attributes)$(BR)
+              $(REF_ALTTEXT DOMEntity.attributes, DOMEntity.attributes, dxml, dom)
   +/
 void getAttrs(R, Args...)(R attrRange, Args args)
     if(isAttrRange!R && Args.length % 2 == 0)
