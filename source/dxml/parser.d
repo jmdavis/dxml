@@ -3012,7 +3012,7 @@ private:
             if(entityCount++ == state.maxEntities)
             {
                 ++state.maxEntities;
-                state.tags ~= tagName;
+                put(state.tags, tagName);
             }
             ++depth;
         }
@@ -3023,16 +3023,14 @@ private:
             import std.format : format;
             if(entityCount++ == state.maxEntities)
             {
-                assert(!state.tags.empty);
-                if(!equal(state.tags.back.save, tagName.save))
+                assert(!state.tags.data.empty);
+                if(!equal(state.tags.data.back.save, tagName.save))
                 {
                     enum fmt = "Name of end tag </%s> does not match corresponding start tag <%s>";
-                    throw new XMLParsingException(format!fmt(tagName, state.tags.back), pos);
+                    throw new XMLParsingException(format!fmt(tagName, state.tags.data.back), pos);
                 }
                 ++state.maxEntities;
-                --state.tags.length;
-                if(!__ctfe)
-                    () @trusted { state.tags.assumeSafeAppend(); }();
+                state.tags.shrinkTo(state.tags.data.length - 1);
             }
             --depth;
         }
@@ -3046,7 +3044,7 @@ private:
                 void pushAttr(Taken attrName, TextPos attrPos)
                 {
                     import std.typecons : tuple;
-                    state.attrs ~= tuple(attrName, attrPos);
+                    put(state.attrs, tuple(attrName, attrPos));
                 }
 
                 void checkAttrs()
@@ -3055,12 +3053,12 @@ private:
                     import std.algorithm.sorting : sort;
                     import std.conv : to;
 
-                    if(state.attrs.length < 2)
+                    if(state.attrs.data.length < 2)
                         return;
 
-                    sort!((a,b) => cmp(a[0].save, b[0].save) < 0)(state.attrs);
-                    auto prev = state.attrs.front;
-                    foreach(attr; state.attrs[1 .. $])
+                    sort!((a,b) => cmp(a[0].save, b[0].save) < 0)(state.attrs.data);
+                    auto prev = state.attrs.data.front;
+                    foreach(attr; state.attrs.data[1 .. $])
                     {
                         if(equal(prev[0], attr[0]))
                             throw new XMLParsingException("Duplicate attribute name", attr[1]);
@@ -3070,9 +3068,7 @@ private:
 
                 ~this()
                 {
-                    state.attrs.length = 0;
-                    if(!__ctfe)
-                        () @trusted { state.attrs.assumeSafeAppend(); }();
+                    state.attrs.clear();
                 }
 
                 SharedState* state;
@@ -3094,9 +3090,11 @@ private:
 
         struct SharedState
         {
+            import std.array : Appender;
             import std.typecons : Tuple;
-            Taken[] tags;
-            Tuple!(Taken, TextPos)[] attrs;
+
+            Appender!(Taken[]) tags;
+            Appender!(Tuple!(Taken, TextPos)[]) attrs;
             size_t maxEntities;
         }
 
@@ -3104,11 +3102,8 @@ private:
         {
             TagStack tagStack;
             tagStack.state = new SharedState;
-            if(!__ctfe)
-            {
-                tagStack.state.tags.reserve(10);
-                tagStack.state.attrs.reserve(10);
-            }
+            tagStack.state.tags.reserve(10);
+            tagStack.state.attrs.reserve(10);
             return tagStack;
         }
 
