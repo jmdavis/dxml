@@ -3853,6 +3853,20 @@ version(dxmlTests) unittest
 
 version(dxmlTests) unittest
 {
+    auto range = parseXML("<root/>");
+    auto attrs = range.front.attributes;
+    int i;
+    static assert(!__traits(compiles, getAttrs(attrs, "foo")));
+    static assert(!__traits(compiles, getAttrs(attrs, "foo", "bar")));
+    static assert(!__traits(compiles, getAttrs(attrs, "foo", "bar", &i)));
+    static assert(!__traits(compiles, getAttrs(attrs, "foo", "bar", &i, &i)));
+    static assert(!__traits(compiles, getAttrs(attrs, &i, "foo")));
+    static assert(!__traits(compiles, getAttrs(attrs, &i, "foo", &i)));
+    static assert(!__traits(compiles, getAttrs(attrs, &i, "foo", &i, "bar")));
+}
+
+version(dxmlTests) @safe pure unittest
+{
     import std.typecons : Nullable;
 
     static test(R)(R range, int* i, Nullable!int* j) @safe pure
