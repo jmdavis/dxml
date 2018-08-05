@@ -9,7 +9,7 @@ _=
 $(COMMENT The link to the root of the source tree so that LINK_TO_SRC can be
           used to link to the source code online. e.g. a value of
           https://github.com/jmdavis/dxml/blob/master would be used
-          with $(LINK_TO_SRC dxml/parser/range.d) to get the link
-          "https://github.com/jmdavis/dxml/blob/master/dxml/parser/range.d".)
+          with $(LINK_TO_SRC dxml/parser.d) to get the link
+          "https://github.com/jmdavis/dxml/blob/master/dxml/parser.d".)
 PROJECT_SRC_ROOT=https://github.com/jmdavis/dxml/blob/master/source
 _=
