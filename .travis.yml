@@ -3,8 +3,6 @@ language: d
 d:
     - dmd
     - dmd-nightly
-    - ldc
-    - ldc-beta
 
 os:
     - linux
