@@ -895,7 +895,7 @@ string stripIndent(R)(R range)
         immutable beforeIndent = text.length;
         text = text.find!notHWhite();
         if(text.empty)
-            return text.source;
+            return firstLine.empty ? "" : firstLine[0 .. $ - 1];
         immutable indent = beforeIndent - text.length;
 
         if(indent == 0)
@@ -1224,6 +1224,7 @@ version(dxmlTests) unittest
         test!func("\n    foo\n", "foo");
         test!func("\n    foo\n    ", "foo");
         test!func("\n    foo\n     ", "foo\n ");
+        test!func("foo\n      ", "foo");
 
         test!func("  foo\n  bar  \n    baz", "foo\nbar  \n  baz");
         test!func("  foo\nbar\n  baz", "foo\nbar\nbaz");
