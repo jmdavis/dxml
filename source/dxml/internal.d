@@ -1,7 +1,7 @@
 // Written in the D programming language
 
 /+
-    Copyright: Copyright 2017 - 2023
+    Copyright: Copyright 2017 - 2025
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
   +/
@@ -36,7 +36,7 @@ bool equalCU(R)(R range, string text)
     return range.empty;
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm : filter;
     import std.meta : AliasSeq;
@@ -87,7 +87,7 @@ pragma(inline, true) auto stripBCU(Orig, R)(R range)
         return range;
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm : equal, filter;
     import std.range : takeExactly;
@@ -133,7 +133,7 @@ bool isXMLChar(dchar c) pure nothrow @safe @nogc
                       : c > 127 && (c <= 0xD7FF || (c >= 0xE000 && c <= 0xFFFD) || (c >= 0x10000 && c <= 0x10FFFF));
 }
 
-version(dxmlTests) pure nothrow @safe @nogc unittest
+pure nothrow @safe @nogc unittest
 {
     import std.range : only;
     import std.typecons : tuple;
@@ -206,7 +206,7 @@ bool isNameStartChar(dchar c) @safe pure nothrow @nogc
     return false;
 }
 
-version(dxmlTests) pure nothrow @safe @nogc unittest
+pure nothrow @safe @nogc unittest
 {
     import std.range : only;
     import std.typecons : tuple;
@@ -254,7 +254,7 @@ bool isNameChar(dchar c) @safe pure nothrow @nogc
            c >= 0x0300 && c <= 0x036F || c >= 0x203F && c <= 0x2040;
 }
 
-version(dxmlTests) pure nothrow @safe @nogc unittest
+pure nothrow @safe @nogc unittest
 {
     import std.ascii : isAlphaNum;
     import std.range : only;
@@ -300,7 +300,7 @@ version(dxmlTests) pure nothrow @safe @nogc unittest
 // Unit test helpers
 //------------------------------------------------------------------------------
 
-version(dxmlTests):
+version(unittest):
 
 struct FwdCharRange(C)
 {

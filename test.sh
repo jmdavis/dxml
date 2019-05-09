@@ -1,3 +1,3 @@
 #!/bin/sh
 
-dub test --build=doTests
+dub test --build=unittest

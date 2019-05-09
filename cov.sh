@@ -1,3 +1,3 @@
 #!/bin/sh
 
-dub test --build=doCov
+dub test --build=unittest-cov

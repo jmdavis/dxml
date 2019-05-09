@@ -40,7 +40,7 @@
              $(TD Encodes a character as a character reference.))
     )
 
-    Copyright: Copyright 2018 - 2023
+    Copyright: Copyright 2018 - 2025
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_util.d)
@@ -313,7 +313,7 @@ auto asDecodedXML(R)(R range)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     assert(decodeXML("hello world &amp;&gt;&lt;&apos;&quot; \r\r\r\r\r foo") ==
            `hello world &><'"  foo`);
@@ -405,7 +405,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -445,7 +445,7 @@ version(dxmlTests) unittest
     }}
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -532,7 +532,7 @@ Nullable!dchar parseStdEntityRef(R)(ref R range)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     {
         auto range = "&amp;foo";
@@ -581,7 +581,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -619,7 +619,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -705,7 +705,7 @@ Nullable!dchar parseCharRef(R)(ref R range)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.range.primitives : empty;
 
@@ -747,7 +747,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -792,7 +792,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import dxml.internal : testRangeFuncs;
 
@@ -1066,7 +1066,7 @@ auto withoutIndent(R)(R range)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1195,7 +1195,7 @@ version(dxmlTests) unittest
                  "  baz"));
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import core.exception : AssertError;
     import std.algorithm.comparison : equal;
@@ -1240,7 +1240,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -1394,7 +1394,7 @@ auto encodeText(R)(R text)
 }
 
 ///
-version(dxmlTests) @safe pure nothrow @nogc unittest
+@safe pure nothrow @nogc unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1408,7 +1408,7 @@ version(dxmlTests) @safe pure nothrow @nogc unittest
     assert(equal(encodeText("hello world"), "hello world"));
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -1533,7 +1533,7 @@ auto encodeAttr(char quote = '"', R)(R text)
 }
 
 ///
-version(dxmlTests) @safe pure nothrow @nogc unittest
+@safe pure nothrow @nogc unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1549,7 +1549,7 @@ version(dxmlTests) @safe pure nothrow @nogc unittest
     assert(equal(encodeAttr("hello world"), "hello world"));
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;
@@ -1617,7 +1617,7 @@ auto encodeCharRef(dchar c)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
 
@@ -1629,7 +1629,7 @@ version(dxmlTests) unittest
     assert(parseCharRef(range) == '*');
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
 
