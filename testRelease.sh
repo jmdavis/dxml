@@ -1,3 +1,3 @@
 #!/bin/sh
 
-dub test --build=doReleaseTests
+dub test --build=unittest-release

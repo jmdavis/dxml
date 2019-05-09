@@ -16,7 +16,7 @@
     $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) is highly likely to
     be used when calling $(LREF parseDOM).
 
-    Copyright: Copyright 2018
+    Copyright: Copyright 2018 - 2019
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_dom.d)
@@ -26,7 +26,7 @@
 module dxml.dom;
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.range.primitives : empty;
 
@@ -825,7 +825,7 @@ DOMEntity!(ER.Input) parseDOM(ER)(ref ER range)
     parseDOM with the default $(REF_ALTTEXT Config, Config, dxml, parser) and a
     range of characters.
   +/
-version(dxmlTests) @safe unittest
+@safe unittest
 {
     import std.range.primitives;
 
@@ -876,7 +876,7 @@ version(dxmlTests) @safe unittest
     parseDOM with $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) and a range
     of characters.
   +/
-version(dxmlTests) unittest
+unittest
 {
     import std.range.primitives : empty;
 
@@ -925,7 +925,7 @@ version(dxmlTests) unittest
     parseDOM with $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) and an
     $(REF_ALTTEXT EntityRange, EntityRange, dxml, parser).
   +/
-version(dxmlTests) unittest
+unittest
 {
     import std.range.primitives : empty;
     import dxml.parser : parseXML;
@@ -978,7 +978,7 @@ version(dxmlTests) unittest
     parseDOM with an $(REF_ALTTEXT EntityRange, EntityRange, dxml, parser)
     which is not at the start of the document.
   +/
-version(dxmlTests) unittest
+unittest
 {
     import std.range.primitives : empty;
     import dxml.parser : parseXML, skipToPath;
@@ -1014,7 +1014,7 @@ version(dxmlTests) unittest
 }
 
 /// parseDOM at compile-time
-version(dxmlTests) unittest
+unittest
 {
     enum xml = "<!-- comment -->\n" ~
                "<root>\n" ~
@@ -1042,8 +1042,10 @@ private struct DOMCompileTests
     @property typeof(this) save() @safe pure nothrow @nogc { assert(0); }
 }
 
-version(dxmlTests)
+unittest
+{
     DOMEntity!DOMCompileTests _domTests;
+}
 
 
 private:
@@ -1115,7 +1117,7 @@ void _parseDOM(ER, DE)(ref ER range, ref DE parent, ER.SliceOfR[] path = null)
     parent._children = children.data;
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.algorithm.comparison : equal;
     import dxml.internal : testRangeFuncs;

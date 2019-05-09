@@ -30,7 +30,7 @@
                   an XML document to an ouput range.))
     )
 
-    Copyright: Copyright 2018
+    Copyright: Copyright 2018 - 2019
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_writer.d)
@@ -1901,7 +1901,7 @@ auto xmlWriter(OR)(OR output, string baseIndent = "    ")
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.array : appender;
     {
@@ -1952,7 +1952,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) @safe pure nothrow unittest
+@safe pure nothrow unittest
 {
     import dxml.internal : TestAttrOR;
     auto writer = xmlWriter(TestAttrOR.init);
@@ -1965,8 +1965,10 @@ private struct XMLWriterCompileTests
     void put(char c) @safe pure nothrow @nogc { assert(0); }
 }
 
-version(dxmlTests)
+unittest
+{
     auto _xmlWriterTests = XMLWriter!(XMLWriterCompileTests).init;
+}
 
 
 /++
@@ -2001,7 +2003,7 @@ void writeXMLDecl(S, OR)(ref OR output)
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.array : appender;
 
@@ -2097,7 +2099,7 @@ void writeTaggedText(XW, R)(ref XW writer, string name, R text, InsertIndent ins
 }
 
 ///
-version(dxmlTests) unittest
+unittest
 {
     import std.array : appender;
 
@@ -2154,7 +2156,7 @@ version(dxmlTests) unittest
     }
 }
 
-    version(dxmlTests) unittest
+    unittest
     {
         import std.array : appender;
         import std.exception : assertThrown;
@@ -2188,7 +2190,7 @@ version(dxmlTests) unittest
     }
 
 // _decLevel cannot currently be pure.
-version(dxmlTests) @safe /+pure+/ unittest
+@safe /+pure+/ unittest
 {
     import dxml.internal : TestAttrOR;
     auto writer = xmlWriter(TestAttrOR.init);
@@ -2223,7 +2225,7 @@ void checkName(R)(R range)
     }
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.exception : assertNotThrown, assertThrown;
     import std.range : only;
@@ -2250,7 +2252,7 @@ void checkPIName(R)(R range)
     checkName(range);
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     import std.exception : assertNotThrown, assertThrown;
     import std.range : only;
@@ -2451,7 +2453,7 @@ void checkText(CheckText ct, R)(R range)
     }
 }
 
-version(dxmlTests) unittest
+unittest
 {
     import std.exception : assertNotThrown, assertThrown;
     import dxml.internal : testRangeFuncs;
@@ -2617,7 +2619,7 @@ version(dxmlTests) unittest
     }
 }
 
-version(dxmlTests) @safe pure unittest
+@safe pure unittest
 {
     static foreach(ct; EnumMembers!CheckText)
         checkText!ct("foo");
