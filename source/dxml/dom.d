@@ -682,7 +682,9 @@ public:
       +/
     @property DOMEntity[] children()
     {
-        assert(_type == EntityType.elementStart);
+        import std.format : format;
+        assert(_type == EntityType.elementStart,
+               format!"children cannot be called with %s"(_type));
         return _children;
     }
 
