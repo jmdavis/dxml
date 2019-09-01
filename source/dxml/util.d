@@ -265,7 +265,7 @@ auto asDecodedXML(R)(R range)
                             if(!c.isNull)
                             {
                                 _begin = 0;
-                                _end = _buffer.encode!(UseReplacementDchar.yes)(c);
+                                _end = _buffer.encode!(UseReplacementDchar.yes)(c.get);
                                 return;
                             }
                         }}
