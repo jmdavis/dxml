@@ -1,4 +1,4 @@
-Copyright (c) 2017 - 2018 by Jonathan M Davis
+Copyright (c) 2017 - 2019 by Jonathan M Davis
 
 Boost Software License - Version 1.0 - August 17th, 2003
 
