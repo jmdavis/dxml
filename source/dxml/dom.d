@@ -16,7 +16,7 @@
     $(REF_ALTTEXT simpleXML, simpleXML, dxml, parser) is highly likely to
     be used when calling $(LREF parseDOM).
 
-    Copyright: Copyright 2018 - 2019
+    Copyright: Copyright 2018 - 2020
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_dom.d)

@@ -116,7 +116,7 @@
         $(TR $(TD $(LREF isAttrRange))
              $(TD Whether the given range is a range of attributes.)))
 
-    Copyright: Copyright 2017 - 2019
+    Copyright: Copyright 2017 - 2020
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_parser.d)
