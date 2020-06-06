@@ -145,6 +145,8 @@ import std.typecons : Nullable;
 string decodeXML(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
+    import std.conv : to;
+
     static if(isDynamicArray!R && is(Unqual!(ElementEncodingType!R) == char))
     {
         import std.algorithm.searching : find, startsWith;
@@ -153,7 +155,7 @@ string decodeXML(R)(R range)
 
         auto found = range.find('&', '\r');
         if(found[1] == 0)
-            return range;
+            return range.to!string();
 
         auto retval = appender!string();
         retval.reserve(range.length);
@@ -210,10 +212,7 @@ string decodeXML(R)(R range)
         return retval.data;
     }
     else
-    {
-        import std.conv : to;
         return range.asDecodedXML().to!string();
-    }
 }
 
 
@@ -860,6 +859,8 @@ unittest
 string stripIndent(R)(R range)
     if(isForwardRange!R && isSomeChar!(ElementType!R))
 {
+    import std.conv : to;
+
     static if(isDynamicArray!R && is(Unqual!(ElementEncodingType!R) == char))
     {
         static bool notHWhite(char c)
@@ -877,17 +878,17 @@ string stripIndent(R)(R range)
         import std.utf : byCodeUnit;
 
         if(range.empty)
-            return range;
+            return range.to!string();
 
         auto orig = range.save;
         auto text = range.byCodeUnit();
-        string firstLine;
+        ElementEncodingType!R[] firstLine;
 
         if(notHWhite(text.front))
         {
             text = text.find('\n');
             if(text.empty)
-                return orig;
+                return orig.to!string();
             text.popFront();
             firstLine = orig[0 .. orig.length - text.length];
         }
@@ -895,11 +896,11 @@ string stripIndent(R)(R range)
         immutable beforeIndent = text.length;
         text = text.find!notHWhite();
         if(text.empty)
-            return firstLine.empty ? "" : firstLine[0 .. $ - 1];
+            return firstLine.empty ? "" : firstLine[0 .. $ - 1].to!string();
         immutable indent = beforeIndent - text.length;
 
         if(indent == 0)
-            return orig;
+            return orig.to!string();
 
         import std.array : appender;
         auto retval = appender!string();
@@ -940,10 +941,7 @@ string stripIndent(R)(R range)
         assert(0);
     }
     else
-    {
-        import std.conv : to;
         return range.withoutIndent().to!string();
-    }
 }
 
 /// Ditto

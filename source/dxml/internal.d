@@ -679,7 +679,7 @@ template _testRangeFuncs()
     import std.algorithm.iteration : filter;
     import std.meta : AliasSeq;
     import std.utf : byCodeUnit;
-    alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a),
+    alias _testRangeFuncs = AliasSeq!(a => to!string(a), a => to!wstring(a), a => to!dstring(a), a => to!(char[])(a),
                                       a => filter!"true"(a), a => fwdCharRange(a), a => fwdRefCharRange(a),
                                       a => raCharRange(a), a => rasCharRange(a), a => rasRefCharRange(a),
                                       a => byCodeUnit(a));
