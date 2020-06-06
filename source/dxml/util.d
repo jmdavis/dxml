@@ -40,7 +40,7 @@
              $(TD Encodes a character as a character reference.))
     )
 
-    Copyright: Copyright 2018 - 2019
+    Copyright: Copyright 2018 - 2020
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_util.d)
