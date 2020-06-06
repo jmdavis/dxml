@@ -4934,6 +4934,26 @@ version(dxmlTests) auto testParser(Config config = Config.init, R)(R xmlText) @t
 }
 
 
+// toCmpType is to make it easy for tests to convert the expected result to a
+// range with the correct element type, since comparing with equal won't do
+// the right thing if the result doesn't have dchar as its element type.
+auto toCmpType(alias func)(string str)
+{
+    import std.range : takeExactly;
+    import std.utf : byUTF;
+
+    return str.byUTF!(immutable ElementType!(typeof(testParser(func(str)).input.takeExactly(1))))();
+}
+
+auto toCmpType(alias func, ThrowOnEntityRef toer)(string str)
+{
+    import std.range : takeExactly;
+    import std.utf : byUTF;
+
+    return str.byUTF!(immutable ElementType!(typeof(testParser!(makeConfig(toer))(func(str)).input.takeExactly(1))))();
+}
+
+
 // Used to indicate where in the grammar we're currently parsing.
 enum GrammarPos
 {
@@ -5181,14 +5201,15 @@ version(dxmlTests) unittest
     import std.exception : collectException, enforce;
     import dxml.internal : codeLen, testRangeFuncs;
 
-    static void test(alias func, string needle, bool sqt )(string origHaystack, string expected, string remainder,
-                                                           int row, int col, size_t line = __LINE__)
+    static void test(alias func, string needle, bool sqt)(string origHaystack, string expected, string remainder,
+                                                          int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
+        auto adjExpected = expected.toCmpType!func();
         {
             auto text = testParser(haystack.save);
             auto temp = text.save;
-            enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), expected),
+            enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), adjExpected.save),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
@@ -5198,7 +5219,7 @@ version(dxmlTests) unittest
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
-            enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), expected),
+            enforce!AssertError(equal(text.takeUntilAndDrop!(needle, sqt)(), adjExpected),
                                 "unittest failure 4", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
             enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
@@ -5696,9 +5717,10 @@ version(dxmlTests) unittest
                                  int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
+        auto adjExpected = expected.toCmpType!func();
         {
             auto text = testParser(haystack.save);
-            enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 1", __FILE__, line);
+            enforce!AssertError(equal(takeEnquotedText(text), adjExpected.save), "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
         }
@@ -5707,7 +5729,7 @@ version(dxmlTests) unittest
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
-            enforce!AssertError(equal(takeEnquotedText(text), expected), "unittest failure 3", __FILE__, line);
+            enforce!AssertError(equal(takeEnquotedText(text), adjExpected), "unittest failure 3", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 4", __FILE__, line);
             enforce!AssertError(text.pos == pos, "unittest failure 3", __FILE__, line);
         }
@@ -5819,9 +5841,10 @@ version(dxmlTests) unittest
                                            int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
+        auto adjExpected = expected.toCmpType!func();
         {
             auto text = testParser(haystack.save);
-            enforce!AssertError(equal(text.takeName!delim(), expected),
+            enforce!AssertError(equal(text.takeName!delim(), adjExpected.save),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
@@ -5831,7 +5854,7 @@ version(dxmlTests) unittest
             auto text = testParser(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
-            enforce!AssertError(equal(text.takeName!delim(), expected),
+            enforce!AssertError(equal(text.takeName!delim(), adjExpected),
                                 "unittest failure 4", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
             enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
@@ -6136,9 +6159,10 @@ version(dxmlTests) unittest
                                                         int row, int col, size_t line = __LINE__)
     {
         auto haystack = func(origHaystack);
+        auto adjExpected = expected.toCmpType!(func, toer)();
         {
             auto text = testParser!(makeConfig(toer))(haystack.save);
-            enforce!AssertError(equal(text.takeAttValue(), expected),
+            enforce!AssertError(equal(text.takeAttValue(), adjExpected.save),
                                 "unittest failure 1", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 2", __FILE__, line);
             enforce!AssertError(text.pos == TextPos(row, col), "unittest failure 3", __FILE__, line);
@@ -6148,7 +6172,7 @@ version(dxmlTests) unittest
             auto text = testParser!(makeConfig(toer))(haystack);
             text.pos.line += 3;
             text.pos.col += 7;
-            enforce!AssertError(equal(text.takeAttValue(), expected),
+            enforce!AssertError(equal(text.takeAttValue(), adjExpected),
                                 "unittest failure 4", __FILE__, line);
             enforce!AssertError(equal(text.input, remainder), "unittest failure 5", __FILE__, line);
             enforce!AssertError(text.pos == pos, "unittest failure 6", __FILE__, line);
