@@ -2,7 +2,7 @@
     "name": "dxml",
     "authors": [ "Jonathan M Davis" ],
     "description": "An XML parser and writer written in D.",
-    "copyright": "Copyright © 2017 - 2019, Jonathan M Davis",
+    "copyright": "Copyright © 2017 - 2020, Jonathan M Davis",
     "license": "BSL-1.0",
     "targetType": "library",
     "buildTypes":
