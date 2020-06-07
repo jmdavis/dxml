@@ -109,11 +109,12 @@ version(dxmlTests) unittest
 
 
 /+
-    The purpose of this function is to work aroundo problems related to ranges
-    that either classes or contain classes, since their init values tend to blow
-    up when anything is done with them.
+    The purpose of this function is to work around problems related to ranges
+    that either ar classes or contain classes, since their init values tend to
+    blow up when anything is done with them.
  +/
-pragma(inline, true) auto checkedSave(R)(ref R range)
+// TODO create bug report, because this function cannot be inlined
+/+pragma(inline, true)+/ auto checkedSave(R)(ref R range)
 {
     return range is R.init ? R.init : range.save;
 }
