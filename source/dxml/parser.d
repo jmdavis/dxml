@@ -6821,7 +6821,8 @@ pragma(inline, true) void nextLine(Config config)(ref TextPos pos)
     pos.col = 1;
 }
 
-pragma(inline, true) void checkNotEmpty(Text)(ref Text text, size_t line = __LINE__)
+// TODO create bug report, because this function cannot be inlined
+/+pragma(inline, true)+/ void checkNotEmpty(Text)(ref Text text, size_t line = __LINE__)
 {
     if(text.input.empty)
         throw new XMLParsingException("Prematurely reached end of document", text.pos, __FILE__, line);
