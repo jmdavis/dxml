@@ -3043,8 +3043,7 @@ private:
             {
                 void pushAttr(Taken attrName, TextPos attrPos)
                 {
-                    import std.typecons : tuple;
-                    put(state.attrs, tuple(attrName, attrPos));
+                    put(state.attrs, Attribute(attrName, attrPos));
                 }
 
                 void checkAttrs()
@@ -3056,12 +3055,12 @@ private:
                     if(state.attrs.data.length < 2)
                         return;
 
-                    sort!((a,b) => cmp(a[0].save, b[0].save) < 0)(state.attrs.data);
+                    sort!((a,b) => cmp(a.taken.save, b.taken.save) < 0)(state.attrs.data);
                     auto prev = state.attrs.data.front;
                     foreach(attr; state.attrs.data[1 .. $])
                     {
-                        if(equal(prev[0], attr[0]))
-                            throw new XMLParsingException("Duplicate attribute name", attr[1]);
+                        if(equal(prev.taken, attr.taken))
+                            throw new XMLParsingException("Duplicate attribute name", attr.pos);
                         prev = attr;
                     }
                 }
@@ -3088,13 +3087,18 @@ private:
             return entityCount == state.maxEntities;
         }
 
+        struct Attribute
+        {
+            Taken taken;
+            TextPos pos;
+        }
+
         struct SharedState
         {
             import std.array : Appender;
-            import std.typecons : Tuple;
 
             Appender!(Taken[]) tags;
-            Appender!(Tuple!(Taken, TextPos)[]) attrs;
+            Appender!(Attribute[]) attrs;
             size_t maxEntities;
         }
 
@@ -3849,6 +3853,23 @@ version(dxmlTests) unittest
             getAttrs(range.front.attributes, "d", &i));
         assert(xpe.pos == TextPos(1, 30));
     }
+
+    // Test parsing attributes with CTFE.
+    enum dummy = (){
+        auto xml = `<root a="foo" d="rocks" c="true" b="19" />`;
+        auto range = parseXML(xml);
+        assert(range.front.type == EntityType.elementEmpty);
+
+        string a;
+        int b;
+        bool c;
+
+        getAttrs(range.front.attributes, "a", &a, "b", &b, "c", &c);
+        assert(a == "foo");
+        assert(b == 19);
+        assert(c == true);
+        return 0;
+    }();
 }
 
 version(dxmlTests) unittest
