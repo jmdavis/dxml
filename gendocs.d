@@ -7,7 +7,7 @@
     It ensures that the names of the generated .html files include the full
     module path (with underscores instead of dots) rather than simply being
     named after the modules (since just using the module names results in
-    connflicts if any packages have modules with the same name).
+    conflicts if any packages have modules with the same name).
 
     It also provides an easy way to exclude files from ddoc generation. Any
     modules or packages with the name internal are excluded as well as any
