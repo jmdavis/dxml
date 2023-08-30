@@ -61,7 +61,6 @@ DDOC_TEMPLATE_MEMBERS=$(DDOC_MEMBERS $(DIVC ddoc_template_members, $0))$(LF)
 DDOC_TEMPLATE_PARAM=$(SPANC ddoc_template_param, $0)
 DDOC_TEMPLATE_PARAM_LIST=$(SPAN class="ddoc_template_param_list" title="Template parameter list", $0)
 DDOC_THROWS=$(SECTION ddoc_throws, Throws, $0)
-DDOC_UNDEFINED_MACRO=$(RED !!!!! UNDEFINED MACRO: "$1" !!!!!!)
 DDOC_VERSION=$(SECTION ddoc_version, Version, $0)
 DEPRECATED=$(SPANC deprecated, $0)
 _=
