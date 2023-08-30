@@ -1,7 +1,7 @@
 // Written in the D programming language
 
 /+
-    Copyright: Copyright 2017 - 2020
+    Copyright: Copyright 2017 - 2023
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
   +/

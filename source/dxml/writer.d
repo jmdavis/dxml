@@ -30,7 +30,7 @@
                   an XML document to an ouput range.))
     )
 
-    Copyright: Copyright 2018 - 2020
+    Copyright: Copyright 2018 - 2023
     License:   $(HTTP www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   $(HTTPS jmdavisprog.com, Jonathan M Davis)
     Source:    $(LINK_TO_SRC dxml/_writer.d)
