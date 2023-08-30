@@ -18,10 +18,14 @@
     does not).
 
     Regardless of what the XML declaration says (if present), any range of
-    $(K_CHAR) will be treated as being encoded in UTF-8, any range of $(K_WCHAR)
-    will be treated as being encoded in UTF-16, and any range of $(K_DCHAR) will
-    be treated as having been encoded in UTF-32. Strings will be treated as
-    ranges of their code units, not code points.
+    $(K_CHAR) will be treated as being encoded in UTF-8, any range of
+    $(K_WCHAR) will be treated as being encoded in UTF-16, and any range of
+    $(K_DCHAR) will be treated as having been encoded in UTF-32. Strings will
+    be treated as ranges of their code units, not code points. Note that like
+    Phobos typically does when processing strings, the code assumes that BOMs
+    have already been removed, so if the range of characters comes from a file
+    that uses a BOM, the calling code needs to strip it out before calling
+    $(LREF parseXML), or parsing will fail due to invalid characters.
 
     Since the DTD is skipped, entity references other than the five which are
     predefined by the XML spec cannot be fully processed (since wherever they
