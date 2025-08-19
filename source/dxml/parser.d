@@ -5809,7 +5809,7 @@ template takeName(delims...)
         import std.format : format;
         import std.range : takeExactly;
         import std.utf : decodeFront, UseReplacementDchar;
-        import dxml.internal : isNameStartChar, isNameChar;
+        import dxml.internal : formatInvalidCharMsg, isNameStartChar, isNameChar;
 
         assert(!text.input.empty);
 
@@ -5818,7 +5818,7 @@ template takeName(delims...)
         {
             immutable decodedC = text.input.decodeFront!(UseReplacementDchar.yes)(takeLen);
             if(!isNameStartChar(decodedC))
-                throw new XMLParsingException(format!"Name contains invalid character: 0x%0x"(decodedC), text.pos);
+                throw new XMLParsingException(formatInvalidCharMsg!"Name contains invalid character: %s"(decodedC), text.pos);
         }
 
         if(text.input.empty)
@@ -5843,7 +5843,7 @@ template takeName(delims...)
             if(!isNameChar(decodedC))
             {
                 text.pos.col += takeLen;
-                throw new XMLParsingException(format!"Name contains invalid character: 0x%0x"(decodedC), text.pos);
+                throw new XMLParsingException(formatInvalidCharMsg!"Name contains invalid character: %s"(decodedC), text.pos);
             }
             takeLen += numCodeUnits;
 

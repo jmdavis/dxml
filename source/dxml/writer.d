@@ -2205,7 +2205,7 @@ void checkName(R)(R range)
     import std.format : format;
     import std.range : takeExactly;
     import std.utf : byCodeUnit, decodeFront, UseReplacementDchar;
-    import dxml.internal : isNameStartChar, isNameChar;
+    import dxml.internal : formatInvalidCharMsg, isNameStartChar, isNameChar;
 
     auto text = range.byCodeUnit();
 
@@ -2213,7 +2213,7 @@ void checkName(R)(R range)
     {
         immutable decodedC = text.decodeFront!(UseReplacementDchar.yes)(takeLen);
         if(!isNameStartChar(decodedC))
-            throw new XMLWritingException(format!"Name contains invalid character: 0x%0x"(decodedC));
+            throw new XMLWritingException(formatInvalidCharMsg!"Name contains invalid character: %s"(decodedC));
     }
 
     while(!text.empty)
@@ -2221,7 +2221,7 @@ void checkName(R)(R range)
         size_t numCodeUnits;
         immutable decodedC = text.decodeFront!(UseReplacementDchar.yes)(numCodeUnits);
         if(!isNameChar(decodedC))
-            throw new XMLWritingException(format!"Name contains invalid character: 0x%0x"(decodedC));
+            throw new XMLWritingException(formatInvalidCharMsg!"Name contains invalid character: %s"(decodedC));
     }
 }
 

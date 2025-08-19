@@ -110,7 +110,7 @@ unittest
 
 /+
     The purpose of this function is to work around problems related to ranges
-    that either ar classes or contain classes, since their init values tend to
+    that either are classes or contain classes, since their init values tend to
     blow up when anything is done with them.
  +/
 // TODO create bug report, because this function cannot be inlined
@@ -293,6 +293,40 @@ pure nothrow @safe @nogc unittest
         assert(isNameChar(t[1]));
         assert(!isNameChar(t[1] + 1));
     }
+}
+
+
+string formatInvalidCharMsg(string msg)(dchar c)
+{
+    import std.format : format;
+    import std.uni : isGraphical;
+
+    enum graphicalMsg = format!msg("'%s' (0x%02X)");
+    enum hexMsg = format!msg("0x%02X");
+
+    if(isGraphical(c))
+        return format!graphicalMsg(c, c);
+    return format!hexMsg(c);
+}
+
+unittest
+{
+    static assert(!__traits(compiles, formatInvalidCharMsg!""('x')));
+    static assert(!__traits(compiles, formatInvalidCharMsg!"%s %s"('x')));
+
+    assert(formatInvalidCharMsg!"%s"('x') == "'x' (0x78)");
+    assert(formatInvalidCharMsg!"%s"('é') == "'é' (0xE9)");
+    assert(formatInvalidCharMsg!"%s"('プ') == "'プ' (0x30D7)");
+
+    assert(formatInvalidCharMsg!"%s"('\n') == "0x0A");
+    assert(formatInvalidCharMsg!"%s"('\u2029') == "0x2029");
+
+    assert(formatInvalidCharMsg!"foo %s bar"('x') == "foo 'x' (0x78) bar");
+    assert(formatInvalidCharMsg!"foo %s bar"('é') == "foo 'é' (0xE9) bar");
+    assert(formatInvalidCharMsg!"foo %s bar"('プ') == "foo 'プ' (0x30D7) bar");
+
+    assert(formatInvalidCharMsg!"foo %s bar"('\n') == "foo 0x0A bar");
+    assert(formatInvalidCharMsg!"foo %s bar"('\u2029') == "foo 0x2029 bar");
 }
 
 
