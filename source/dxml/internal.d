@@ -360,7 +360,7 @@ public:
         return this;
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -419,7 +419,7 @@ public:
         return new FwdRefCharRange(_str);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -498,7 +498,7 @@ public:
         return _str[i];
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -583,7 +583,7 @@ public:
         return RASCharRange(_str[i .. j]);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -668,7 +668,7 @@ public:
         return new RASRefCharRange(_str[i .. j]);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
