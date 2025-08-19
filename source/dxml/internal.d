@@ -1,7 +1,7 @@
 // Written in the D programming language
 
 /+
-    Copyright: Copyright 2017 - 2023
+    Copyright: Copyright 2017 - 2025
     License:   $(WEB www.boost.org/LICENSE_1_0.txt, Boost License 1.0).
     Authors:   Jonathan M Davis
   +/
@@ -326,7 +326,7 @@ public:
         return this;
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -385,7 +385,7 @@ public:
         return new FwdRefCharRange(_str);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -464,7 +464,7 @@ public:
         return _str[i];
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -549,7 +549,7 @@ public:
         return RASCharRange(_str[i .. j]);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
@@ -634,7 +634,7 @@ public:
         return new RASRefCharRange(_str[i .. j]);
     }
 
-    this(C[] str)
+    this(C[] str) @safe pure nothrow @nogc
     {
         _str = str;
     }
