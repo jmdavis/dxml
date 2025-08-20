@@ -30,6 +30,3 @@ otherwise treats them as normal text). See the documentation for details.
 
 The documentation can be found [here](http://jmdavisprog.com/projects.html)
 rendered as html, or it can be read from the source code.
-
-Currently, the oldest supported version of dmd is 2.078.0. dxml will not
-compile with older versions.
